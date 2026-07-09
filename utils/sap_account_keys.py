@@ -43,3 +43,15 @@ def norm_sap_account_group(value: Any) -> str:
     if s.endswith('.0') and s[:-2].isdigit():
         s = s[:-2]
     return s
+
+def sap_account_group_like(value: Any, pattern: str) -> bool:
+    """SQL LIKE for SAP account group (KTOKD): '90%' -> prefix match on normalized code."""
+    norm = norm_sap_account_group(value)
+    if not norm:
+        return False
+    pat = str(pattern or '').strip()
+    if not pat:
+        return False
+    if pat.endswith('%'):
+        return norm.startswith(pat[:-1])
+    return norm == pat
