@@ -4981,6 +4981,8 @@ class FastDataQualityChecker:
                     is_truncated = True
                     print(f'   [WARN] {rule_code} ({table_name}): ошибок {original_error_count:,}, в файл сохранено только {limit_save:,} (первые {limit_save:,})')
                 if is_adr2:
+                    from utils.sap_date_format import format_dataframe_sap_date_columns
+                    error_df = format_dataframe_sap_date_columns(error_df)
                     self._save_adr2_rule_errors_to_db(error_df, rule_code=rule_code, run_ts=timestamp)
                 if is_truncated and len(error_df) > 0:
                     warning_row = pd.DataFrame([{col: f'[!] ВНИМАНИЕ: Всего ошибок {original_error_count:,}, показано только первые {limit_save:,}' if col == error_df.columns[0] else '' for col in error_df.columns}])
