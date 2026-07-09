@@ -2122,34 +2122,7 @@ class FastDataQualityChecker:
                 if error_df.empty:
                     return
         if rule_code in ['RCCONF_39.5', 'RCCONF_39.5.2']:
-
-            def _digits(v):
-                if v is None or (isinstance(v, float) and pd.isna(v)):
-                    return ''
-                s = str(v).strip().replace('\ufeff', '')
-                s = re.sub('\\s+', '', s)
-                try:
-                    if isinstance(v, (int, float)) and (not pd.isna(v)) and (v == int(v)):
-                        return str(int(v))
-                except (ValueError, TypeError):
-                    pass
-                if re.match('^\\d+\\.0+$', s):
-                    return str(int(float(s)))
-                return re.sub('\\D', '', s)
-
-            def _is_valid_10_9(v):
-                d = _digits(v)
-                return len(d) == 10 and d.startswith('9')
-
-            def _is_valid_39_5_format(v):
-                d = _digits(v)
-                if len(d) == 10 and d.startswith('9'):
-                    return True
-                if len(d) == 11 and (d.startswith('89') or d.startswith('79')):
-                    return True
-                if len(d) == 11 and d.startswith('8') and (d[1] != '9'):
-                    return True
-                return False
+            from utils.ru_tel_format import is_valid_rccconf_39_5_value
             tel_col = None
             if 'DQ_COLUMN_CHECKED' in error_df.columns:
                 try:
@@ -2166,7 +2139,7 @@ class FastDataQualityChecker:
                     if 'TELNUMBER' in cn or 'TELNR' in cn or ('TEL' in cn and 'NUM' in cn):
                         tel_col = c
                         break
-            _fmt_ok = _is_valid_39_5_format if rule_code == 'RCCONF_39.5.2' else _is_valid_10_9
+            _fmt_ok = lambda v: is_valid_rccconf_39_5_value(v, rule_code)
             if tel_col is not None:
                 drop_mask = error_df[tel_col].apply(_fmt_ok)
             else:
@@ -2204,31 +2177,7 @@ class FastDataQualityChecker:
             combined_df = pd.concat([existing_df, error_df_to_save], ignore_index=True)
             total_combined = len(combined_df)
             if rule_code in ['RCCONF_39.5', 'RCCONF_39.5.2']:
-
-                def _d(v):
-                    if v is None or (isinstance(v, float) and pd.isna(v)):
-                        return ''
-                    s = str(v).strip().replace('\ufeff', '')
-                    s = re.sub('\\s+', '', s)
-                    try:
-                        if isinstance(v, (int, float)) and v == int(v):
-                            return str(int(v))
-                    except (ValueError, TypeError):
-                        pass
-                    if re.match('^\\d+\\.0+$', s):
-                        return str(int(float(s)))
-                    return re.sub('\\D', '', s)
-
-                def _ok(v):
-                    d = _d(v)
-                    if len(d) == 10 and d.startswith('9'):
-                        return True
-                    if rule_code == 'RCCONF_39.5.2':
-                        if len(d) == 11 and (d.startswith('89') or d.startswith('79')):
-                            return True
-                        if len(d) == 11 and d.startswith('8') and (d[1] != '9'):
-                            return True
-                    return False
+                from utils.ru_tel_format import is_valid_rccconf_39_5_value
                 tel_col = None
                 if 'DQ_COLUMN_CHECKED' in combined_df.columns:
                     try:
@@ -2240,13 +2189,13 @@ class FastDataQualityChecker:
                 if tel_col is None:
                     tel_col = next((c for c in combined_df.columns if 'TEL' in str(c).upper() and ('NUMBER' in str(c).upper() or 'NR' in str(c).upper() or 'NUM' in str(c).upper())), None)
                 if tel_col is not None:
-                    drop = combined_df[tel_col].apply(_ok)
+                    drop = combined_df[tel_col].apply(lambda v: is_valid_rccconf_39_5_value(v, rule_code))
                 else:
                     drop = pd.Series(False, index=combined_df.index)
                     for c in combined_df.columns:
                         if 'DQ_' in str(c):
                             continue
-                        drop = drop | combined_df[c].apply(_ok)
+                        drop = drop | combined_df[c].apply(lambda v: is_valid_rccconf_39_5_value(v, rule_code))
                 if drop.any():
                     combined_df = combined_df.loc[~drop].copy()
                     total_combined = len(combined_df)
@@ -4616,23 +4565,7 @@ class FastDataQualityChecker:
                 else:
                     print(f'   [RCCONF_39.5] Колонка PERSNUMBER не найдена. Имена колонок: {list(out.columns)}')
 
-                def _dig(v):
-                    if v is None or (isinstance(v, float) and pd.isna(v)):
-                        return ''
-                    s = str(v).strip().replace('\ufeff', '')
-                    s = re.sub('\\s+', '', s)
-                    try:
-                        if isinstance(v, (int, float)) and v == int(v):
-                            return str(int(v))
-                    except (ValueError, TypeError):
-                        pass
-                    if re.match('^\\d+\\.0+$', s):
-                        return str(int(float(s)))
-                    return re.sub('\\D', '', s)
-
-                def _is_10_9(v):
-                    d = _dig(v)
-                    return len(d) == 10 and d.startswith('9')
+                from utils.ru_tel_format import is_valid_rccconf_39_5_value
                 tcol = None
                 if 'DQ_COLUMN_CHECKED' in out.columns:
                     try:
@@ -4644,17 +4577,17 @@ class FastDataQualityChecker:
                 if tcol is None:
                     tcol = next((c for c in out.columns if 'TEL' in str(c).upper() and ('NUMBER' in str(c).upper() or 'NR' in str(c).upper() or 'NUM' in str(c).upper())), None)
                 if tcol is not None and (not out.empty):
-                    drop = out[tcol].apply(_is_10_9)
+                    drop = out[tcol].apply(lambda v: is_valid_rccconf_39_5_value(v, 'RCCONF_39.5'))
                 else:
                     drop = pd.Series(False, index=out.index)
                     for c in out.columns:
                         if 'DQ_' in str(c):
                             continue
-                        drop = drop | out[c].apply(_is_10_9)
+                        drop = drop | out[c].apply(lambda v: is_valid_rccconf_39_5_value(v, 'RCCONF_39.5'))
                 if drop.any():
                     n_before = len(out)
                     out = out.loc[~drop].copy()
-                    print(f'   [RCCONF_39.5] Убраны из выгрузки номера 10 цифр с 9: {n_before - len(out):,} строк')
+                    print(f'   [RCCONF_39.5] Убраны из выгрузки номера с валидным форматом: {n_before - len(out):,} строк')
                 acol = next((c for c in out.columns if 'ADDRNUMBER' in str(c).upper()), None)
                 if acol is not None and (not out.empty):
                     try:

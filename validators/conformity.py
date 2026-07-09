@@ -422,89 +422,24 @@ class ConformityValidator(BaseValidator):
             total_rows = non_null_mask.sum() if non_null_mask.any() else 0
             return (total_rows, error_count, error_df)
         elif technical_definition and rule_code in ['RCCONF_39.5', 'RCCONF_39.5.2']:
+            from utils.ru_tel_format import is_valid_rccconf_39_5_value, tel_to_digits
             null_mask = df[column_name].isna() | (df[column_name].astype(str).str.strip() == '')
             empty_vals = df[column_name].astype(str).str.strip().str.lower().isin(['none', 'null', 'nan', 'na'])
             null_mask = null_mask | empty_vals
             non_null_mask = ~null_mask
-            _fullwidth = str.maketrans('０１２３４５６７８９', '0123456789')
-
-            def _normalize_raw(val):
-                if val is None or (isinstance(val, float) and pd.isna(val)):
-                    return ''
-                s = str(val).strip().replace('\ufeff', '').strip()
-                s = re.sub('\\s+', '', s)
-                return s.translate(_fullwidth)
-
-            def _to_digits(val):
-                if val is None or (isinstance(val, float) and pd.isna(val)):
-                    return ''
-                s = str(val).strip().replace('\ufeff', '').strip()
-                s = re.sub('\\s+', '', s)
-                s = s.translate(_fullwidth)
-                if not s or s.lower() in ('none', 'null', 'nan'):
-                    return ''
-                try:
-                    if isinstance(val, (int, float)) and val == int(val):
-                        return str(int(val))
-                except (ValueError, TypeError):
-                    pass
-                if re.match('^\\d+\\.0+$', s):
-                    return str(int(float(s)))
-                try:
-                    n = float(s)
-                    if n == int(n):
-                        return str(int(n))
-                except (ValueError, TypeError):
-                    pass
-                return re.sub('\\D', '', s)
-
-            def _raw_has_only_digits_or_plus_separators(raw, d):
-                if not raw or not d:
-                    return raw == d or not raw
-                r = str(raw).translate(_fullwidth)
-                r = re.sub('[\\s\\-\\(\\)\\.]', '', r)
-                r = r.lstrip('+').strip()
-                return r == d
-
-            def _is_valid_format_39_5(d):
-                if len(d) == 10 and d[0] == '9':
-                    return True
-                if len(d) == 11 and d.startswith('89'):
-                    return True
-                if len(d) == 11 and d.startswith('79'):
-                    return True
-                return False
-
-            def _is_valid_format_39_5_2(d):
-                if len(d) == 10 and d[0] == '9':
-                    return True
-                if len(d) == 11 and d.startswith('89'):
-                    return True
-                if len(d) == 11 and d.startswith('79'):
-                    return True
-                if len(d) == 11 and d[0] == '8' and (d[1] != '9'):
-                    return True
-                return False
 
             def _is_error(val, rc):
                 if val is None or (isinstance(val, float) and pd.isna(val)):
                     return False
-                raw = _normalize_raw(val)
-                if not raw or raw.lower() in ('none', 'null', 'nan'):
+                if not tel_to_digits(val):
                     return False
-                d = _to_digits(val)
-                if not d:
-                    return False
-                if not _raw_has_only_digits_or_plus_separators(raw, d):
-                    return True
-                is_valid = _is_valid_format_39_5(d) if rc == 'RCCONF_39.5' else _is_valid_format_39_5_2(d)
-                return not is_valid
+                return not is_valid_rccconf_39_5_value(val, rc)
             error_mask = df[column_name].apply(lambda v: _is_error(v, rule_code))
             error_count = int(error_mask.sum())
             if rule_code == 'RCCONF_39.5.2':
                 error_description = f'Invalid telephone number format in {column_name}. RCCONF_39.5.2: 10 digits starting with 9, or 11 digits 89…/79…, or 11 digits 8x (second digit not 9). All digits only (spaces, dashes, brackets, leading + allowed).'
             else:
-                error_description = f'Invalid telephone number format in {column_name}. RCCONF_39.5: 10 digits starting with 9, or 11 digits 89…/79…. All digits only (spaces, dashes, brackets, leading + allowed).'
+                error_description = f'Invalid telephone number format in {column_name}. RCCONF_39.5: 10 digits starting with 9, or 11 digits 89…. All digits only (spaces, dashes, brackets, leading + allowed).'
             if error_count > 0:
                 error_df = self._prepare_error_dataframe(df, error_mask, 'CONFORMITY', error_description)
             else:
