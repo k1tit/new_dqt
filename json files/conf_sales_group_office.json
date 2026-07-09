@@ -1,0 +1,6 @@
+{
+  "reference_table": "TVBVK",
+  "RCCONF_143.7_reference_table": "TVBVK",
+  "allowed_combinations": [],
+  "_comment": "По умолчанию допустимые пары VKGRP+VKBUR берутся из таблицы TVBVK в БД (колонки SGrp + SOff_). Заполните allowed_combinations только если справочника нет в БД."
+}
