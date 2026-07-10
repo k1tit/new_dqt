@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-09-adr2-scope-9038-01-01'
+    CHECKER_BUILD_ID = '2026-07-10-adr2-dedup-149-scope-fix'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -50,7 +50,6 @@ class FastDataQualityChecker:
         'RCCOMP_375.1', 'RCCOMP_375.1.2',
         'RCCONF_39.3', 'RCCONF_39.3.2', 'RCCONF_39.5', 'RCCONF_39.5.2',
     })
-    ADR2_DM_CUSTOMER_SCOPE_ACCOUNT_GROUP = '9038'
     KNA1_JOIN_BLOCKED_COLUMNS = frozenset({'CLIENT', 'CL', 'MANDT', 'MANDANT'})
     KNA1_JOIN_VIA_BUT020_TABLES = frozenset({'ADRC', 'ADR2'})
 
@@ -1384,11 +1383,17 @@ class FastDataQualityChecker:
                 self._log_skipped_rule(rule, table_name, 'Нет данных, соответствующих условиям правила', timestamp)
                 return (0, 0)
         if str(table_name or '').strip().upper() == 'ADR2':
-            before_adr2_scope = len(df_to_validate)
-            df_to_validate = self._filter_adr2_dm_customer_scope(df_to_validate, rule_code, table_name)
+            if str(rule_code or '').strip().upper() in self.ADR2_NON_BLOCKED_MOBILE_RULES:
+                df_to_validate = self._filter_adr2_non_blocked_customers(df_to_validate, rule_code, table_name)
+                df = df_to_validate
+                if df_to_validate.empty:
+                    self._log_skipped_rule(rule, table_name, 'Нет строк ADR2 после фильтра по KNA1.AUFSD', timestamp)
+                    return (0, 0)
+            before_dedup = len(df_to_validate)
+            df_to_validate = self._dedupe_adr2_by_partner(df_to_validate, log_prefix=f'      [{rule_code}] ')
             df = df_to_validate
-            if before_adr2_scope > 0 and df_to_validate.empty:
-                self._log_skipped_rule(rule, table_name, f'Нет строк ADR2 в scope (KNA1 Group={self.ADR2_DM_CUSTOMER_SCOPE_ACCOUNT_GROUP}, KNVV 01-01)', timestamp)
+            if before_dedup > 0 and df_to_validate.empty:
+                self._log_skipped_rule(rule, table_name, 'Нет строк ADR2 после дедупликации по PARTNER', timestamp)
                 return (0, 0)
         if rule_code == 'RCCOMP_180.1' and str(table_name or '').strip().upper() == 'BUT0BK':
             before_cnt = len(df_to_validate)
@@ -2118,10 +2123,9 @@ class FastDataQualityChecker:
                 if error_df.empty:
                     return
         if str(table_name or '').strip().upper() == 'ADR2':
-            error_df = self._filter_adr2_dm_customer_scope(error_df, rule_code, table_name)
+            error_df = self._dedupe_adr2_by_partner(error_df, log_prefix=f'      [{rule_code}] ')
             if error_df.empty:
                 return
-            error_df = self._dedupe_adr2_by_partner(error_df, log_prefix=f'      [{rule_code}] ')
             error_count = len(error_df)
         if rule_code == 'RCCONF_39.5':
 
@@ -2742,6 +2746,11 @@ class FastDataQualityChecker:
             parc_col = self._find_column_alternative(df.columns, 'ParC', 'KNVP')
         if not parc_col:
             parc_col = self._find_column_alternative(df.columns, 'partner_code', 'KNVP')
+        if not parc_col:
+            for cand in ('Part', 'Counterparty', 'KUNNR', 'Customer', 'KUNNR_KNVP'):
+                parc_col = next((c for c in df.columns if str(c).strip().upper() == cand.upper()), None)
+                if parc_col:
+                    break
         if not parvw_col or parvw_col not in df.columns or not parc_col or parc_col not in df.columns:
             self._log_skipped_rule(rule, table_name, f'{rule_code}: не найдены колонки partner function ({parvw_col}) / partner code ({parc_col})', timestamp)
             return (0, 0)
@@ -2770,28 +2779,24 @@ class FastDataQualityChecker:
         ag_norm = cust_df[ag_col].apply(norm_sap_account_group)
         ob_norm = cust_df[ob_col].astype(str).str.strip().str.upper()
         ag_skip_pat = self.RCCOMP_149_ACCOUNT_GROUP_SKIP_PATTERN
-        like_90 = ag_norm.apply(lambda v: sap_account_group_like(v, ag_skip_pat))
+        in_90_group = ag_norm.apply(lambda v: sap_account_group_like(v, ag_skip_pat))
         not_blocked = ~ob_norm.isin(self.RCCOMP_149_ORDER_BLOCK_SKIP)
-        skip_like_90 = like_90
-        eval_scope = ~skip_like_90 & not_blocked
-        total_scope = eval_scope
-        n_skip_like_90 = int(skip_like_90.sum())
-        n_skip_blocked = int((~skip_like_90 & ~not_blocked).sum())
-        print(f"      [FILTER] {rule_code}: account_group LIKE '{ag_skip_pat}' -> пропущено {n_skip_like_90:,} клиентов (scope-колонка: {ag_col})")
+        eval_scope = in_90_group & not_blocked
+        n_skip_not_90 = int((~in_90_group).sum())
+        n_skip_blocked = int((in_90_group & ~not_blocked).sum())
+        print(f"      [FILTER] {rule_code}: account_group NOT LIKE '{ag_skip_pat}' -> пропущено {n_skip_not_90:,} клиентов (scope-колонка: {ag_col})")
         if n_skip_blocked:
             print(f"      [FILTER] {rule_code}: blocked order_block -> ещё пропущено {n_skip_blocked:,} клиентов")
-        scope_desc = f"уникальные клиенты KNVP в SO 01-01/04-02, account_group NOT LIKE '{ag_skip_pat}', без blocked order_block"
+        scope_desc = f"уникальные клиенты KNVP в SO 01-01/04-02, account_group LIKE '{ag_skip_pat}', без blocked order_block"
         if rule_code == 'RCCOMP_149.2':
             in_keys = self._get_knvv_indirect_customer_keys(rule_code)
             if not in_keys:
                 self._log_skipped_rule(rule, table_name, f'{rule_code}: нет indirect-клиентов (KVGR4=IN) в KNVV для SO 01-01/04-02', timestamp)
                 return (0, 0)
-            total_scope = total_scope & cust_df['_cust_key'].isin(in_keys)
             eval_scope = eval_scope & cust_df['_cust_key'].isin(in_keys)
-            scope_desc = f"indirect-клиенты (KVGR4='IN'), SO 01-01/04-02, account_group NOT LIKE '{ag_skip_pat}'"
-        in_scope_keys = set(cust_df.index[total_scope])
+            scope_desc = f"indirect-клиенты (KVGR4='IN'), SO 01-01/04-02, account_group LIKE '{ag_skip_pat}'"
         eval_keys = set(cust_df.index[eval_scope])
-        total_rows = len(in_scope_keys)
+        total_rows = len(eval_keys)
         print(f'      [FILTER] {rule_code} «Всего записей» = {total_rows:,} клиентов ({scope_desc})')
         print(f'      [FILTER] {rule_code} к оценке ошибок (без blocked order_block): {len(eval_keys):,} клиентов')
         if total_rows == 0:
@@ -3878,8 +3883,8 @@ class FastDataQualityChecker:
             return None
 
     def _filter_adr2_non_blocked_customers(self, df, rule_code, table_name=None):
-        """ADR2 rules: dm_customer scope (9038 + KNVV 01-01) and optional KNA1 order-block filter."""
-        return self._filter_adr2_dm_customer_scope(df, rule_code, table_name)
+        """ADR2 mobile/contact rules: exclude KNA1 central order block E,G,SP,R,U."""
+        return self._filter_adr2_rccomp_375_1_scope_by_kna1_aufsd(df, rule_code, table_name)
 
     def _dedupe_adr2_by_partner(self, df, partner_col=None, log_prefix=''):
         if df is None or df.empty:
@@ -3904,39 +3909,16 @@ class FastDataQualityChecker:
             print(f'{log_prefix}Убраны дубли по PARTNER: {dropped:,} (осталось {len(out):,})')
         return out
 
-    def _load_knvv_for_adr2_join(self):
-        knvv = self._get_table_for_rules('KNVV')
-        if (knvv is None or knvv.empty) and getattr(self, 'db_path', None):
-            try:
-                self.memory_manager.load_selected_tables_to_ram(['KNVV'], add_reference_tables=False)
-                knvv = self._get_table_for_rules('KNVV')
-            except Exception:
-                knvv = self._get_table_for_rules('KNVV')
-        if (knvv is None or knvv.empty) and getattr(self, 'db_path', None):
-            try:
-                conn = connect_sqlite(self.db_path)
-                tables = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table'", conn)
-                knvv_name = next((r[0] for r in tables.values if str(r[0]).strip().upper() == 'KNVV'), None)
-                if knvv_name:
-                    knvv = pd.read_sql_query(f'SELECT * FROM "{knvv_name}"', conn)
-                conn.close()
-            except Exception:
-                knvv = None
-        if knvv is not None and (not knvv.empty):
-            return self._apply_rule_time_column_map(knvv.copy(), 'KNVV')
-        return knvv
-
-    def _filter_adr2_dm_customer_scope(self, df, rule_code, table_name=None):
-        """ADR2 scope: PARTNER via BUT020, KNA1 Group=9038, KNVV DChl/DV=01-01, dedupe by PARTNER."""
+    def _filter_adr2_rccomp_375_1_scope_by_kna1_aufsd(self, df, rule_code, table_name=None):
         if table_name and str(table_name).strip().upper() != 'ADR2':
             return df
-        if df is None or df.empty:
-            return df
         try:
-            from utils.sap_account_keys import norm_sap_account_group
 
             def _norm_key(series: pd.Series) -> pd.Series:
-                return series.apply(self._norm_customer_partner_key)
+                s = series.astype(str).str.strip()
+                s = s.str.replace('\\.0$', '', regex=True)
+                s = s.str.replace('\\D+', '', regex=True)
+                return s.str.zfill(10)
             addr_col = self._resolve_addrnumber_column(df, 'ADR2')
             if not addr_col:
                 print(f'      [FILTER] Колонка ADDRNUMBER не найдена в ADR2 для {rule_code}')
@@ -3944,107 +3926,58 @@ class FastDataQualityChecker:
             but020 = self._get_but020_table_for_join()
             if but020 is None or but020.empty:
                 print(f'      [WARN] Таблица BUT020 не найдена или пуста для {rule_code}')
-                return df.iloc[0:0].copy()
+                return df
             addr_but, partner_but = self._resolve_but020_join_columns(but020)
             if not addr_but or not partner_but:
-                print(f'      [WARN] В BUT020 не найдены Addr. No. и Business Partner для {rule_code}')
-                return df.iloc[0:0].copy()
-            out = df.copy()
-            out['_ak'] = _norm_key(out[addr_col])
+                print(f'      [WARN] В BUT020 не найдены Addr. No. и Business Partner для {rule_code} (колонки: {list(but020.columns)[:10]})')
+                return df
+            df = df.copy()
+            df['_ak'] = _norm_key(df[addr_col])
             but_join = but020[[addr_but, partner_but]].copy()
             but_join['_ak'] = _norm_key(but_join[addr_but])
             but_join = but_join.drop_duplicates(subset=['_ak'], keep='first')
-            out = out.merge(but_join[['_ak', partner_but]], on='_ak', how='left').drop(columns=['_ak'], errors='ignore')
-            if partner_but != 'PARTNER' and partner_but in out.columns:
-                out = out.rename(columns={partner_but: 'PARTNER'})
+            df = df.merge(but_join[['_ak', partner_but]], on='_ak', how='left').drop(columns=['_ak'], errors='ignore')
+            if partner_but != 'PARTNER' and partner_but in df.columns:
+                df = df.rename(columns={partner_but: 'PARTNER'})
             partner_col = 'PARTNER'
-            if partner_col not in out.columns:
+            if partner_col not in df.columns:
                 print(f'      [WARN] PARTNER не добавлен из BUT020 для {rule_code}')
-                return df.iloc[0:0].copy()
-            out['_partner_key'] = _norm_key(out[partner_col])
-            before_partner = len(out)
-            out = out[out['_partner_key'] != ''].copy()
-            if len(out) < before_partner:
-                print(f'      [FILTER] {rule_code}: без PARTNER из BUT020 исключено {before_partner - len(out):,} строк')
+                return df
             kna1 = self._get_table_for_rules('KNA1')
             if kna1 is None or kna1.empty:
                 print(f'      [WARN] Таблица KNA1 не найдена или пуста для {rule_code}')
-                return df.iloc[0:0].copy()
-            kna1 = self._apply_rule_time_column_map(kna1.copy(), 'KNA1')
-            kunnr_col = self._pick_best_kunnr_column(kna1, 'KNA1')
-            ktokd_col = self._resolve_column_for_rule(kna1, 'KTOKD', 'KNA1')
-            if not ktokd_col:
-                for c in kna1.columns:
-                    cl = str(c).strip().lower()
-                    if cl in ('group_1', 'group', 'account_group_code', 'ktokd'):
-                        if ktokd_col is None or self._non_empty_key_count(kna1[c]) > self._non_empty_key_count(kna1[ktokd_col]):
-                            ktokd_col = c
-            if not kunnr_col or not ktokd_col:
-                print(f'      [WARN] В KNA1 не найдены Customer/KUNNR или Group/KTOKD для {rule_code}')
-                return df.iloc[0:0].copy()
-            kna1_keys = kna1[[kunnr_col, ktokd_col]].copy()
-            kna1_keys['_partner_key'] = _norm_key(kna1_keys[kunnr_col])
-            kna1_keys['_ktokd'] = kna1_keys[ktokd_col].apply(norm_sap_account_group)
-            kna1_keys = kna1_keys[kna1_keys['_partner_key'] != ''].drop_duplicates(subset=['_partner_key'], keep='first')
-            allowed_group = self.ADR2_DM_CUSTOMER_SCOPE_ACCOUNT_GROUP
-            keys_9038 = set(kna1_keys.loc[kna1_keys['_ktokd'] == allowed_group, '_partner_key'])
-            before_9038 = len(out)
-            out = out[out['_partner_key'].isin(keys_9038)].copy()
-            print(f"      [FILTER] {rule_code}: KNA1 Group={allowed_group} -> {len(out):,} из {before_9038:,}")
-            if out.empty:
-                return out
-            knvv = self._load_knvv_for_adr2_join()
-            if knvv is None or knvv.empty:
-                print(f'      [WARN] Таблица KNVV не найдена или пуста для {rule_code}')
-                return df.iloc[0:0].copy()
-            kunnr_knvv = self._pick_best_kunnr_column(knvv, 'KNVV')
-            vtweg_col = self._resolve_column_for_rule(knvv, 'VTWEG', 'KNVV')
-            spart_col = self._resolve_column_for_rule(knvv, 'SPART', 'KNVV')
-            if not kunnr_knvv or not vtweg_col or not spart_col:
-                print(f'      [WARN] В KNVV не найдены Customer, DChl/VTWEG или DV/SPART для {rule_code}')
-                return df.iloc[0:0].copy()
-            vt = self._norm_knvv_so_code_series(knvv[vtweg_col])
-            sp = self._norm_knvv_so_code_series(knvv[spart_col])
-            knvv_scoped = knvv.loc[(vt == '01') & (sp == '01')].copy()
-            knvv_scoped['_partner_key'] = _norm_key(knvv_scoped[kunnr_knvv])
-            keys_so = set(knvv_scoped.loc[knvv_scoped['_partner_key'] != '', '_partner_key'])
-            before_so = len(out)
-            out = out[out['_partner_key'].isin(keys_so)].copy()
-            print(f"      [FILTER] {rule_code}: KNVV DChl/DV=01-01 -> {len(out):,} из {before_so:,}")
-            if out.empty:
-                return out.drop(columns=['_partner_key'], errors='ignore')
-            if str(rule_code or '').strip().upper() in self.ADR2_NON_BLOCKED_MOBILE_RULES:
-                aufsd_col = next((c for c in kna1.columns if str(c).upper() == 'AUFSD'), None)
-                if not aufsd_col:
-                    aufsd_col = next((c for c in kna1.columns if str(c).upper() in ('ORBLK', 'CENTRAL_ORDER_BLOCK_CODE')), None)
-                if not aufsd_col:
-                    aufsd_col = self._find_column_alternative(kna1.columns, 'AUFSD', 'KNA1')
-                if aufsd_col:
-                    kna1_aufsd = kna1[[kunnr_col, aufsd_col]].copy()
-                    kna1_aufsd['_partner_key'] = _norm_key(kna1_aufsd[kunnr_col])
-                    kna1_aufsd = kna1_aufsd.drop_duplicates(subset=['_partner_key'], keep='first')
-                    out = out.drop(columns=['AUFSD'], errors='ignore')
-                    out = out.merge(kna1_aufsd[['_partner_key', aufsd_col]].rename(columns={aufsd_col: 'AUFSD'}), on='_partner_key', how='left')
-                    blocked_codes = {'E', 'G', 'SP', 'R', 'U'}
-                    aufsd_norm = out['AUFSD'].astype(str).str.strip().str.upper()
-                    before_blk = len(out)
-                    out = out.loc[~aufsd_norm.isin(blocked_codes)].copy()
-                    if before_blk > len(out):
-                        print(f"      [FILTER] {rule_code}: исключены KNA1.AUFSD in {sorted(blocked_codes)}: {before_blk - len(out):,} (осталось {len(out):,})")
-            before_dedup = len(out)
-            out = out.drop_duplicates(subset=['_partner_key'], keep='first')
-            out = out.drop(columns=['_partner_key'], errors='ignore')
-            if before_dedup > len(out):
-                print(f'      [FILTER] {rule_code}: дедупликация по PARTNER — убрано {before_dedup - len(out):,} (осталось {len(out):,})')
+                return df
+            kunnr_col = self._find_kunnr_column(kna1) or next((c for c in kna1.columns if str(c).upper() == 'KUNNR'), None)
+            if not kunnr_col:
+                kunnr_col = next((c for c in kna1.columns if str(c).upper() in ('CUSTOMER', 'CUSTOMER_CODE')), None)
+            aufsd_col = next((c for c in kna1.columns if str(c).upper() == 'AUFSD'), None)
+            if not aufsd_col:
+                aufsd_col = next((c for c in kna1.columns if str(c).upper() in ('ORBLK', 'CENTRAL_ORDER_BLOCK_CODE')), None)
+            if not aufsd_col:
+                aufsd_col = self._find_column_alternative(kna1.columns, 'AUFSD', 'KNA1')
+            if not kunnr_col or not aufsd_col:
+                print(f'      [WARN] В KNA1 не найдены KUNNR или AUFSD для {rule_code}')
+                return df
+            partner_src = partner_col if partner_col in df.columns else partner_but
+            df['_partner_key'] = _norm_key(df[partner_src])
+            kna1_join = kna1[[kunnr_col, aufsd_col]].copy()
+            kna1_join['_partner_key'] = _norm_key(kna1_join[kunnr_col])
+            kna1_join = kna1_join.drop_duplicates(subset=['_partner_key'], keep='first')
+            df = df.merge(kna1_join[['_partner_key', aufsd_col]].rename(columns={aufsd_col: 'AUFSD'}), on='_partner_key', how='left').drop(columns=['_partner_key'], errors='ignore')
+            blocked_codes = {'E', 'G', 'SP', 'R', 'U'}
+            aufsd_raw = df['AUFSD']
+            aufsd_raw = aufsd_raw.where(aufsd_raw.notna(), '')
+            aufsd_norm = aufsd_raw.astype(str).str.strip().str.upper()
+            is_blocked = aufsd_norm.isin(blocked_codes)
+            before = len(df)
+            out = df.loc[~is_blocked].copy()
+            dropped = before - len(out)
+            if dropped > 0:
+                print(f'      [FILTER] {rule_code}: исключены заблокированные KNA1.AUFSD in {sorted(blocked_codes)}: {dropped:,} (осталось {len(out):,})')
             return out
         except Exception as e:
-            print(f'      [WARN] Ошибка _filter_adr2_dm_customer_scope для {rule_code}: {e}')
-            import traceback
-            traceback.print_exc()
+            print(f'      [WARN] Ошибка _filter_adr2_rccomp_375_1_scope_by_kna1_aufsd для {rule_code}: {e}')
             return df
-
-    def _filter_adr2_rccomp_375_1_scope_by_kna1_aufsd(self, df, rule_code, table_name=None):
-        return self._filter_adr2_dm_customer_scope(df, rule_code, table_name)
 
     def _filter_adr2_by_knvv_aufsd_fm(self, df, rule_code, table_name=None):
         if table_name and str(table_name).strip().upper() != 'ADR2':
@@ -4727,10 +4660,6 @@ class FastDataQualityChecker:
                         print(f'   [WARN] Пропускаем {key}: error_df пустой')
                     continue
                 if str(table_name or '').strip().upper() == 'ADR2':
-                    error_df = self._filter_adr2_dm_customer_scope(error_df, rule_code, table_name)
-                    if error_df is None or error_df.empty:
-                        print(f'   [WARN] Пропускаем {key}: нет ошибок ADR2 в scope (KNA1 Group={self.ADR2_DM_CUSTOMER_SCOPE_ACCOUNT_GROUP}, KNVV 01-01)')
-                        continue
                     error_df = self._dedupe_adr2_by_partner(error_df, log_prefix=f'   [{rule_code}] ')
                     error_data['error_df'] = error_df
                 if str(table_name or '').strip().upper() == 'ADRC':
