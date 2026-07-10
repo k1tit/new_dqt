@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-10-adr2-395-knvv-export'
+    CHECKER_BUILD_ID = '2026-07-10-rcccomp-375-1-no-dm-scope'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -47,9 +47,10 @@ class FastDataQualityChecker:
     RULES_SAVE_ALL_ERRORS = frozenset({'RCCONF_39.5', 'RCCONF_39.5.2', 'RCCONF_18.2', 'RCCONF_63.1'})
     TABLES_SAVE_ALL_ERRORS = frozenset({'ADR2', 'BUT000'})
     ADR2_NON_BLOCKED_MOBILE_RULES = frozenset({
-        'RCCOMP_375.1', 'RCCOMP_375.1.2',
+        'RCCOMP_375.1.2',
         'RCCONF_39.3', 'RCCONF_39.3.2', 'RCCONF_39.5', 'RCCONF_39.5.2',
     })
+    ADR2_RCCOMP_375_1_RULES = frozenset({'RCCOMP_375.1'})
     ADR2_KNVV_EXPORT_ENRICH_RULES = frozenset({'RCCONF_39.5', 'RCCONF_39.5.2'})
     KNA1_JOIN_BLOCKED_COLUMNS = frozenset({'CLIENT', 'CL', 'MANDT', 'MANDANT'})
     KNA1_JOIN_VIA_BUT020_TABLES = frozenset({'ADRC', 'ADR2'})
@@ -1389,6 +1390,13 @@ class FastDataQualityChecker:
                 df = df_to_validate
                 if df_to_validate.empty:
                     self._log_skipped_rule(rule, table_name, 'Нет строк ADR2 после фильтра по KNA1.AUFSD', timestamp)
+                    return (0, 0)
+            elif str(rule_code or '').strip().upper() in self.ADR2_RCCOMP_375_1_RULES:
+                # RCCOMP_375.1: только central KNA1.AUFSD (без KNA1 Group=9038 и без KNVV 01-01)
+                df_to_validate = self._filter_adr2_rccomp_375_1_scope_by_kna1_aufsd(df_to_validate, rule_code, table_name)
+                df = df_to_validate
+                if df_to_validate.empty:
+                    self._log_skipped_rule(rule, table_name, 'Нет строк ADR2 после фильтра по central KNA1.AUFSD (non-blocked)', timestamp)
                     return (0, 0)
             before_dedup = len(df_to_validate)
             df_to_validate = self._dedupe_adr2_by_partner(df_to_validate, log_prefix=f'      [{rule_code}] ')
@@ -3630,7 +3638,7 @@ class FastDataQualityChecker:
                     print(f'      [FILTER] Применен фильтр PERSNUMBER IS NULL для {rule_code}: {len(df)} строк')
                     if len(df) == 0:
                         return df
-                return self._filter_adr2_rccomp_375_1_scope_by_kna1_aufsd(df, rule_code, table_name)
+                return df
             elif rule_code == 'RCCOMP_375.1.2':
                 person_col = None
                 for col in df.columns:
@@ -3993,6 +4001,7 @@ class FastDataQualityChecker:
         return out
 
     def _filter_adr2_rccomp_375_1_scope_by_kna1_aufsd(self, df, rule_code, table_name=None):
+        """RCCOMP_375.1 / mobile ADR2: central KNA1.AUFSD only (no KNA1 Group=9038, no KNVV 01-01)."""
         if table_name and str(table_name).strip().upper() != 'ADR2':
             return df
         try:
