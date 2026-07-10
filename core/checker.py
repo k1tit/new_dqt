@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-10-adr2-dedup-149-scope-fix'
+    CHECKER_BUILD_ID = '2026-07-10-adr2-395-knvv-export'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -50,6 +50,7 @@ class FastDataQualityChecker:
         'RCCOMP_375.1', 'RCCOMP_375.1.2',
         'RCCONF_39.3', 'RCCONF_39.3.2', 'RCCONF_39.5', 'RCCONF_39.5.2',
     })
+    ADR2_KNVV_EXPORT_ENRICH_RULES = frozenset({'RCCONF_39.5', 'RCCONF_39.5.2'})
     KNA1_JOIN_BLOCKED_COLUMNS = frozenset({'CLIENT', 'CL', 'MANDT', 'MANDANT'})
     KNA1_JOIN_VIA_BUT020_TABLES = frozenset({'ADRC', 'ADR2'})
 
@@ -3814,6 +3815,88 @@ class FastDataQualityChecker:
             print(f'{log_prefix} PARTNER из BUT020: {out["PARTNER"].notna().sum():,} из {len(out):,}')
         return out
 
+    def _load_knvv_for_rules_join(self):
+        knvv = self._get_table_for_rules('KNVV')
+        if (knvv is None or knvv.empty) and getattr(self, 'db_path', None):
+            try:
+                self.memory_manager.load_selected_tables_to_ram(['KNVV'], add_reference_tables=False)
+                knvv = self._get_table_for_rules('KNVV')
+            except Exception:
+                knvv = self._get_table_for_rules('KNVV')
+        if (knvv is None or knvv.empty) and getattr(self, 'db_path', None):
+            try:
+                conn = connect_sqlite(self.db_path)
+                tables = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table'", conn)
+                knvv_name = next((r[0] for r in tables.values if str(r[0]).strip().upper() == 'KNVV'), None)
+                if knvv_name:
+                    knvv = pd.read_sql_query(f'SELECT * FROM "{knvv_name}"', conn)
+                conn.close()
+            except Exception:
+                knvv = None
+        if knvv is not None and (not knvv.empty):
+            return self._apply_rule_time_column_map(knvv.copy(), 'KNVV')
+        return knvv
+
+    def _enrich_adr2_errors_with_knvv_so_dc_div(self, error_df, rule_code, log_prefix=''):
+        """Добавить в ошибки ADR2 SO/DC/Div и sales-level AUFSD из KNVV (без фильтрации)."""
+        if error_df is None or error_df.empty:
+            return error_df
+        out = error_df.copy()
+        partner_col = next((c for c in out.columns if str(c).upper() == 'PARTNER'), None)
+        if partner_col is None:
+            acol = next((c for c in out.columns if 'ADDRNUMBER' in str(c).upper()), None)
+            if acol is not None:
+                out = self._attach_partner_from_but020_by_addr(out, acol, log_prefix=log_prefix)
+                partner_col = next((c for c in out.columns if str(c).upper() == 'PARTNER'), None)
+        if partner_col is None:
+            print(f'{log_prefix}[WARN] {rule_code}: PARTNER не найден — KNVV SO/DC/Div не добавлены')
+            return out
+        knvv_df = self._load_knvv_for_rules_join()
+        if knvv_df is None or knvv_df.empty:
+            print(f'{log_prefix}[WARN] {rule_code}: KNVV пуста — SO/DC/Div не добавлены')
+            return out
+        kunnr_col = self._pick_best_kunnr_column(knvv_df, 'KNVV')
+        vkorg_col = self._resolve_column_for_rule(knvv_df, 'VKORG', 'KNVV')
+        vtweg_col = self._resolve_column_for_rule(knvv_df, 'VTWEG', 'KNVV')
+        spart_col = self._resolve_column_for_rule(knvv_df, 'SPART', 'KNVV')
+        aufsd_col = self._resolve_column_for_rule(knvv_df, 'AUFSD', 'KNVV')
+        if not aufsd_col:
+            aufsd_col = next((c for c in knvv_df.columns if str(c).strip().upper() in ('ORBLK', 'AUFSD')), None)
+        if not kunnr_col:
+            print(f'{log_prefix}[WARN] {rule_code}: в KNVV не найден Customer/KUNNR')
+            return out
+        pick_cols = [c for c in (kunnr_col, vkorg_col, vtweg_col, spart_col, aufsd_col) if c and c in knvv_df.columns]
+        knvv_pick = knvv_df[pick_cols].copy()
+        knvv_pick['_partner_key'] = knvv_pick[kunnr_col].apply(self._norm_customer_partner_key)
+        knvv_pick = knvv_pick[knvv_pick['_partner_key'] != ''].copy()
+        if vtweg_col and spart_col and vtweg_col in knvv_pick.columns and (spart_col in knvv_pick.columns):
+            vt = self._norm_knvv_so_code_series(knvv_pick[vtweg_col])
+            sp = self._norm_knvv_so_code_series(knvv_pick[spart_col])
+            knvv_pick['_prio'] = ((vt == '01') & (sp == '01')).astype(int)
+            knvv_pick = knvv_pick.sort_values('_prio', ascending=False)
+        knvv_pick = knvv_pick.drop_duplicates(subset=['_partner_key'], keep='first')
+        rename_map = {}
+        if vkorg_col and vkorg_col in knvv_pick.columns:
+            rename_map[vkorg_col] = 'VKORG'
+        if vtweg_col and vtweg_col in knvv_pick.columns:
+            rename_map[vtweg_col] = 'VTWEG'
+        if spart_col and spart_col in knvv_pick.columns:
+            rename_map[spart_col] = 'SPART'
+        if aufsd_col and aufsd_col in knvv_pick.columns:
+            rename_map[aufsd_col] = 'AUFSD_KNVV'
+        knvv_join = knvv_pick.rename(columns=rename_map)
+        export_cols = ['_partner_key'] + [c for c in ('VKORG', 'VTWEG', 'SPART', 'AUFSD_KNVV') if c in knvv_join.columns]
+        knvv_join = knvv_join[export_cols].drop_duplicates(subset=['_partner_key'], keep='first')
+        out['_partner_key'] = out[partner_col].apply(self._norm_customer_partner_key)
+        for c in ('VKORG', 'VTWEG', 'SPART', 'AUFSD_KNVV'):
+            out = out.drop(columns=[c], errors='ignore')
+        out = out.merge(knvv_join, on='_partner_key', how='left')
+        out = out.drop(columns=['_partner_key'], errors='ignore')
+        filled = int(out['VTWEG'].notna().sum()) if 'VTWEG' in out.columns else 0
+        parts = [c for c in ('VKORG', 'VTWEG', 'SPART', 'AUFSD_KNVV') if c in out.columns]
+        print(f"{log_prefix}[INFO] {rule_code}: из KNVV добавлены {', '.join(parts)} (без фильтрации): заполнено VTWEG у {filled:,} из {len(out):,}")
+        return out
+
     def _ensure_adr2_has_partner(self, df, rule_code):
         if df is None or df.empty:
             return df
@@ -4597,12 +4680,14 @@ class FastDataQualityChecker:
         self.last_errors_dir = errors_dir
         os.makedirs(errors_dir, exist_ok=True)
         print(f'   [INFO] Создана папка для ошибок: {errors_dir}')
-        key_39_5 = next((k for k in self.rule_errors if self.rule_errors[k].get('rule_code') == 'RCCONF_39.5' and str(self.rule_errors[k].get('table_name', '')).strip().upper() == 'ADR2'), None)
-        if key_39_5 is not None:
-            ed = self.rule_errors[key_39_5]
+        for enrich_key in [k for k in self.rule_errors if self.rule_errors[k].get('rule_code') in self.ADR2_KNVV_EXPORT_ENRICH_RULES and str(self.rule_errors[k].get('table_name', '')).strip().upper() == 'ADR2']:
+            ed = self.rule_errors[enrich_key]
+            rc = ed.get('rule_code')
             raw = ed.get('error_df')
-            if raw is not None and (not raw.empty):
-                out = raw.copy()
+            if raw is None or raw.empty:
+                continue
+            out = raw.copy()
+            if rc == 'RCCONF_39.5':
                 pcol = next((c for c in out.columns if 'PERSNUMBER' in str(c).upper() or ('PERSON' in str(c).upper() and 'NUMBER' in str(c).upper())), None)
                 if pcol is not None:
                     v = out[pcol].astype(str).str.strip().str.upper()
@@ -4611,7 +4696,6 @@ class FastDataQualityChecker:
                     print(f'   [RCCONF_39.5] Оставлены только строки с пустым PERSNUMBER: {len(out):,} из {len(raw):,}')
                 else:
                     print(f'   [RCCONF_39.5] Колонка PERSNUMBER не найдена. Имена колонок: {list(out.columns)}')
-
                 from utils.ru_tel_format import is_valid_rccconf_39_5_value
                 tcol = None
                 if 'DQ_COLUMN_CHECKED' in out.columns:
@@ -4635,17 +4719,27 @@ class FastDataQualityChecker:
                     n_before = len(out)
                     out = out.loc[~drop].copy()
                     print(f'   [RCCONF_39.5] Убраны из выгрузки номера с валидным форматом: {n_before - len(out):,} строк')
-                acol = next((c for c in out.columns if 'ADDRNUMBER' in str(c).upper()), None)
-                if acol is not None and (not out.empty):
-                    try:
-                        out = self._attach_partner_from_but020_by_addr(out, acol, log_prefix='   [RCCONF_39.5] Добавлена колонка')
-                    except Exception as e:
-                        print(f'   [RCCONF_39.5] Ошибка при добавлении PARTNER: {e}')
-                ed['error_df'] = out
-                ed['saved_error_count'] = len(out)
-                ed['total_error_count'] = ed.get('total_error_count') or ed.get('error_count') or len(out)
-                ed['error_count'] = ed['total_error_count']
-                ed['is_truncated'] = len(out) < int(ed['total_error_count'])
+            elif rc == 'RCCONF_39.5.2':
+                from utils.ru_tel_format import is_valid_rccconf_39_5_value
+                tcol = next((c for c in out.columns if 'TEL' in str(c).upper() and ('NUMBER' in str(c).upper() or 'NR' in str(c).upper() or 'NUM' in str(c).upper())), None)
+                if tcol is not None and (not out.empty):
+                    drop = out[tcol].apply(lambda v: is_valid_rccconf_39_5_value(v, 'RCCONF_39.5.2'))
+                    if drop.any():
+                        n_before = len(out)
+                        out = out.loc[~drop].copy()
+                        print(f'   [RCCONF_39.5.2] Убраны из выгрузки номера с валидным форматом: {n_before - len(out):,} строк')
+            acol = next((c for c in out.columns if 'ADDRNUMBER' in str(c).upper()), None)
+            if acol is not None and (not out.empty):
+                try:
+                    out = self._attach_partner_from_but020_by_addr(out, acol, log_prefix=f'   [{rc}] Добавлена колонка')
+                except Exception as e:
+                    print(f'   [{rc}] Ошибка при добавлении PARTNER: {e}')
+            out = self._enrich_adr2_errors_with_knvv_so_dc_div(out, rc, log_prefix='   ')
+            ed['error_df'] = out
+            ed['saved_error_count'] = len(out)
+            ed['total_error_count'] = ed.get('total_error_count') or ed.get('error_count') or len(out)
+            ed['error_count'] = ed['total_error_count']
+            ed['is_truncated'] = len(out) < int(ed['total_error_count'])
         saved_count = 0
         for key, error_data in self.rule_errors.items():
             try:
@@ -4695,63 +4789,65 @@ class FastDataQualityChecker:
                     except Exception as e:
                         print(f'   [ERROR] {rule_code}: ошибка при добавлении PARTNER: {e}')
                 if is_adr2:
-                    need_aufsd = 'AUFSD' not in error_df.columns or error_df['AUFSD'].isna().all()
-                    if need_aufsd:
-                        partner_col = next((c for c in error_df.columns if str(c).upper() == 'PARTNER'), None)
-                        if partner_col is None and acol is not None:
-                            try:
-                                error_df = self._attach_partner_from_but020_by_addr(error_df, acol)
-                                partner_col = next((c for c in error_df.columns if str(c).upper() == 'PARTNER'), None)
-                            except Exception as e:
-                                print(f'   [WARN] {rule_code}: не удалось подтянуть PARTNER для AUFSD: {e}')
-                        if partner_col is None:
-                            error_df['AUFSD'] = None
-                            print(f'   [WARN] {rule_code}: колонка PARTNER не найдена, AUFSD пустая')
-                        else:
-                            try:
-                                knvv_df = self.memory_manager.get_table('KNVV')
-                                if (knvv_df is None or knvv_df.empty) and getattr(self, 'db_path', None):
-                                    import sqlite3
-                                    conn = connect_sqlite(self.db_path)
-                                    tables = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table'", conn)
-                                    knvv_name = next((r[0] for r in tables.values if str(r[0]).strip().upper() == 'KNVV'), None)
-                                    if knvv_name:
-                                        knvv_df = pd.read_sql_query(f'SELECT * FROM "{knvv_name}"', conn)
-                                    conn.close()
-                                if knvv_df is not None and (not knvv_df.empty):
-                                    kunnr_col = next((c for c in knvv_df.columns if str(c).upper() in ('KUNNR', 'KUNNR_KNVV')), None)
-                                    aufsd_knvv = next((c for c in knvv_df.columns if 'AUFSD' in str(c).upper()), None)
-                                    if kunnr_col and aufsd_knvv:
-                                        knvv_aufsd = knvv_df[[kunnr_col, aufsd_knvv]].drop_duplicates(subset=[kunnr_col], keep='first')
-                                        knvv_aufsd = knvv_aufsd.rename(columns={kunnr_col: '_partner', aufsd_knvv: 'AUFSD'})
-                                        knvv_aufsd['_partner'] = knvv_aufsd['_partner'].astype(str).str.strip()
-                                        error_df = error_df.drop(columns=['AUFSD'], errors='ignore')
-                                        error_df['_partner'] = error_df[partner_col].astype(str).str.strip()
-                                        error_df = error_df.merge(knvv_aufsd[['_partner', 'AUFSD']], on='_partner', how='left')
-                                        error_df = error_df.drop(columns=['_partner'], errors='ignore')
-                                        print(f'   [INFO] {rule_code}: добавлена колонка AUFSD из KNVV для ADR2')
-                                    else:
-                                        error_df['AUFSD'] = None
-                                        print(f'   [WARN] {rule_code}: в KNVV не найдены колонки KUNNR или AUFSD. Колонки: {list(knvv_df.columns)[:20]}')
-                                else:
-                                    error_df['AUFSD'] = None
-                                    if getattr(self, 'db_path', None):
+                    if rule_code in self.ADR2_KNVV_EXPORT_ENRICH_RULES:
+                        if 'VTWEG' not in error_df.columns:
+                            error_df = self._enrich_adr2_errors_with_knvv_so_dc_div(error_df, rule_code, log_prefix='   ')
+                    else:
+                        need_aufsd = 'AUFSD' not in error_df.columns or error_df['AUFSD'].isna().all()
+                        if need_aufsd:
+                            partner_col = next((c for c in error_df.columns if str(c).upper() == 'PARTNER'), None)
+                            if partner_col is None and acol is not None:
+                                try:
+                                    error_df = self._attach_partner_from_but020_by_addr(error_df, acol)
+                                    partner_col = next((c for c in error_df.columns if str(c).upper() == 'PARTNER'), None)
+                                except Exception as e:
+                                    print(f'   [WARN] {rule_code}: не удалось подтянуть PARTNER для AUFSD: {e}')
+                            if partner_col is None:
+                                error_df['AUFSD'] = None
+                                print(f'   [WARN] {rule_code}: колонка PARTNER не найдена, AUFSD пустая')
+                            else:
+                                try:
+                                    knvv_df = self.memory_manager.get_table('KNVV')
+                                    if (knvv_df is None or knvv_df.empty) and getattr(self, 'db_path', None):
                                         import sqlite3
                                         conn = connect_sqlite(self.db_path)
                                         tables = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table'", conn)
-                                        knvv_in_db = any((str(r[0]).strip().upper() == 'KNVV' for r in tables.values))
+                                        knvv_name = next((r[0] for r in tables.values if str(r[0]).strip().upper() == 'KNVV'), None)
+                                        if knvv_name:
+                                            knvv_df = pd.read_sql_query(f'SELECT * FROM "{knvv_name}"', conn)
                                         conn.close()
-                                        if not knvv_in_db:
-                                            print(f'   [WARN] {rule_code}: таблица KNVV не найдена в БД (проверьте имя таблицы), колонка AUFSD пустая')
+                                    if knvv_df is not None and (not knvv_df.empty):
+                                        kunnr_col = next((c for c in knvv_df.columns if str(c).upper() in ('KUNNR', 'KUNNR_KNVV')), None)
+                                        aufsd_knvv = next((c for c in knvv_df.columns if 'AUFSD' in str(c).upper()), None)
+                                        if kunnr_col and aufsd_knvv:
+                                            knvv_aufsd = knvv_df[[kunnr_col, aufsd_knvv]].drop_duplicates(subset=[kunnr_col], keep='first')
+                                            knvv_aufsd = knvv_aufsd.rename(columns={kunnr_col: '_partner', aufsd_knvv: 'AUFSD'})
+                                            knvv_aufsd['_partner'] = knvv_aufsd['_partner'].astype(str).str.strip()
+                                            error_df = error_df.drop(columns=['AUFSD'], errors='ignore')
+                                            error_df['_partner'] = error_df[partner_col].astype(str).str.strip()
+                                            error_df = error_df.merge(knvv_aufsd[['_partner', 'AUFSD']], on='_partner', how='left')
+                                            error_df = error_df.drop(columns=['_partner'], errors='ignore')
+                                            print(f'   [INFO] {rule_code}: добавлена колонка AUFSD из KNVV для ADR2')
                                         else:
-                                            print(f'   [WARN] {rule_code}: таблица KNVV в БД есть, но пуста (0 строк) или не загрузилась, колонка AUFSD пустая')
+                                            error_df['AUFSD'] = None
+                                            print(f'   [WARN] {rule_code}: в KNVV не найдены колонки KUNNR или AUFSD. Колонки: {list(knvv_df.columns)[:20]}')
                                     else:
-                                        print(f'   [WARN] {rule_code}: таблица KNVV не найдена, колонка AUFSD пустая')
-                            except Exception as e:
-                                print(f'   [WARN] {rule_code}: ошибка при добавлении AUFSD: {e}')
-                                error_df['AUFSD'] = None
-                    else:
-                        pass
+                                        error_df['AUFSD'] = None
+                                        if getattr(self, 'db_path', None):
+                                            import sqlite3
+                                            conn = connect_sqlite(self.db_path)
+                                            tables = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table'", conn)
+                                            knvv_in_db = any((str(r[0]).strip().upper() == 'KNVV' for r in tables.values))
+                                            conn.close()
+                                            if not knvv_in_db:
+                                                print(f'   [WARN] {rule_code}: таблица KNVV не найдена в БД (проверьте имя таблицы), колонка AUFSD пустая')
+                                            else:
+                                                print(f'   [WARN] {rule_code}: таблица KNVV в БД есть, но пуста (0 строк) или не загрузилась, колонка AUFSD пустая')
+                                        else:
+                                            print(f'   [WARN] {rule_code}: таблица KNVV не найдена, колонка AUFSD пустая')
+                                except Exception as e:
+                                    print(f'   [WARN] {rule_code}: ошибка при добавлении AUFSD: {e}')
+                                    error_df['AUFSD'] = None
                 is_ausp_table = str(table_name or '').strip().upper() in ('AUSP_143', 'AUSP_604', 'AUSP_148', 'AUSP_151')
                 if is_ausp_table:
                     need_aufsd_ausp = 'AUFSD' not in error_df.columns or error_df['AUFSD'].isna().all()
