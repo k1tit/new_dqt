@@ -550,11 +550,12 @@ class MemoryManager:
                     chunk_df = pd.read_sql_query(f'SELECT * FROM {escaped_table_name} LIMIT {chunk_size} OFFSET {offset}', conn)
                     if len(chunk_df) == 0:
                         break
-                    chunk_df = self._optimize_dataframe(chunk_df)
                     chunks.append(chunk_df)
                     offset += chunk_size
-                df = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
+                df = self._concat_dataframe_chunks(chunks)
                 del chunks
+                if len(df) > 0:
+                    df = self._optimize_dataframe(df)
             else:
                 df = pd.read_sql_query(f'SELECT * FROM {escaped_table_name}', conn)
                 if len(df) > 0:
@@ -629,6 +630,22 @@ class MemoryManager:
             return pd.to_numeric(coerced, downcast='float')
         except (ValueError, TypeError):
             return series
+
+    def _concat_dataframe_chunks(self, chunks):
+        """Склеить чанки SQL без FutureWarning из-за all-NA колонок между чанками."""
+        if not chunks:
+            return pd.DataFrame()
+        parts = [c for c in chunks if c is not None and len(c) > 0]
+        if not parts:
+            return pd.DataFrame()
+        if len(parts) == 1:
+            return parts[0].copy()
+        columns = list(dict.fromkeys((col for df in parts for col in df.columns)))
+        aligned = [df.reindex(columns=columns) for df in parts]
+        for col in columns:
+            if any((part[col].isna().all() for part in aligned)):
+                aligned = [part.assign(**{col: part[col].astype(object)}) for part in aligned]
+        return pd.concat(aligned, ignore_index=True)
 
     def _optimize_dataframe(self, df):
         if len(df) == 0:
@@ -747,10 +764,11 @@ class MemoryManager:
                                 break
                             col_names = [d[0] for d in cur.description]
                             chunk_df = pd.DataFrame(rows, columns=col_names)
-                        chunk_df = self._optimize_dataframe(chunk_df)
                         chunks.append(chunk_df)
                         offset += chunk_size
-                    df = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
+                    df = self._concat_dataframe_chunks(chunks)
+                    if len(df) > 0:
+                        df = self._optimize_dataframe(df)
                 else:
                     async with conn.execute(f'SELECT * FROM {escaped}') as cur:
                         rows = await cur.fetchall()
