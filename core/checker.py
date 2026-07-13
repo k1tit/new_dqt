@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-13-rcccomp-149-exclude-9038'
+    CHECKER_BUILD_ID = '2026-07-13-rcccomp-149-skip-messages'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -2744,6 +2744,31 @@ class FastDataQualityChecker:
         keys = knvv_df.loc[so_mask & (kv4 == 'IN'), kunnr_col].apply(self._norm_customer_partner_key)
         return set(keys[keys != ''])
 
+    def _rcccomp_149_scope_criteria_short(self, rule_code):
+        excluded = ','.join(sorted(self.RCCOMP_149_ACCOUNT_GROUP_EXCLUDE))
+        pat = self.RCCOMP_149_ACCOUNT_GROUP_SKIP_PATTERN
+        base = f"KNVP SO 01-01/04-02, KTOKD LIKE {pat} (не {excluded}), без order block"
+        if str(rule_code or '').strip().upper() == 'RCCOMP_149.2':
+            return f"{base}, KVGR4='IN' (indirect)"
+        return base
+
+    def _rcccomp_149_scope_skip_message(self, rule_code, total_customers, n_skip_not_90=0, n_skip_9038=0, n_skip_blocked=0, n_indirect=None):
+        criteria = self._rcccomp_149_scope_criteria_short(rule_code)
+        parts = [f'проверяется: {criteria}', f'подходящих: 0 из {int(total_customers):,}']
+        breakdown = []
+        if n_skip_not_90:
+            breakdown.append(f'не LIKE {self.RCCOMP_149_ACCOUNT_GROUP_SKIP_PATTERN}: {n_skip_not_90:,}')
+        if n_skip_9038:
+            excluded = ','.join(sorted(self.RCCOMP_149_ACCOUNT_GROUP_EXCLUDE))
+            breakdown.append(f'только {excluded}: {n_skip_9038:,}')
+        if n_skip_blocked:
+            breakdown.append(f'order block: {n_skip_blocked:,}')
+        if n_indirect is not None and n_indirect == 0:
+            breakdown.append("нет indirect (KVGR4='IN')")
+        if breakdown:
+            parts.append('в выборке: ' + ', '.join(breakdown))
+        return f"{rule_code}: " + '; '.join(parts)
+
     def _process_rcccomp_149_knvp(self, rule_code, df, table_name, rule, validator, matched_column, column_to_check, save_result, timestamp):
         rule_code = str(rule_code or '').strip().upper()
         kunnr_col = self._pick_best_kunnr_column(df, table_name)
@@ -2774,7 +2799,7 @@ class FastDataQualityChecker:
             n_cust = df_work[kunnr_col].apply(self._norm_customer_partner_key).nunique()
             print(f"      [FILTER] {rule_code} KNVP SO scope (01-01 or 04-02) -> {len(df_work):,} строк, {n_cust:,} клиентов из {before_rows:,} строк")
         if df_work.empty:
-            self._log_skipped_rule(rule, table_name, f'{rule_code}: нет строк KNVP в SO 01-01 / 04-02', timestamp)
+            self._log_skipped_rule(rule, table_name, f"{rule_code}: нет строк KNVP в SO 01-01/04-02 (проверяется: {self._rcccomp_149_scope_criteria_short(rule_code)})", timestamp)
             return (0, 0)
         df_work = self._add_account_group_code_from_kna1(df_work, table_name, rule_code)
         ag_col = self._find_account_group_column(df_work)
@@ -2806,7 +2831,7 @@ class FastDataQualityChecker:
         if rule_code == 'RCCOMP_149.2':
             in_keys = self._get_knvv_indirect_customer_keys(rule_code)
             if not in_keys:
-                self._log_skipped_rule(rule, table_name, f'{rule_code}: нет indirect-клиентов (KVGR4=IN) в KNVV для SO 01-01/04-02', timestamp)
+                self._log_skipped_rule(rule, table_name, self._rcccomp_149_scope_skip_message(rule_code, len(cust_df), n_skip_not_90, n_skip_9038, n_skip_blocked, n_indirect=0), timestamp)
                 return (0, 0)
             eval_scope = eval_scope & cust_df['_cust_key'].isin(in_keys)
             scope_desc = f"indirect-клиенты (KVGR4='IN'), SO 01-01/04-02, account_group LIKE '{ag_skip_pat}' (кроме 9038)"
@@ -2815,7 +2840,8 @@ class FastDataQualityChecker:
         print(f'      [FILTER] {rule_code} «Всего записей» = {total_rows:,} клиентов ({scope_desc})')
         print(f'      [FILTER] {rule_code} к оценке ошибок (без blocked order_block): {len(eval_keys):,} клиентов')
         if total_rows == 0:
-            self._log_skipped_rule(rule, table_name, f'{rule_code}: нет клиентов в scope после фильтров', timestamp)
+            n_indirect = len(in_keys) if rule_code == 'RCCOMP_149.2' else None
+            self._log_skipped_rule(rule, table_name, self._rcccomp_149_scope_skip_message(rule_code, len(cust_df), n_skip_not_90, n_skip_9038, n_skip_blocked, n_indirect=n_indirect), timestamp)
             return (0, 0)
         df_scoped = df_work[df_work['_cust_key'].isin(eval_keys)].copy()
         filled = self._partner_code_filled_mask(df_scoped[parc_col])
