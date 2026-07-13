@@ -39,11 +39,11 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-10-rcccomp-375-1-no-dm-scope'
+    CHECKER_BUILD_ID = '2026-07-13-rcccomp-149-exclude-9038'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
-    RULES_ERROR_EXPORT_KNA1_KTOKD = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCONF_113.1', 'RCCONF_24.1', 'RCCONF_115.11', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4'})
+    RULES_ERROR_EXPORT_KNA1_KTOKD = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCONF_113.1', 'RCCONF_24.1', 'RCCONF_115.11', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
     RULES_SAVE_ALL_ERRORS = frozenset({'RCCONF_39.5', 'RCCONF_39.5.2', 'RCCONF_18.2', 'RCCONF_63.1'})
     TABLES_SAVE_ALL_ERRORS = frozenset({'ADR2', 'BUT000'})
     ADR2_NON_BLOCKED_MOBILE_RULES = frozenset({
@@ -2483,6 +2483,7 @@ class FastDataQualityChecker:
     RCCOMP_149_RULES = frozenset({'RCCOMP_149.1', 'RCCOMP_149.2'})
     RCCOMP_149_ORDER_BLOCK_SKIP = frozenset({'S', 'SP', 'E', 'G', 'S2', 'S3', 'S4', 'S5', 'S9', 'R', 'U', 'S1', 'SY', 'IA', 'IB', 'RN'})
     RCCOMP_149_ACCOUNT_GROUP_SKIP_PATTERN = '90%'
+    RCCOMP_149_ACCOUNT_GROUP_EXCLUDE = frozenset({'9038'})
     RCCOMP_149_1_REQUIRED_PF = frozenset({'BP', 'PY', 'ZY', 'SP', 'SH', 'YR'})
     KNVV_ORDER_BLOCK_BLOCKED = frozenset({'S', 'NH', 'S3', 'S4', 'SY', 'U', 'R', 'PR'})
     KNVV_DM_SALES_ORG_SCOPE_RULES = frozenset({
@@ -2789,21 +2790,26 @@ class FastDataQualityChecker:
         ob_norm = cust_df[ob_col].astype(str).str.strip().str.upper()
         ag_skip_pat = self.RCCOMP_149_ACCOUNT_GROUP_SKIP_PATTERN
         in_90_group = ag_norm.apply(lambda v: sap_account_group_like(v, ag_skip_pat))
+        is_excluded_group = ag_norm.isin(self.RCCOMP_149_ACCOUNT_GROUP_EXCLUDE)
         not_blocked = ~ob_norm.isin(self.RCCOMP_149_ORDER_BLOCK_SKIP)
-        eval_scope = in_90_group & not_blocked
+        eval_scope = in_90_group & ~is_excluded_group & not_blocked
         n_skip_not_90 = int((~in_90_group).sum())
-        n_skip_blocked = int((in_90_group & ~not_blocked).sum())
+        n_skip_9038 = int((in_90_group & is_excluded_group).sum())
+        n_skip_blocked = int((in_90_group & ~is_excluded_group & ~not_blocked).sum())
         print(f"      [FILTER] {rule_code}: account_group NOT LIKE '{ag_skip_pat}' -> пропущено {n_skip_not_90:,} клиентов (scope-колонка: {ag_col})")
+        if n_skip_9038:
+            excluded = ','.join(sorted(self.RCCOMP_149_ACCOUNT_GROUP_EXCLUDE))
+            print(f"      [FILTER] {rule_code}: KTOKD in ({excluded}) -> пропущено {n_skip_9038:,} клиентов (вне scope)")
         if n_skip_blocked:
             print(f"      [FILTER] {rule_code}: blocked order_block -> ещё пропущено {n_skip_blocked:,} клиентов")
-        scope_desc = f"уникальные клиенты KNVP в SO 01-01/04-02, account_group LIKE '{ag_skip_pat}', без blocked order_block"
+        scope_desc = f"уникальные клиенты KNVP в SO 01-01/04-02, account_group LIKE '{ag_skip_pat}' (кроме 9038), без blocked order_block"
         if rule_code == 'RCCOMP_149.2':
             in_keys = self._get_knvv_indirect_customer_keys(rule_code)
             if not in_keys:
                 self._log_skipped_rule(rule, table_name, f'{rule_code}: нет indirect-клиентов (KVGR4=IN) в KNVV для SO 01-01/04-02', timestamp)
                 return (0, 0)
             eval_scope = eval_scope & cust_df['_cust_key'].isin(in_keys)
-            scope_desc = f"indirect-клиенты (KVGR4='IN'), SO 01-01/04-02, account_group LIKE '{ag_skip_pat}'"
+            scope_desc = f"indirect-клиенты (KVGR4='IN'), SO 01-01/04-02, account_group LIKE '{ag_skip_pat}' (кроме 9038)"
         eval_keys = set(cust_df.index[eval_scope])
         total_rows = len(eval_keys)
         print(f'      [FILTER] {rule_code} «Всего записей» = {total_rows:,} клиентов ({scope_desc})')
@@ -2837,6 +2843,8 @@ class FastDataQualityChecker:
             rep_df = df_scoped.loc[rep_idx]
             error_mask.loc[rep_df[rep_df['_cust_key'].isin(error_keys)].index] = True
         error_df = validator._prepare_error_dataframe(df_scoped, error_mask, 'COMPLETENESS', error_description) if error_count > 0 else None
+        if error_df is not None and (not error_df.empty):
+            error_df = self._attach_kna1_ktokd_export_columns(error_df, rule_code)
         is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
         if save_result:
             rule_info = {'rule_code': rule_code, 'rule_description': rule.get('rule_description', 'Unknown rule'), 'quality_category': rule.get('quality_category', 'Unknown'), 'table_name': table_name, 'original_column': column_to_check, 'matched_column': matched_column}
