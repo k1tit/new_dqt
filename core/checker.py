@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-13-rcccomp-149-skip-messages'
+    CHECKER_BUILD_ID = '2026-07-17-adr2-export-group-dchl-dv'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -51,7 +51,10 @@ class FastDataQualityChecker:
         'RCCONF_39.3', 'RCCONF_39.3.2', 'RCCONF_39.5', 'RCCONF_39.5.2',
     })
     ADR2_RCCOMP_375_1_RULES = frozenset({'RCCOMP_375.1'})
-    ADR2_KNVV_EXPORT_ENRICH_RULES = frozenset({'RCCONF_39.5', 'RCCONF_39.5.2'})
+    ADR2_EXPORT_ENRICH_RULES = frozenset({
+        'RCCONF_39.3', 'RCCONF_39.3.2', 'RCCONF_39.5', 'RCCONF_39.5.2', 'RCCOMP_375.1.2',
+    })
+    ADR2_KNVV_EXPORT_ENRICH_RULES = ADR2_EXPORT_ENRICH_RULES
     KNA1_JOIN_BLOCKED_COLUMNS = frozenset({'CLIENT', 'CL', 'MANDT', 'MANDANT'})
     KNA1_JOIN_VIA_BUT020_TABLES = frozenset({'ADRC', 'ADR2'})
 
@@ -3879,8 +3882,34 @@ class FastDataQualityChecker:
             return self._apply_rule_time_column_map(knvv.copy(), 'KNVV')
         return knvv
 
+    def _load_kna1_for_rules_join(self):
+        kna1 = self._get_table_for_rules('KNA1')
+        if (kna1 is None or kna1.empty) and getattr(self, 'db_path', None):
+            try:
+                self.memory_manager.load_selected_tables_to_ram(['KNA1'], add_reference_tables=False)
+                kna1 = self._get_table_for_rules('KNA1')
+            except Exception:
+                kna1 = self._get_table_for_rules('KNA1')
+        if (kna1 is None or kna1.empty) and getattr(self, 'db_path', None):
+            try:
+                conn = connect_sqlite(self.db_path)
+                tables = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table'", conn)
+                kna1_name = next((r[0] for r in tables.values if str(r[0]).strip().upper() == 'KNA1'), None)
+                if kna1_name:
+                    kna1 = pd.read_sql_query(f'SELECT * FROM "{kna1_name}"', conn)
+                conn.close()
+            except Exception:
+                kna1 = None
+        if kna1 is not None and (not kna1.empty):
+            return self._apply_rule_time_column_map(kna1.copy(), 'KNA1')
+        return kna1
+
     def _enrich_adr2_errors_with_knvv_so_dc_div(self, error_df, rule_code, log_prefix=''):
-        """Добавить в ошибки ADR2 SO/DC/Div и sales-level AUFSD из KNVV (без фильтрации)."""
+        """ADR2 errors: PARTNER (BUT020) -> Group (KNA1) -> DChl/Dv (KNVV). Без фильтрации."""
+        return self._enrich_adr2_errors_with_group_dchl_dv(error_df, rule_code, log_prefix=log_prefix)
+
+    def _enrich_adr2_errors_with_group_dchl_dv(self, error_df, rule_code, log_prefix=''):
+        """1) PARTNER из BUT020, 2) Group из KNA1, 3) DChl/Dv из KNVV — по PARTNER/Customer."""
         if error_df is None or error_df.empty:
             return error_df
         out = error_df.copy()
@@ -3891,23 +3920,47 @@ class FastDataQualityChecker:
                 out = self._attach_partner_from_but020_by_addr(out, acol, log_prefix=log_prefix)
                 partner_col = next((c for c in out.columns if str(c).upper() == 'PARTNER'), None)
         if partner_col is None:
-            print(f'{log_prefix}[WARN] {rule_code}: PARTNER не найден — KNVV SO/DC/Div не добавлены')
+            print(f'{log_prefix}[WARN] {rule_code}: PARTNER не найден — Group/DChl/Dv не добавлены')
             return out
+        out['_partner_key'] = out[partner_col].apply(self._norm_customer_partner_key)
+
+        kna1_df = self._load_kna1_for_rules_join()
+        if kna1_df is None or kna1_df.empty:
+            print(f'{log_prefix}[WARN] {rule_code}: KNA1 пуста — Group не добавлен')
+        else:
+            kunnr_kna1 = self._pick_best_kunnr_column(kna1_df, 'KNA1')
+            group_col = self._resolve_column_for_rule(kna1_df, 'KTOKD', 'KNA1')
+            if not group_col:
+                group_col = next((c for c in kna1_df.columns if str(c).strip().upper() in ('KTOKD', 'GROUP_1', 'GROUP', 'ACCOUNT_GROUP_CODE')), None)
+            if not kunnr_kna1 or not group_col:
+                print(f'{log_prefix}[WARN] {rule_code}: в KNA1 не найдены Customer/Group')
+            else:
+                kna1_pick = kna1_df[[kunnr_kna1, group_col]].copy()
+                kna1_pick['_partner_key'] = kna1_pick[kunnr_kna1].apply(self._norm_customer_partner_key)
+                kna1_pick = kna1_pick[kna1_pick['_partner_key'] != ''].drop_duplicates(subset=['_partner_key'], keep='first')
+                kna1_pick = kna1_pick.rename(columns={group_col: 'Group'})[['_partner_key', 'Group']]
+                out = out.drop(columns=['Group'], errors='ignore')
+                out = out.merge(kna1_pick, on='_partner_key', how='left')
+                filled_g = int(out['Group'].notna().sum()) if 'Group' in out.columns else 0
+                print(f'{log_prefix}[INFO] {rule_code}: из KNA1 добавлен Group по PARTNER: заполнено {filled_g:,} из {len(out):,}')
+
         knvv_df = self._load_knvv_for_rules_join()
         if knvv_df is None or knvv_df.empty:
-            print(f'{log_prefix}[WARN] {rule_code}: KNVV пуста — SO/DC/Div не добавлены')
+            print(f'{log_prefix}[WARN] {rule_code}: KNVV пуста — DChl/Dv не добавлены')
+            out = out.drop(columns=['_partner_key'], errors='ignore')
             return out
         kunnr_col = self._pick_best_kunnr_column(knvv_df, 'KNVV')
-        vkorg_col = self._resolve_column_for_rule(knvv_df, 'VKORG', 'KNVV')
         vtweg_col = self._resolve_column_for_rule(knvv_df, 'VTWEG', 'KNVV')
         spart_col = self._resolve_column_for_rule(knvv_df, 'SPART', 'KNVV')
-        aufsd_col = self._resolve_column_for_rule(knvv_df, 'AUFSD', 'KNVV')
-        if not aufsd_col:
-            aufsd_col = next((c for c in knvv_df.columns if str(c).strip().upper() in ('ORBLK', 'AUFSD')), None)
         if not kunnr_col:
             print(f'{log_prefix}[WARN] {rule_code}: в KNVV не найден Customer/KUNNR')
+            out = out.drop(columns=['_partner_key'], errors='ignore')
             return out
-        pick_cols = [c for c in (kunnr_col, vkorg_col, vtweg_col, spart_col, aufsd_col) if c and c in knvv_df.columns]
+        if not vtweg_col and not spart_col:
+            print(f'{log_prefix}[WARN] {rule_code}: в KNVV не найдены DChl/Dv (VTWEG/SPART)')
+            out = out.drop(columns=['_partner_key'], errors='ignore')
+            return out
+        pick_cols = [c for c in (kunnr_col, vtweg_col, spart_col) if c and c in knvv_df.columns]
         knvv_pick = knvv_df[pick_cols].copy()
         knvv_pick['_partner_key'] = knvv_pick[kunnr_col].apply(self._norm_customer_partner_key)
         knvv_pick = knvv_pick[knvv_pick['_partner_key'] != ''].copy()
@@ -3918,25 +3971,20 @@ class FastDataQualityChecker:
             knvv_pick = knvv_pick.sort_values('_prio', ascending=False)
         knvv_pick = knvv_pick.drop_duplicates(subset=['_partner_key'], keep='first')
         rename_map = {}
-        if vkorg_col and vkorg_col in knvv_pick.columns:
-            rename_map[vkorg_col] = 'VKORG'
         if vtweg_col and vtweg_col in knvv_pick.columns:
-            rename_map[vtweg_col] = 'VTWEG'
+            rename_map[vtweg_col] = 'DChl'
         if spart_col and spart_col in knvv_pick.columns:
-            rename_map[spart_col] = 'SPART'
-        if aufsd_col and aufsd_col in knvv_pick.columns:
-            rename_map[aufsd_col] = 'AUFSD_KNVV'
+            rename_map[spart_col] = 'Dv'
         knvv_join = knvv_pick.rename(columns=rename_map)
-        export_cols = ['_partner_key'] + [c for c in ('VKORG', 'VTWEG', 'SPART', 'AUFSD_KNVV') if c in knvv_join.columns]
+        export_cols = ['_partner_key'] + [c for c in ('DChl', 'Dv') if c in knvv_join.columns]
         knvv_join = knvv_join[export_cols].drop_duplicates(subset=['_partner_key'], keep='first')
-        out['_partner_key'] = out[partner_col].apply(self._norm_customer_partner_key)
-        for c in ('VKORG', 'VTWEG', 'SPART', 'AUFSD_KNVV'):
+        for c in ('DChl', 'Dv', 'VTWEG', 'SPART', 'VKORG', 'AUFSD_KNVV'):
             out = out.drop(columns=[c], errors='ignore')
         out = out.merge(knvv_join, on='_partner_key', how='left')
         out = out.drop(columns=['_partner_key'], errors='ignore')
-        filled = int(out['VTWEG'].notna().sum()) if 'VTWEG' in out.columns else 0
-        parts = [c for c in ('VKORG', 'VTWEG', 'SPART', 'AUFSD_KNVV') if c in out.columns]
-        print(f"{log_prefix}[INFO] {rule_code}: из KNVV добавлены {', '.join(parts)} (без фильтрации): заполнено VTWEG у {filled:,} из {len(out):,}")
+        filled = int(out['DChl'].notna().sum()) if 'DChl' in out.columns else 0
+        parts = [c for c in ('Group', 'DChl', 'Dv') if c in out.columns]
+        print(f"{log_prefix}[INFO] {rule_code}: в ошибки добавлены {', '.join(parts)} (без фильтрации): заполнено DChl у {filled:,} из {len(out):,}")
         return out
 
     def _ensure_adr2_has_partner(self, df, rule_code):
@@ -4723,7 +4771,7 @@ class FastDataQualityChecker:
         self.last_errors_dir = errors_dir
         os.makedirs(errors_dir, exist_ok=True)
         print(f'   [INFO] Создана папка для ошибок: {errors_dir}')
-        for enrich_key in [k for k in self.rule_errors if self.rule_errors[k].get('rule_code') in self.ADR2_KNVV_EXPORT_ENRICH_RULES and str(self.rule_errors[k].get('table_name', '')).strip().upper() == 'ADR2']:
+        for enrich_key in [k for k in self.rule_errors if self.rule_errors[k].get('rule_code') in self.ADR2_EXPORT_ENRICH_RULES and str(self.rule_errors[k].get('table_name', '')).strip().upper() == 'ADR2']:
             ed = self.rule_errors[enrich_key]
             rc = ed.get('rule_code')
             raw = ed.get('error_df')
@@ -4777,7 +4825,7 @@ class FastDataQualityChecker:
                     out = self._attach_partner_from_but020_by_addr(out, acol, log_prefix=f'   [{rc}] Добавлена колонка')
                 except Exception as e:
                     print(f'   [{rc}] Ошибка при добавлении PARTNER: {e}')
-            out = self._enrich_adr2_errors_with_knvv_so_dc_div(out, rc, log_prefix='   ')
+            out = self._enrich_adr2_errors_with_group_dchl_dv(out, rc, log_prefix='   ')
             ed['error_df'] = out
             ed['saved_error_count'] = len(out)
             ed['total_error_count'] = ed.get('total_error_count') or ed.get('error_count') or len(out)
@@ -4826,15 +4874,15 @@ class FastDataQualityChecker:
                             continue
                 is_adr2 = str(table_name or '').strip().upper() == 'ADR2'
                 acol = next((c for c in error_df.columns if 'ADDRNUMBER' in str(c).upper()), None)
-                if rule_code in ['RCCONF_38.5', 'RCCONF_39.3', 'RCCONF_39.3.2', 'RCCONF_39.5', 'RCCONF_39.5.2'] and is_adr2 and (acol is not None):
+                if rule_code in ['RCCONF_38.5', 'RCCONF_39.3', 'RCCONF_39.3.2', 'RCCONF_39.5', 'RCCONF_39.5.2', 'RCCOMP_375.1.2'] and is_adr2 and (acol is not None):
                     try:
                         error_df = self._attach_partner_from_but020_by_addr(error_df, acol, log_prefix=f'   [INFO] {rule_code}: добавлена колонка')
                     except Exception as e:
                         print(f'   [ERROR] {rule_code}: ошибка при добавлении PARTNER: {e}')
                 if is_adr2:
-                    if rule_code in self.ADR2_KNVV_EXPORT_ENRICH_RULES:
-                        if 'VTWEG' not in error_df.columns:
-                            error_df = self._enrich_adr2_errors_with_knvv_so_dc_div(error_df, rule_code, log_prefix='   ')
+                    if rule_code in self.ADR2_EXPORT_ENRICH_RULES:
+                        if 'DChl' not in error_df.columns or 'Group' not in error_df.columns:
+                            error_df = self._enrich_adr2_errors_with_group_dchl_dv(error_df, rule_code, log_prefix='   ')
                     else:
                         need_aufsd = 'AUFSD' not in error_df.columns or error_df['AUFSD'].isna().all()
                         if need_aufsd:
