@@ -546,7 +546,7 @@ class FastDataQualityChecker:
             self.logger.error(f'Ошибка загрузки конфигурации: {e}')
             return {}
 
-    def run_quality_checks_fast(self, specific_table: str=None, table_list: list=None, only_rule_codes: set=None):
+    def run_quality_checks_fast(self, specific_table: str=None, table_list: list=None, only_rule_codes: set | None=None):
 
         def _filter_rules(rules, codes):
             if not codes:
@@ -2426,7 +2426,7 @@ class FastDataQualityChecker:
         except Exception as e:
             print(f'   [WARN] Не удалось сохранить ADR2 ошибки в БД: {e}')
 
-    def run(self, specific_table: str=None, table_list: list=None, only_rule_codes: set=None):
+    def run(self, specific_table: str=None, table_list: list=None, only_rule_codes: set | None=None):
         print(f'\n' + '=' * 100)
         print(f'\x1b[1mЗАПУСК СИСТЕМЫ ПРОВЕРКИ КАЧЕСТВА\x1b[0m')
         print(f'=' * 100)

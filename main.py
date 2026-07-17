@@ -167,7 +167,7 @@ def run_full_check(checker):
     print(f'Длительность: {elapsed}')
     return checker, True
 
-def _parse_only_rule_codes(only_rules_arg):
+def _parse_only_rule_codes(only_rules_arg) -> set | None:
     if not only_rules_arg:
         return None
     codes = {s.strip() for s in only_rules_arg.split(',') if s.strip()}
@@ -204,7 +204,7 @@ def prompt_reference_datetime(checker):
         print(f'[WARN] {e}. Используется текущее время системы.')
         checker.reference_datetime = None
 
-def run_table_check(checker, table_name, only_rule_codes=None):
+def run_table_check(checker, table_name, only_rule_codes: set | None=None):
     print('\n' + '=' * 80)
     print(f'ЗАПУСК ПРОВЕРКИ ТАБЛИЦЫ: {table_name}')
     print('=' * 80)
@@ -243,7 +243,7 @@ def run_table_check(checker, table_name, only_rule_codes=None):
     print(f'Длительность: {elapsed}')
     return checker, True
 
-def run_selected_tables_check(checker, table_names, only_rule_codes=None):
+def run_selected_tables_check(checker, table_names, only_rule_codes: set | None=None):
     print('\n' + '=' * 80)
     print(f'ЗАПУСК ПРОВЕРКИ ДЛЯ ВЫБРАННЫХ ТАБЛИЦ')
     print('=' * 80)
