@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-20-rcccomp-149-include-9038'
+    CHECKER_BUILD_ID = '2026-07-20-rccconf-153-4-vsbed-fix'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -1472,7 +1472,7 @@ class FastDataQualityChecker:
             df_to_validate = self._apply_knvv_dm_sales_org_scope(scope_source, rule_code, table_name)
             if before_knvv_scope > 0 and df_to_validate.empty:
                 if rule_code == 'RCCONF_153.4':
-                    skip_msg = 'В выгрузке KNVV нет VTWEG=04 и SPART=02 (дамп только 01-01) — RCCONF_153.4 вне scope'
+                    skip_msg = 'RCCONF_153.4: нет строк KNVV с VTWEG/DChl=04 и SPART/Dv=02 (проверьте колонки и значения в дампе)'
                 else:
                     skip_msg = 'Нет строк KNVV в scope dm_customer_sales_org (VTWEG=01, SPART=01; exclude order_block S,NH,S3,S4,SY,U,R,PR; exclude KDGRP=ZIN)'
                 self._log_skipped_rule(rule, table_name, skip_msg, timestamp)
@@ -1596,18 +1596,24 @@ class FastDataQualityChecker:
             if rule_code == 'RCCONF_153.4' and str(table_name or '').strip().upper() == 'KNVV':
                 vsbed_col = matched_column if matched_column in df_to_validate.columns else self._resolve_column_for_rule(df_to_validate, 'VSBED', 'KNVV')
                 if not vsbed_col or vsbed_col not in df_to_validate.columns:
+                    vsbed_col = next((c for c in df_to_validate.columns if str(c).strip().upper() in ('VSBED', 'SDST', 'SHIPCOND', 'SHIPPING_CONDITIONS')), None)
+                if not vsbed_col or vsbed_col not in df_to_validate.columns:
                     self._log_skipped_rule(rule, table_name, 'RCCONF_153.4: колонка VSBED не найдена', timestamp)
                     return (0, 0)
-                s = df_to_validate[vsbed_col].astype(str).str.strip()
-                eval_mask = df_to_validate[vsbed_col].notna() & (s != '') & ~s.str.lower().isin(['none', 'null', 'nan', 'na'])
+                # Нормализация как у SO-кодов: 1 / 1.0 / '01' -> '01'; 5 / '05' -> '05'
+                vsbed_norm = self._norm_knvv_so_code_series(df_to_validate[vsbed_col]).str.upper()
+                eval_mask = vsbed_norm.ne('')
                 if not eval_mask.any():
                     self._log_skipped_rule(rule, table_name, 'RCCONF_153.4: нет заполненных VSBED в scope VTWEG=04/SPART=02', timestamp)
                     return (0, 0)
-                vsbed_norm = s.str.upper()
+                # IF VTWEG=04 AND SPART=02 AND VSBED='05' THEN '1' ELSE IF ... VSBED != '05' THEN '0'
                 error_mask = eval_mask & (vsbed_norm != '05')
                 error_count = int(error_mask.sum())
                 total_rows = int(eval_mask.sum())
-                error_description = "VSBED must be '05' when VTWEG='04' and SPART='02'."
+                n_ok = int((eval_mask & (vsbed_norm == '05')).sum())
+                top_vsbed = vsbed_norm[eval_mask].value_counts().head(8).to_dict()
+                print(f"      [CHECK] RCCONF_153.4: VSBED в scope 04-02 — оценено {total_rows:,}, OK(05)={n_ok:,}, ошибки={error_count:,}; топ VSBED: {top_vsbed}")
+                error_description = "VSBED must be '05' when VTWEG='04' and SPART='02' (default '01' is invalid)."
                 error_df = validator._prepare_error_dataframe(df_to_validate, error_mask, 'CONFORMITY', error_description) if error_count > 0 else None
                 is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
                 if save_result:
@@ -2561,8 +2567,13 @@ class FastDataQualityChecker:
     def _norm_knvv_so_code_val(self, value):
         if value is None or (isinstance(value, float) and pd.isna(value)):
             return ''
-        s = str(value).strip()
-        if not s or s.lower() in ('none', 'null', 'nan', 'na'):
+        if isinstance(value, bytes):
+            try:
+                value = value.decode('utf-8', errors='ignore')
+            except Exception:
+                value = str(value)
+        s = str(value).replace('\ufeff', '').replace('\xa0', ' ').strip().strip("'").strip('"')
+        if not s or s.lower() in ('none', 'null', 'nan', 'na', '<na>', 'nat'):
             return ''
         try:
             if isinstance(value, (int, float)) and (not pd.isna(value)) and float(value) == int(float(value)):
@@ -2576,9 +2587,15 @@ class FastDataQualityChecker:
                 return str(int(num)).zfill(2)
         except ValueError:
             pass
+        # '04', '4', '01' и т.п.
+        digits = re.sub('\\D', '', s)
+        if digits.isdigit() and digits != '':
+            if set(digits) == {'0'}:
+                return '00' if len(digits) >= 2 else '0'.zfill(2)
+            return digits.lstrip('0').zfill(2) if digits.lstrip('0') else '00'
         if s.isdigit() and len(s) < 2:
             return s.zfill(2)
-        return s
+        return s.upper()
 
     def _norm_knvv_so_code_series(self, series):
         if series is None:
@@ -2597,15 +2614,20 @@ class FastDataQualityChecker:
         if rule_code == 'RCCONF_153.4':
             vtweg_col = self._resolve_column_for_rule(df, 'VTWEG', 'KNVV')
             spart_col = self._resolve_column_for_rule(df, 'SPART', 'KNVV')
+            if not vtweg_col or vtweg_col not in df.columns:
+                vtweg_col = next((c for c in df.columns if str(c).strip().upper() in ('VTWEG', 'DCHL', 'DISTRCHANNEL', 'DISTR_CHANNEL')), None)
+            if not spart_col or spart_col not in df.columns:
+                spart_col = next((c for c in df.columns if str(c).strip().upper() in ('SPART', 'DV', 'DIVISION')), None)
             if not vtweg_col or not spart_col or vtweg_col not in df.columns or spart_col not in df.columns:
-                print(f'      [WARN] {rule_code}: VTWEG/SPART не найдены в KNVV')
+                print(f'      [WARN] {rule_code}: VTWEG/SPART (DChl/Dv) не найдены в KNVV. Колонки: {list(df.columns)[:25]}')
                 return df.iloc[0:0].copy()
             vt = self._norm_knvv_so_code_series(df[vtweg_col])
             sp = self._norm_knvv_so_code_series(df[spart_col])
             scoped = df.loc[(vt == '04') & (sp == '02')].copy()
-            print(f"      [FILTER] {rule_code} scope: VTWEG='04' AND SPART='02' -> {len(scoped):,} из {before:,}")
+            print(f"      [FILTER] {rule_code} scope: {vtweg_col}='04' AND {spart_col}='02' -> {len(scoped):,} из {before:,}")
             if scoped.empty:
-                print(f"      [INFO] {rule_code}: в выгрузке нет VTWEG=04/SPART=02 (дамп только 01-01) — правило вне scope")
+                pairs = pd.DataFrame({'_vt': vt, '_sp': sp}).value_counts().head(12)
+                print(f"      [INFO] {rule_code}: нет строк 04-02. Топ пар {vtweg_col}/{spart_col}: {pairs.to_dict()}")
             return scoped
         if rule_code not in self.KNVV_DM_SALES_ORG_SCOPE_RULES:
             return df
