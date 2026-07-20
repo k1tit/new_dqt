@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-20-rccconf-153-4-vsbed-fix'
+    CHECKER_BUILD_ID = '2026-07-20-rcccomp-149-only-9038'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -2490,7 +2490,7 @@ class FastDataQualityChecker:
     TAXNUM_FORMAT_RULES = frozenset({'RCCONF_50.1', 'RCCONF_52.1', 'RCCONF_54.1', 'RCCONF_63.1'})
     RCCOMP_149_RULES = frozenset({'RCCOMP_149.1', 'RCCOMP_149.2'})
     RCCOMP_149_ORDER_BLOCK_SKIP = frozenset({'S', 'SP', 'E', 'G', 'S2', 'S3', 'S4', 'S5', 'S9', 'R', 'U', 'S1', 'SY', 'IA', 'IB', 'RN'})
-    RCCOMP_149_ACCOUNT_GROUP_SKIP_PATTERN = '90%'
+    RCCOMP_149_ACCOUNT_GROUP_ONLY = frozenset({'9038'})
     RCCOMP_149_1_REQUIRED_PF = frozenset({'BP', 'PY', 'ZY', 'SP', 'SH', 'YR'})
     KNVV_ORDER_BLOCK_BLOCKED = frozenset({'S', 'NH', 'S3', 'S4', 'SY', 'U', 'R', 'PR'})
     KNVV_DM_SALES_ORG_SCOPE_RULES = frozenset({
@@ -2768,20 +2768,21 @@ class FastDataQualityChecker:
         return set(keys[keys != ''])
 
     def _rcccomp_149_scope_criteria_short(self, rule_code):
-        pat = self.RCCOMP_149_ACCOUNT_GROUP_SKIP_PATTERN
-        base = f"KNVP SO 01-01/04-02, KTOKD LIKE {pat} (в т.ч. 9038), без order block"
+        only = ','.join(sorted(self.RCCOMP_149_ACCOUNT_GROUP_ONLY))
+        base = f"KNVP SO 01-01/04-02, только KTOKD={only}, без order block"
         if str(rule_code or '').strip().upper() == 'RCCOMP_149.2':
             return f"{base}, KVGR4='IN' (indirect)"
         return base
 
-    def _rcccomp_149_scope_skip_message(self, rule_code, total_customers, n_skip_not_90=0, n_skip_blocked=0, n_indirect=None, n_in_90=0):
+    def _rcccomp_149_scope_skip_message(self, rule_code, total_customers, n_skip_not_9038=0, n_skip_blocked=0, n_indirect=None, n_9038=0):
         criteria = self._rcccomp_149_scope_criteria_short(rule_code)
+        only = ','.join(sorted(self.RCCOMP_149_ACCOUNT_GROUP_ONLY))
         parts = [f'проверяется: {criteria}', f'подходящих: 0 из {int(total_customers):,}']
         breakdown = []
-        if n_in_90:
-            breakdown.append(f"LIKE {self.RCCOMP_149_ACCOUNT_GROUP_SKIP_PATTERN} (в т.ч. 9038): {n_in_90:,}")
-        if n_skip_not_90:
-            breakdown.append(f'не LIKE {self.RCCOMP_149_ACCOUNT_GROUP_SKIP_PATTERN}: {n_skip_not_90:,}')
+        if n_9038:
+            breakdown.append(f'KTOKD={only}: {n_9038:,}')
+        if n_skip_not_9038:
+            breakdown.append(f'не {only} (skip): {n_skip_not_9038:,}')
         if n_skip_blocked:
             breakdown.append(f'order block: {n_skip_blocked:,}')
         if n_indirect is not None and n_indirect == 0:
@@ -2829,39 +2830,36 @@ class FastDataQualityChecker:
         if not ag_col or not ob_col:
             self._log_skipped_rule(rule, table_name, f'{rule_code}: не удалось получить account_group_code / order_block_code из KNA1', timestamp)
             return (0, 0)
-        from utils.sap_account_keys import norm_sap_account_group, sap_account_group_like
+        from utils.sap_account_keys import norm_sap_account_group
         df_work['_cust_key'] = df_work[kunnr_col].apply(self._norm_customer_partner_key)
         cust_df = df_work.drop_duplicates(subset=['_cust_key'], keep='first').set_index('_cust_key', drop=False)
         ag_norm = cust_df[ag_col].apply(norm_sap_account_group)
         ob_norm = cust_df[ob_col].astype(str).str.strip().str.upper()
-        ag_skip_pat = self.RCCOMP_149_ACCOUNT_GROUP_SKIP_PATTERN
-        in_90_group = ag_norm.apply(lambda v: sap_account_group_like(v, ag_skip_pat))
+        is_9038 = ag_norm.isin(self.RCCOMP_149_ACCOUNT_GROUP_ONLY)
         not_blocked = ~ob_norm.isin(self.RCCOMP_149_ORDER_BLOCK_SKIP)
-        eval_scope = in_90_group & not_blocked
-        n_in_90 = int(in_90_group.sum())
-        n_skip_not_90 = int((~in_90_group).sum())
-        n_skip_blocked = int((in_90_group & ~not_blocked).sum())
-        n_9038 = int((ag_norm == '9038').sum())
-        print(f"      [FILTER] {rule_code}: account_group LIKE '{ag_skip_pat}' (в т.ч. 9038) -> в scope {n_in_90:,} клиентов, из них 9038: {n_9038:,} (колонка: {ag_col})")
-        if n_skip_not_90:
-            print(f"      [FILTER] {rule_code}: account_group NOT LIKE '{ag_skip_pat}' -> пропущено {n_skip_not_90:,}")
+        eval_scope = is_9038 & not_blocked
+        n_9038 = int(is_9038.sum())
+        n_skip_not_9038 = int((~is_9038).sum())
+        n_skip_blocked = int((is_9038 & ~not_blocked).sum())
+        only = ','.join(sorted(self.RCCOMP_149_ACCOUNT_GROUP_ONLY))
+        print(f"      [FILTER] {rule_code}: только KTOKD={only} -> в scope {n_9038:,} клиентов, skip остальных: {n_skip_not_9038:,} (колонка: {ag_col})")
         if n_skip_blocked:
             print(f"      [FILTER] {rule_code}: blocked order_block -> ещё пропущено {n_skip_blocked:,} клиентов")
-        scope_desc = f"уникальные клиенты KNVP в SO 01-01/04-02, account_group LIKE '{ag_skip_pat}' (в т.ч. 9038), без blocked order_block"
+        scope_desc = f"уникальные клиенты KNVP в SO 01-01/04-02, только KTOKD={only}, без blocked order_block"
         if rule_code == 'RCCOMP_149.2':
             in_keys = self._get_knvv_indirect_customer_keys(rule_code)
             if not in_keys:
-                self._log_skipped_rule(rule, table_name, self._rcccomp_149_scope_skip_message(rule_code, len(cust_df), n_skip_not_90, n_skip_blocked, n_indirect=0, n_in_90=n_in_90), timestamp)
+                self._log_skipped_rule(rule, table_name, self._rcccomp_149_scope_skip_message(rule_code, len(cust_df), n_skip_not_9038, n_skip_blocked, n_indirect=0, n_9038=n_9038), timestamp)
                 return (0, 0)
             eval_scope = eval_scope & cust_df['_cust_key'].isin(in_keys)
-            scope_desc = f"indirect-клиенты (KVGR4='IN'), SO 01-01/04-02, account_group LIKE '{ag_skip_pat}' (в т.ч. 9038)"
+            scope_desc = f"indirect-клиенты (KVGR4='IN'), SO 01-01/04-02, только KTOKD={only}"
         eval_keys = set(cust_df.index[eval_scope])
         total_rows = len(eval_keys)
         print(f'      [FILTER] {rule_code} «Всего записей» = {total_rows:,} клиентов ({scope_desc})')
         print(f'      [FILTER] {rule_code} к оценке ошибок (без blocked order_block): {len(eval_keys):,} клиентов')
         if total_rows == 0:
             n_indirect = len(in_keys) if rule_code == 'RCCOMP_149.2' else None
-            self._log_skipped_rule(rule, table_name, self._rcccomp_149_scope_skip_message(rule_code, len(cust_df), n_skip_not_90, n_skip_blocked, n_indirect=n_indirect, n_in_90=n_in_90), timestamp)
+            self._log_skipped_rule(rule, table_name, self._rcccomp_149_scope_skip_message(rule_code, len(cust_df), n_skip_not_9038, n_skip_blocked, n_indirect=n_indirect, n_9038=n_9038), timestamp)
             return (0, 0)
         df_scoped = df_work[df_work['_cust_key'].isin(eval_keys)].copy()
         filled = self._partner_code_filled_mask(df_scoped[parc_col])
