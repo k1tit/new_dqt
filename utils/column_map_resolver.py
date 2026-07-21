@@ -144,7 +144,7 @@ def _global_equivalents_for_sap(column_map: dict, sap_or_target: str, table_name
                 for a in alias_list:
                     add(str(a))
     return out
-_SAP_GUI_EXPORT: Dict[str, List[str]] = {'VKORG': ['SOrg_', 'SOrg'], 'VTWEG': ['DChl'], 'SPART': ['Dv'], 'HSPART': ['HLDiv'], 'HKUNNR': ['HgLvCust_'], 'HVKORG': ['HLSOr'], 'HVTWEG': ['HLDCh'], 'VKGRP': ['SGrp'], 'VSBED': ['SC'], 'VWERK': ['Plnt'], 'KTGRD': ['AAGC'], 'KVGR4': ['Grp4'], 'KONDA': ['CPG'], 'KDGRP': ['CGrp'], 'ZTERM': ['PayT'], 'VKBUR': ['SOff_'], 'PARVW': ['Funct', 'Par.func.', 'Partner Function', 'Partner function'], 'KUNN2': ['ParC', 'Partner', 'Part', 'Counterparty', 'Cust.'], 'PARZA': ['Partner_counter', 'Part.ct'], 'LIFNR': ['Vendor', 'Vendor_1'], 'PERNR': ['Pers.No.', 'Personnel No.'], 'PARNR': ['Contact', 'Contact person'], 'KNREF': ['Description', 'CustDescr'], 'DEFPA': ['Default', 'DefPa'], 'ADRNR': ['Address', 'Addr. No.', 'ADDRNUMBER'], 'MANDT': ['Cl_', 'CLIENT', 'Client'], 'TERRID': ['Territory', 'Territory_ID', 'Terr_ID'], 'DATE_FROM': ['Valid_from', 'Date_from', 'Date From'], 'DATE_TO': ['Valid_to', 'Date_to', 'Date To'], 'CREDIT_SGMNT': ['Credit_Segment'], 'PARTNER': ['Business_Partner', 'PARTNER'], 'PARTNER1': ['Business_Partner'], 'PARTNER2': ['Business_Partner_1'], 'CLIENT': ['Cl_'], 'RELNR': ['BP_Relation__No_'], 'DATE_TO': ['Valid_To'], 'RELTYP': ['RelCat'], 'XRF': ['RD'], 'FNCTN': ['Function_name'], 'PAFKT': ['Fct'], 'DPRTMNT': ['Company_department'], 'ABTNR': ['Dept'], 'PAAUTH': ['Authority'], 'PAVIP': ['VIP'], 'PAREM': ['Note'], 'TEL_NUMBER': ['Telephone'], 'TEL_EXTENS': ['Extension'], 'FAX_NUMBER': ['Fax'], 'FAX_EXTENS': ['Extension_1'], 'SMTP_ADDRESS': ['E-Mail_Address', 'E-Mail Address'], 'REL_PER': ['%'], 'REL_AMO': ['Amount'], 'REL_CUR': ['Curr_'], 'CALL_RULEID': ['Rule_ID/Call'], 'VISIT_RULEID': ['Rule_ID_/_Visit'], 'CALL_GUID': ['Calendar_Schema_GUID'], 'VISIT_GUID': ['Calendar_Schema_GUID_1'], 'BP_EEW_BUT051': ['Dummy_function_in_length_1'], 'BP_EEW_BUT051_SP': ['Dummy_function_in_length_1_1'], 'TYPE': ['TYPE'], 'POST_CODE1': ['Postl_Code', 'Postal Code', 'Postl Code'], 'BANKS': ['C/R', 'Bank Ctry', 'Bank country']}
+_SAP_GUI_EXPORT: Dict[str, List[str]] = {'VKORG': ['SOrg_', 'SOrg'], 'VTWEG': ['DChl'], 'SPART': ['Dv'], 'HSPART': ['HLDiv'], 'HKUNNR': ['HgLvCust_'], 'HVKORG': ['HLSOr'], 'HVTWEG': ['HLDCh'], 'VKGRP': ['SGrp'], 'VSBED': ['SC'], 'VWERK': ['Plnt'], 'KTGRD': ['AAGC'], 'KVGR4': ['Grp4'], 'KONDA': ['CPG'], 'KDGRP': ['CGrp'], 'ZTERM': ['PayT'], 'VKBUR': ['SOff_'], 'PARVW': ['Funct', 'Par.func.', 'Partner Function', 'Partner function'], 'KUNN2': ['ParC', 'Partner', 'Part', 'Counterparty', 'Cust.', 'Customer_1'], 'PARZA': ['Partner_counter', 'Part.ct'], 'LIFNR': ['Vendor', 'Vendor_1'], 'PERNR': ['Pers.No.', 'Personnel No.'], 'PARNR': ['Contact', 'Contact person'], 'KNREF': ['Description', 'CustDescr'], 'DEFPA': ['Default', 'DefPa'], 'ADRNR': ['Address', 'Addr. No.', 'ADDRNUMBER'], 'MANDT': ['Cl_', 'CLIENT', 'Client'], 'TERRID': ['Territory', 'Territory_ID', 'Terr_ID'], 'DATE_FROM': ['Valid_from', 'Date_from', 'Date From'], 'DATE_TO': ['Valid_to', 'Date_to', 'Date To'], 'CREDIT_SGMNT': ['Credit_Segment'], 'PARTNER': ['Business_Partner', 'PARTNER'], 'PARTNER1': ['Business_Partner'], 'PARTNER2': ['Business_Partner_1'], 'CLIENT': ['Cl_'], 'RELNR': ['BP_Relation__No_'], 'DATE_TO': ['Valid_To'], 'RELTYP': ['RelCat'], 'XRF': ['RD'], 'FNCTN': ['Function_name'], 'PAFKT': ['Fct'], 'DPRTMNT': ['Company_department'], 'ABTNR': ['Dept'], 'PAAUTH': ['Authority'], 'PAVIP': ['VIP'], 'PAREM': ['Note'], 'TEL_NUMBER': ['Telephone'], 'TEL_EXTENS': ['Extension'], 'FAX_NUMBER': ['Fax'], 'FAX_EXTENS': ['Extension_1'], 'SMTP_ADDRESS': ['E-Mail_Address', 'E-Mail Address'], 'REL_PER': ['%'], 'REL_AMO': ['Amount'], 'REL_CUR': ['Curr_'], 'CALL_RULEID': ['Rule_ID/Call'], 'VISIT_RULEID': ['Rule_ID_/_Visit'], 'CALL_GUID': ['Calendar_Schema_GUID'], 'VISIT_GUID': ['Calendar_Schema_GUID_1'], 'BP_EEW_BUT051': ['Dummy_function_in_length_1'], 'BP_EEW_BUT051_SP': ['Dummy_function_in_length_1_1'], 'TYPE': ['TYPE'], 'POST_CODE1': ['Postl_Code', 'Postal Code', 'Postl Code'], 'BANKS': ['C/R', 'Bank Ctry', 'Bank country']}
 
 def _gui_export_headers_for_sap(sap: str) -> List[str]:
     su = str(sap or '').strip().upper()
@@ -654,3 +654,56 @@ def apply_column_headers_for_rules(df: pd.DataFrame, table_name: str, column_map
         extra = f' и ещё {len(added) - len(shown)}' if len(added) > len(shown) else ''
         print(f'   [MAP] {table_name}: для правил добавлены SAP-колонки ({len(added)}), исходные заголовки сохранены: ' + ', '.join((f'{a!r}->{b!r}' for a, b in shown)) + extra)
     return out
+
+def drop_export_alias_duplicates(
+    df: pd.DataFrame,
+    table_name: str,
+    column_map: Optional[dict] = None,
+    project_root: str = '',
+) -> pd.DataFrame:
+    """Drop alias columns from export when canonical SAP column is present.
+
+    KNVP example: if KUNN2 exists, drop Customer_1 / ParC / Partner.
+    """
+    if df is None or df.empty:
+        return df
+    if column_map is None and project_root:
+        column_map = load_column_map(project_root)
+    tm = _table_mapping(column_map or {}, table_name)
+    if not tm:
+        return df
+    drop: set[str] = set()
+    aliases = tm.get('_aliases') if isinstance(tm.get('_aliases'), dict) else {}
+    for sap, names in aliases.items():
+        sap_s = str(sap).strip()
+        if not sap_s or sap_s not in df.columns:
+            continue
+        if not isinstance(names, list):
+            continue
+        for name in names:
+            n = str(name).strip()
+            if n and n in df.columns and n != sap_s:
+                drop.add(n)
+    for logical, physical in tm.items():
+        if str(logical).startswith('_'):
+            continue
+        phys = str(physical).strip()
+        log = str(logical).strip()
+        if phys and log and phys in df.columns and log in df.columns and log != phys:
+            drop.add(log)
+    present_norm = {_norm(c): c for c in df.columns}
+    for sap, headers in _SAP_GUI_EXPORT.items():
+        sap_col = present_norm.get(_norm(sap))
+        if not sap_col:
+            continue
+        for h in headers:
+            hs = str(h).strip()
+            if not hs or _norm(hs) == _norm(sap):
+                continue
+            alias_col = present_norm.get(_norm(hs))
+            if alias_col and alias_col != sap_col:
+                drop.add(alias_col)
+    if not drop:
+        return df
+    return df.drop(columns=sorted(drop), errors='ignore')
+

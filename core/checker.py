@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-21-knvp-sap-header'
+    CHECKER_BUILD_ID = '2026-07-21-knvp-drop-customer1-alias'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -2095,6 +2095,15 @@ class FastDataQualityChecker:
     def _save_rule_error_with_limit(self, rule_code, table_name, error_df, error_count, is_suspicious, total_rows):
         if error_df is None or error_df.empty:
             return
+        try:
+            from utils.column_map_resolver import drop_export_alias_duplicates
+            before = list(error_df.columns)
+            error_df = drop_export_alias_duplicates(error_df, table_name, self.column_map, parent_dir)
+            dropped = [c for c in before if c not in error_df.columns]
+            if dropped:
+                print(f'      [MAP] {rule_code}: из ошибок убраны алиасы (SAP уже есть): {", ".join(dropped[:8])}' + (f' и ещё {len(dropped) - 8}' if len(dropped) > 8 else ''))
+        except Exception as e:
+            print(f'      [WARN] {rule_code}: не удалось убрать alias-колонки: {e}')
         if self._normalize_rule_code(rule_code) == 'RCCOMP_113.1' and 'AKONT' not in error_df.columns:
             src_col = None
             if 'DQ_COLUMN_CHECKED' in error_df.columns:
