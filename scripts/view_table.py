@@ -28,6 +28,8 @@ from utils.column_map_resolver import (
 )
 
 _KNVV_STRUCTURE_CACHE: dict | None = None
+_KNVP_STRUCTURE_CACHE: dict | None = None
+HEADER_MODES_STRUCTURE = frozenset({'KNVV', 'KNVP'})
 HEADER_MODES_KNVV = ('raw', 'sap', 'both', 'structure')
 HEADER_MODES_DEFAULT = ('raw', 'sap', 'both')
 
@@ -59,10 +61,18 @@ def _load_knvv_structure() -> dict:
     return _KNVV_STRUCTURE_CACHE
 
 
-def format_knvv_structure(df: pd.DataFrame) -> pd.DataFrame:
+def _load_knvp_structure() -> dict:
+    global _KNVP_STRUCTURE_CACHE
+    if _KNVP_STRUCTURE_CACHE is None:
+        path = os.path.join(_PROJECT_ROOT, 'json files', 'knvp_sap_structure.json')
+        with open(path, encoding='utf-8') as f:
+            _KNVP_STRUCTURE_CACHE = json.load(f)
+    return _KNVP_STRUCTURE_CACHE
+
+
+def _format_sap_structure(df: pd.DataFrame, table_name: str, cfg: dict) -> pd.DataFrame:
     if df.empty:
         return df
-    cfg = _load_knvv_structure()
     order: list[str] = cfg.get('column_order') or []
     export_to_sap: dict[str, str] = cfg.get('export_to_sap') or {}
     column_map = load_column_map(_PROJECT_ROOT)
@@ -79,7 +89,7 @@ def format_knvv_structure(df: pd.DataFrame) -> pd.DataFrame:
             sap_to_src[sap_field] = sap_field
             used_src.add(sap_field)
             continue
-        src = resolve_column_in_df(df, sap_field, 'KNVV', column_map, _PROJECT_ROOT)
+        src = resolve_column_in_df(df, sap_field, table_name, column_map, _PROJECT_ROOT)
         if src and sap_field not in sap_to_src:
             sap_to_src[sap_field] = src
             used_src.add(src)
@@ -91,15 +101,24 @@ def format_knvv_structure(df: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame(series_map)
     ordered = [c for c in order if c in out.columns]
     out = out[ordered]
+    # старые/лишние колонки — в хвост (доступны)
     tail = [c for c in df.columns if c not in used_src]
     if tail:
         out = pd.concat([out, df[tail]], axis=1)
     return out
 
 
+def format_knvv_structure(df: pd.DataFrame) -> pd.DataFrame:
+    return _format_sap_structure(df, 'KNVV', _load_knvv_structure())
+
+
+def format_knvp_structure(df: pd.DataFrame) -> pd.DataFrame:
+    return _format_sap_structure(df, 'KNVP', _load_knvp_structure())
+
+
 def next_header_mode(current: str, table_name: str) -> str:
     table_u = str(table_name or '').strip().upper()
-    if table_u == 'KNVV':
+    if table_u in HEADER_MODES_STRUCTURE:
         cycle = {'raw': 'sap', 'sap': 'both', 'both': 'structure', 'structure': 'raw'}
     else:
         cycle = {'raw': 'sap', 'sap': 'both', 'both': 'raw', 'structure': 'raw'}
@@ -107,7 +126,7 @@ def next_header_mode(current: str, table_name: str) -> str:
 
 
 def header_modes_label(table_name: str) -> str:
-    if str(table_name or '').strip().upper() == 'KNVV':
+    if str(table_name or '').strip().upper() in HEADER_MODES_STRUCTURE:
         return 'raw/sap/both/structure'
     return 'raw/sap/both'
 
@@ -115,8 +134,12 @@ def header_modes_label(table_name: str) -> str:
 def format_headers(df: pd.DataFrame, table_name: str, mode: str) -> pd.DataFrame:
     if df.empty or mode == 'raw':
         return df
-    if mode == 'structure' and str(table_name or '').strip().upper() == 'KNVV':
-        return format_knvv_structure(df)
+    table_u = str(table_name or '').strip().upper()
+    if mode == 'structure':
+        if table_u == 'KNVV':
+            return format_knvv_structure(df)
+        if table_u == 'KNVP':
+            return format_knvp_structure(df)
     column_map = load_column_map(_PROJECT_ROOT)
     out = apply_column_headers_for_rules(df, table_name, column_map, _PROJECT_ROOT, log_renames=False)
     if mode == 'both':
@@ -144,7 +167,11 @@ def format_headers(df: pd.DataFrame, table_name: str, mode: str) -> pd.DataFrame
         if sap and sap in cols and col != sap and _norm(col) != _norm(sap):
             drop.add(col)
     out = out.drop(columns=sorted(drop), errors='ignore')
-    priority = [sap for sap in alias if sap in out.columns]
+    priority = list(tm.get('_header_order') or [])
+    priority = [c for c in priority if c in out.columns]
+    for sap in alias:
+        if sap in out.columns and sap not in priority:
+            priority.append(sap)
     for logical, physical in tm.items():
         if str(logical).startswith('_'):
             continue
@@ -318,7 +345,7 @@ def parse_args():
     p.add_argument('--table', help='Сразу открыть таблицу без меню')
     p.add_argument('--limit', type=int, default=20, help='Строк на экран (по умолчанию 20)')
     p.add_argument('--offset', type=int, default=0, help='Смещение для --table')
-    p.add_argument('--headers', choices=('raw', 'sap', 'both', 'structure'), default='sap', help='Шапка: sap, raw, both; для KNVV ещё structure (SAP DDIC)')
+    p.add_argument('--headers', choices=('raw', 'sap', 'both', 'structure'), default='sap', help='Шапка: sap, raw, both; для KNVV/KNVP ещё structure (SAP DDIC)')
     p.add_argument('--max-cols', type=int, default=30, help='Макс. колонок в выводе')
     p.add_argument('-i', '--interactive', action='store_true', help='Интерактивный режим')
     return p.parse_args()

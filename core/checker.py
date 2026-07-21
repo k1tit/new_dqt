@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-20-rcccomp-149-only-9038'
+    CHECKER_BUILD_ID = '2026-07-21-knvp-sap-header'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -2798,18 +2798,23 @@ class FastDataQualityChecker:
             self._log_skipped_rule(rule, table_name, f'{rule_code}: не найден ключ клиента (KUNNR/Customer)', timestamp)
             return (0, 0)
         parvw_col = self._resolve_column_for_rule(df, 'PARVW', 'KNVP') or matched_column
-        parc_col = self._resolve_column_for_rule(df, 'ParC', 'KNVP')
+        # partner_code в SAP DDIC = KUNN2; старые дампы могут иметь ParC
+        parc_col = self._resolve_column_for_rule(df, 'KUNN2', 'KNVP')
+        if not parc_col:
+            parc_col = self._resolve_column_for_rule(df, 'ParC', 'KNVP')
+        if not parc_col:
+            parc_col = self._find_column_alternative(df.columns, 'KUNN2', 'KNVP')
         if not parc_col:
             parc_col = self._find_column_alternative(df.columns, 'ParC', 'KNVP')
         if not parc_col:
             parc_col = self._find_column_alternative(df.columns, 'partner_code', 'KNVP')
         if not parc_col:
-            for cand in ('Part', 'Counterparty', 'KUNNR', 'Customer', 'KUNNR_KNVP'):
+            for cand in ('KUNN2', 'ParC', 'Part', 'Counterparty', 'Partner'):
                 parc_col = next((c for c in df.columns if str(c).strip().upper() == cand.upper()), None)
                 if parc_col:
                     break
         if not parvw_col or parvw_col not in df.columns or not parc_col or parc_col not in df.columns:
-            self._log_skipped_rule(rule, table_name, f'{rule_code}: не найдены колонки partner function ({parvw_col}) / partner code ({parc_col})', timestamp)
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: не найдены колонки partner function ({parvw_col}) / partner code KUNN2/ParC ({parc_col})', timestamp)
             return (0, 0)
         df_work = df.copy()
         before_rows = len(df_work)
