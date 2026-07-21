@@ -1998,8 +1998,8 @@
         "IF account_group_code NOT LIKE '90%' OR order_block_code IN ('S', 'SP', 'E', 'G',",
         "'S2', 'S3', 'S4', 'S5', 'S9', 'R', 'U', 'S1','SY',' IA','IB','RN') THEN '' ELSE",
         "IF a.partner_code IS NOT EXIST for any of partner_function_code IN ('AG') THEN '0'",
-        "ELSE '1' /*partner_code MUST BE assigned to partner_function_code: 'AG'",
-        "(dump-specific: table contains AG only; original BP/PY/ZY/SP/SH/YR temporarily replaced)*/"
+        "ELSE '1' /*colleague: NOT LIKE '90%' ≈ if not 9038 then skip; evaluate only 9038;",
+        "PF dump-specific: AG only*/"
       ],
       "value_checked": "IF check_status = '0' THEN\n'Missing Partner function: a.partner_function_code ELSE a.partner_function_code+_+a.partner_code",
       "datamart_or_reference_table_used": "dm_customer_partner (a) where distribution_channel_code = '01' AND division_code = '01' dm_customer_general (c) c INNER a on customer_code",
@@ -2018,7 +2018,8 @@
         "IF account_group_code NOT LIKE '90%' OR order_block_code IN ('S', 'SP', 'E', 'G',",
         "'S2', 'S3', 'S4', 'S5', 'S9', 'R', 'U', 'S1','SY',' IA','IB','RN') OR",
         "customer_group_4_code != 'IN' THEN '' IF partner_code IS NULL /*for customer with",
-        "customer_group_4_code = 'IN' not exists ZW partner_function_code*/ THEN '0' ELSE",
+        "customer_group_4_code = 'IN' not exists ZW; colleague: if not 9038 then skip,",
+        "evaluate only 9038*/ THEN '0' ELSE",
         "'1'"
       ],
       "value_checked": "a.partner_function_code+_+a.partner_code",

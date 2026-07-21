@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-21-rcccomp-149-2-kvgr4-in-export'
+    CHECKER_BUILD_ID = '2026-07-21-rcccomp-149-only-9038-again'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -2499,6 +2499,7 @@ class FastDataQualityChecker:
     TAXNUM_FORMAT_RULES = frozenset({'RCCONF_50.1', 'RCCONF_52.1', 'RCCONF_54.1', 'RCCONF_63.1'})
     RCCOMP_149_RULES = frozenset({'RCCOMP_149.1', 'RCCOMP_149.2'})
     RCCOMP_149_ORDER_BLOCK_SKIP = frozenset({'S', 'SP', 'E', 'G', 'S2', 'S3', 'S4', 'S5', 'S9', 'R', 'U', 'S1', 'SY', 'IA', 'IB', 'RN'})
+    # Коллега: IF NOT LIKE '90%' THEN skip ≈ «если не 9038 — забить» → оцениваем только KTOKD=9038.
     RCCOMP_149_ACCOUNT_GROUP_ONLY = frozenset({'9038'})
     RCCOMP_149_1_REQUIRED_PF = frozenset({'AG'})
     KNVV_ORDER_BLOCK_BLOCKED = frozenset({'S', 'NH', 'S3', 'S4', 'SY', 'U', 'R', 'PR'})
@@ -2822,7 +2823,7 @@ class FastDataQualityChecker:
             out.loc[empty, 'KVGR4'] = 'IN'
         out['customer_group_4_code'] = out['KVGR4']
         out['KVGR4_SOURCE'] = 'KNVV'
-        out['RULE_SCOPE'] = "KNA1.KTOKD scope + KNVV.KVGR4='IN' (indirect), SO 01-01/04-02"
+        out['RULE_SCOPE'] = "only KTOKD=9038 + KNVV.KVGR4='IN' (indirect), SO 01-01/04-02"
         out = self._place_column_after(out, 'KVGR4', ('KTOKD', 'KTOKD_SOURCE', 'Customer', 'KUNNR', 'CUSTOMER'))
         out = self._place_column_after(out, 'customer_group_4_code', ('KVGR4',))
         out = self._place_column_after(out, 'KVGR4_SOURCE', ('customer_group_4_code', 'KVGR4'))
@@ -2833,7 +2834,7 @@ class FastDataQualityChecker:
 
     def _rcccomp_149_scope_criteria_short(self, rule_code):
         only = ','.join(sorted(self.RCCOMP_149_ACCOUNT_GROUP_ONLY))
-        base = f"KNVP SO 01-01/04-02, только KTOKD={only}, без order block"
+        base = f"KNVP SO 01-01/04-02, только KTOKD={only} (не {only} — skip), без order block"
         if str(rule_code or '').strip().upper() == 'RCCOMP_149.2':
             return f"{base}, KVGR4='IN' (indirect)"
         return base
@@ -2846,7 +2847,7 @@ class FastDataQualityChecker:
         if n_9038:
             breakdown.append(f'KTOKD={only}: {n_9038:,}')
         if n_skip_not_9038:
-            breakdown.append(f'не {only} (skip): {n_skip_not_9038:,}')
+            breakdown.append(f'не {only} (skip/забить): {n_skip_not_9038:,}')
         if n_skip_blocked:
             breakdown.append(f'order block: {n_skip_blocked:,}')
         if n_indirect is not None and n_indirect == 0:
@@ -2906,12 +2907,13 @@ class FastDataQualityChecker:
         ob_norm = cust_df[ob_col].astype(str).str.strip().str.upper()
         is_9038 = ag_norm.isin(self.RCCOMP_149_ACCOUNT_GROUP_ONLY)
         not_blocked = ~ob_norm.isin(self.RCCOMP_149_ORDER_BLOCK_SKIP)
+        # «если не 9038 — забить» → оцениваем только 9038
         eval_scope = is_9038 & not_blocked
         n_9038 = int(is_9038.sum())
         n_skip_not_9038 = int((~is_9038).sum())
         n_skip_blocked = int((is_9038 & ~not_blocked).sum())
         only = ','.join(sorted(self.RCCOMP_149_ACCOUNT_GROUP_ONLY))
-        print(f"      [FILTER] {rule_code}: только KTOKD={only} -> в scope {n_9038:,} клиентов, skip остальных: {n_skip_not_9038:,} (колонка: {ag_col})")
+        print(f"      [FILTER] {rule_code}: только KTOKD={only} -> в scope {n_9038:,}; не {only} (забить/skip): {n_skip_not_9038:,} (колонка: {ag_col})")
         if n_skip_blocked:
             print(f"      [FILTER] {rule_code}: blocked order_block -> ещё пропущено {n_skip_blocked:,} клиентов")
         scope_desc = f"уникальные клиенты KNVP в SO 01-01/04-02, только KTOKD={only}, без blocked order_block"
@@ -2921,7 +2923,7 @@ class FastDataQualityChecker:
                 self._log_skipped_rule(rule, table_name, self._rcccomp_149_scope_skip_message(rule_code, len(cust_df), n_skip_not_9038, n_skip_blocked, n_indirect=0, n_9038=n_9038), timestamp)
                 return (0, 0)
             eval_scope = eval_scope & cust_df['_cust_key'].isin(in_keys)
-            scope_desc = f"indirect-клиенты (KVGR4='IN'), SO 01-01/04-02, только KTOKD={only}"
+            scope_desc = f"indirect (KVGR4='IN'), SO 01-01/04-02, только KTOKD={only}"
         eval_keys = set(cust_df.index[eval_scope])
         total_rows = len(eval_keys)
         print(f'      [FILTER] {rule_code} «Всего записей» = {total_rows:,} клиентов ({scope_desc})')
