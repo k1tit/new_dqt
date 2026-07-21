@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-21-rcccomp-149-required-ag-only'
+    CHECKER_BUILD_ID = '2026-07-21-rcccomp-149-2-kvgr4-in-export'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -2753,7 +2753,8 @@ class FastDataQualityChecker:
         sp = self._norm_knvv_so_code_series(df[spart_col])
         return ((vt == '01') & (sp == '01')) | ((vt == '04') & (sp == '02'))
 
-    def _get_knvv_indirect_customer_keys(self, rule_code):
+    def _get_knvv_kvgr4_scoped(self, rule_code):
+        """KNVV rows in SO 01-01/04-02 with KUNNR key + normalized KVGR4."""
         knvv_df = self._get_table_for_rules('KNVV')
         if knvv_df is None or knvv_df.empty:
             try:
@@ -2762,19 +2763,73 @@ class FastDataQualityChecker:
             except Exception:
                 knvv_df = None
         if knvv_df is None or knvv_df.empty:
-            print(f'      [WARN] {rule_code}: KNVV пуста — indirect (KVGR4=IN) клиенты не определены')
-            return set()
+            print(f'      [WARN] {rule_code}: KNVV пуста — KVGR4/indirect не определены')
+            return pd.DataFrame(columns=['_cust_key', 'KVGR4'])
         vtweg_col = self._resolve_column_for_rule(knvv_df, 'VTWEG', 'KNVV')
         spart_col = self._resolve_column_for_rule(knvv_df, 'SPART', 'KNVV')
-        kvgr4_col = self._resolve_column_for_rule(knvv_df, 'KVGR4', 'KNVV') or next((c for c in knvv_df.columns if str(c).strip().upper() in ('GRP4', 'KVGR4')), None)
+        kvgr4_col = self._resolve_column_for_rule(knvv_df, 'KVGR4', 'KNVV') or next(
+            (c for c in knvv_df.columns if str(c).strip().upper() in ('GRP4', 'KVGR4', 'CUSTOMER_GROUP_4_CODE')),
+            None,
+        )
         kunnr_col = self._pick_best_kunnr_column(knvv_df, 'KNVV')
         if not kunnr_col or not kvgr4_col:
             print(f'      [WARN] {rule_code}: в KNVV не найдены Customer/KVGR4')
-            return set()
+            return pd.DataFrame(columns=['_cust_key', 'KVGR4'])
         so_mask = self._knvp_sales_org_scope_mask(knvv_df, vtweg_col, spart_col)
-        kv4 = knvv_df[kvgr4_col].astype(str).str.strip().str.upper()
-        keys = knvv_df.loc[so_mask & (kv4 == 'IN'), kunnr_col].apply(self._norm_customer_partner_key)
+        out = knvv_df.loc[so_mask, [kunnr_col, kvgr4_col]].copy()
+        out['_cust_key'] = out[kunnr_col].apply(self._norm_customer_partner_key)
+        out['KVGR4'] = out[kvgr4_col].astype(str).str.strip().str.upper()
+        out.loc[out['KVGR4'].isin({'', 'NONE', 'NULL', 'NAN', 'NA', '-', '.'}), 'KVGR4'] = ''
+        out = out[out['_cust_key'] != '']
+        # Prefer IN when customer has several SO rows
+        out['_pref'] = (out['KVGR4'] == 'IN').astype(int)
+        out = out.sort_values(['_cust_key', '_pref'], ascending=[True, False])
+        out = out.drop_duplicates(subset=['_cust_key'], keep='first')
+        return out[['_cust_key', 'KVGR4']]
+
+    def _get_knvv_indirect_customer_keys(self, rule_code):
+        scoped = self._get_knvv_kvgr4_scoped(rule_code)
+        if scoped is None or scoped.empty:
+            return set()
+        keys = scoped.loc[scoped['KVGR4'] == 'IN', '_cust_key']
         return set(keys[keys != ''])
+
+    def _attach_149_2_indirect_export_columns(self, error_df, rule_code=None):
+        """Reflect customer_group_4_code='IN' (KVGR4) in RCCOMP_149.2 error file."""
+        if error_df is None or error_df.empty:
+            return error_df
+        out = error_df.copy()
+        lookup = self._get_knvv_kvgr4_scoped(rule_code or 'RCCOMP_149.2')
+        cust_col = self._pick_best_kunnr_column(out, 'KNVP') or next(
+            (c for c in out.columns if str(c).strip().upper() in ('KUNNR', 'CUSTOMER', 'CUSTOMER_1')),
+            None,
+        )
+        if cust_col and lookup is not None and (not lookup.empty):
+            out['_cust_key'] = out[cust_col].apply(self._norm_customer_partner_key)
+            out = out.merge(lookup, on='_cust_key', how='left', suffixes=('', '_knvv'))
+            if 'KVGR4_knvv' in out.columns:
+                if 'KVGR4' not in out.columns:
+                    out['KVGR4'] = out['KVGR4_knvv']
+                else:
+                    empty = out['KVGR4'].isna() | (out['KVGR4'].astype(str).str.strip() == '')
+                    out.loc[empty, 'KVGR4'] = out.loc[empty, 'KVGR4_knvv']
+                out = out.drop(columns=['KVGR4_knvv'], errors='ignore')
+            out = out.drop(columns=['_cust_key'], errors='ignore')
+        if 'KVGR4' not in out.columns:
+            out['KVGR4'] = 'IN'
+        else:
+            empty = out['KVGR4'].isna() | (out['KVGR4'].astype(str).str.strip() == '')
+            out.loc[empty, 'KVGR4'] = 'IN'
+        out['customer_group_4_code'] = out['KVGR4']
+        out['KVGR4_SOURCE'] = 'KNVV'
+        out['RULE_SCOPE'] = "KNA1.KTOKD scope + KNVV.KVGR4='IN' (indirect), SO 01-01/04-02"
+        out = self._place_column_after(out, 'KVGR4', ('KTOKD', 'KTOKD_SOURCE', 'Customer', 'KUNNR', 'CUSTOMER'))
+        out = self._place_column_after(out, 'customer_group_4_code', ('KVGR4',))
+        out = self._place_column_after(out, 'KVGR4_SOURCE', ('customer_group_4_code', 'KVGR4'))
+        out = self._place_column_after(out, 'RULE_SCOPE', ('KVGR4_SOURCE', 'KTOKD_SOURCE', 'KTOKD'))
+        filled = int((out['KVGR4'].astype(str).str.strip().str.upper() == 'IN').sum())
+        print(f"      [EXPORT] {rule_code}: в ошибках отражён customer_group_4_code/KVGR4='IN' — {filled:,}/{len(out):,} строк")
+        return out
 
     def _rcccomp_149_scope_criteria_short(self, rule_code):
         only = ','.join(sorted(self.RCCOMP_149_ACCOUNT_GROUP_ONLY))
@@ -2903,6 +2958,8 @@ class FastDataQualityChecker:
         error_df = validator._prepare_error_dataframe(df_scoped, error_mask, 'COMPLETENESS', error_description) if error_count > 0 else None
         if error_df is not None and (not error_df.empty):
             error_df = self._attach_kna1_ktokd_export_columns(error_df, rule_code)
+            if rule_code == 'RCCOMP_149.2':
+                error_df = self._attach_149_2_indirect_export_columns(error_df, rule_code)
         is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
         if save_result:
             rule_info = {'rule_code': rule_code, 'rule_description': rule.get('rule_description', 'Unknown rule'), 'quality_category': rule.get('quality_category', 'Unknown'), 'table_name': table_name, 'original_column': column_to_check, 'matched_column': matched_column}
