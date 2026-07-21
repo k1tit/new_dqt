@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-21-knvp-drop-customer1-alias'
+    CHECKER_BUILD_ID = '2026-07-21-rcccomp-149-required-ag-only'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -2500,7 +2500,7 @@ class FastDataQualityChecker:
     RCCOMP_149_RULES = frozenset({'RCCOMP_149.1', 'RCCOMP_149.2'})
     RCCOMP_149_ORDER_BLOCK_SKIP = frozenset({'S', 'SP', 'E', 'G', 'S2', 'S3', 'S4', 'S5', 'S9', 'R', 'U', 'S1', 'SY', 'IA', 'IB', 'RN'})
     RCCOMP_149_ACCOUNT_GROUP_ONLY = frozenset({'9038'})
-    RCCOMP_149_1_REQUIRED_PF = frozenset({'BP', 'PY', 'ZY', 'SP', 'SH', 'YR'})
+    RCCOMP_149_1_REQUIRED_PF = frozenset({'AG'})
     KNVV_ORDER_BLOCK_BLOCKED = frozenset({'S', 'NH', 'S3', 'S4', 'SY', 'U', 'R', 'PR'})
     KNVV_DM_SALES_ORG_SCOPE_RULES = frozenset({
         'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCOMP_144.1', 'RCCOMP_153.1', 'RCCOMP_154.1',
