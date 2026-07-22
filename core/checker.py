@@ -39,12 +39,15 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-21-rcccomp-149-only-9038-again'
+    CHECKER_BUILD_ID = '2026-07-22-rcccomp-149-save-all-errors'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
     RULES_ERROR_EXPORT_KNA1_KTOKD = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCONF_113.1', 'RCCONF_24.1', 'RCCONF_115.11', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
-    RULES_SAVE_ALL_ERRORS = frozenset({'RCCONF_39.5', 'RCCONF_39.5.2', 'RCCONF_18.2', 'RCCONF_63.1'})
+    RULES_SAVE_ALL_ERRORS = frozenset({
+        'RCCONF_39.5', 'RCCONF_39.5.2', 'RCCONF_18.2', 'RCCONF_63.1',
+        'RCCOMP_149.1', 'RCCOMP_149.2',
+    })
     TABLES_SAVE_ALL_ERRORS = frozenset({'ADR2', 'BUT000'})
     ADR2_NON_BLOCKED_MOBILE_RULES = frozenset({
         'RCCOMP_375.1.2',
@@ -2501,7 +2504,7 @@ class FastDataQualityChecker:
     RCCOMP_149_ORDER_BLOCK_SKIP = frozenset({'S', 'SP', 'E', 'G', 'S2', 'S3', 'S4', 'S5', 'S9', 'R', 'U', 'S1', 'SY', 'IA', 'IB', 'RN'})
     # Коллега: IF NOT LIKE '90%' THEN skip ≈ «если не 9038 — забить» → оцениваем только KTOKD=9038.
     RCCOMP_149_ACCOUNT_GROUP_ONLY = frozenset({'9038'})
-    RCCOMP_149_1_REQUIRED_PF = frozenset({'AG'})
+    RCCOMP_149_1_REQUIRED_PF = frozenset({'BP', 'PY', 'ZY', 'SP', 'SH', 'YR'})
     KNVV_ORDER_BLOCK_BLOCKED = frozenset({'S', 'NH', 'S3', 'S4', 'SY', 'U', 'R', 'PR'})
     KNVV_DM_SALES_ORG_SCOPE_RULES = frozenset({
         'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCOMP_144.1', 'RCCOMP_153.1', 'RCCOMP_154.1',
