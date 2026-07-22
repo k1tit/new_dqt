@@ -24,7 +24,12 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from utils.sqlite_safe import connect_sqlite, resolve_database_path
+from utils.sqlite_safe import (
+    connect_sqlite,
+    resolve_database_path,
+    load_database_config,
+    DB_CONFIG_REL,
+)
 
 DEFAULT_OUTPUT_DIR = os.path.join(_PROJECT_ROOT, 'exports')
 DEFAULT_REPORTS_DIR = os.path.join(_PROJECT_ROOT, 'quality_reports')
@@ -390,7 +395,11 @@ def parse_args():
     p = argparse.ArgumentParser(
         description='Выгрузка KNVP/KNA1/KNVV из БД по клиентам из ошибок RCCOMP_149.1 / 149.2'
     )
-    p.add_argument('--db', default=None, help='Путь к .db (иначе config/database.json)')
+    p.add_argument(
+        '--db',
+        default=None,
+        help='Переопределить путь/имя .db. По умолчанию берётся поле database из config/database.json',
+    )
     p.add_argument('--errors-dir', default=None, help='Папка errors_YYYY-... (иначе последняя в quality_reports)')
     p.add_argument('--error-file', action='append', default=[], help='Явный файл ошибок (можно несколько)')
     p.add_argument('--reports-dir', default=DEFAULT_REPORTS_DIR, help='Корень quality_reports')
@@ -445,7 +454,28 @@ def main() -> int:
         print('ОШИБКА: в файлах ошибок нет клиентов')
         return 1
 
-    db_path, db_source = resolve_database_path(_PROJECT_ROOT, args.db, must_exist=True)
+    # Имя БД — из config/database.json (поле database), если не передан --db
+    if args.db and str(args.db).strip():
+        db_path, db_source = resolve_database_path(_PROJECT_ROOT, args.db, must_exist=True)
+    else:
+        cfg = load_database_config(_PROJECT_ROOT)
+        db_name = str(cfg.get('database') or '').strip()
+        cfg_path = os.path.join(_PROJECT_ROOT, DB_CONFIG_REL)
+        if not db_name:
+            print(f'ОШИБКА: в {cfg_path} нет поля "database"')
+            return 1
+        db_path = db_name if os.path.isabs(db_name) else os.path.normpath(os.path.join(_PROJECT_ROOT, db_name))
+        period = str(cfg.get('period') or '').strip()
+        db_source = DB_CONFIG_REL.replace('\\', '/')
+        if period:
+            db_source += f' (period={period})'
+        if not os.path.isfile(db_path):
+            print(f'ОШИБКА: файл БД не найден: {db_path}')
+            print(f'  Источник: {db_source} → database="{db_name}"')
+            print(f'  Положите .db в корень проекта или поправьте {DB_CONFIG_REL}')
+            return 1
+        print(f'config/database.json → database: {db_name}')
+
     print(f'БД ({db_source}): {db_path}')
     if _tqdm is None:
         print('[INFO] Для красивого прогресс-бара можно поставить: pip install tqdm')
