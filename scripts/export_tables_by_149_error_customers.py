@@ -222,7 +222,7 @@ def fetch_by_customers(conn, table_name: str, customer_col: str, customer_ids: l
             f'SELECT * FROM {quoted_table} '
             f"WHERE TRIM(REPLACE(CAST({quoted_col} AS TEXT), char(160), '')) IN ({placeholders})"
         )
-        part = pd.read_sql_query(query, conn, params=batch)
+        part = pd.read_sql_query(query, conn, params=tuple(batch))
         if not part.empty:
             frames.append(part)
 
