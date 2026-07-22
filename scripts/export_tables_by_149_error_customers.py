@@ -1,12 +1,13 @@
 """Выгрузка таблиц из БД только по клиентам из ошибок RCCOMP_149.1 / 149.2.
 
-Берёт KUNNR/Customer из файлов ошибок, затем выгружает из SQLite
-строки KNVP / KNA1 / KNVV (и др.) только по этим клиентам — не всю таблицу.
+По умолчанию — раздельно: подпапки RCCOMP_149_1 и RCCOMP_149_2.
+Опция --rule combined — один общий список клиентов.
 
 Примеры:
   python scripts/export_tables_by_149_error_customers.py
-  python scripts/export_tables_by_149_error_customers.py --errors-dir quality_reports/errors_2026-07-22_13-00-00
-  python scripts/export_tables_by_149_error_customers.py --tables KNVP,KNA1,KNVV --format csv
+  python scripts/export_tables_by_149_error_customers.py --rule 149.1
+  python scripts/export_tables_by_149_error_customers.py --rule combined
+  python scripts/export_tables_by_149_error_customers.py --errors-dir quality_reports/errors_...
 """
 from __future__ import annotations
 
@@ -53,7 +54,6 @@ def normalize_customer_id(value) -> str:
 
 
 def customer_id_variants(cid: str) -> list[str]:
-    """Варианты для SQL IN: с ведущими нулями и без."""
     n = normalize_customer_id(cid)
     if not n:
         return []
@@ -61,8 +61,6 @@ def customer_id_variants(cid: str) -> list[str]:
     stripped = n.lstrip('0') or '0'
     if stripped not in out:
         out.append(stripped)
-    if not n.startswith('0') and n.zfill(10) not in out:
-        out.append(n.zfill(10))
     return out
 
 
@@ -108,23 +106,41 @@ def collect_customers_from_error_file(path: str) -> set[str]:
     return keys
 
 
-def find_149_error_files(errors_dir: str | None, reports_dir: str, explicit_files: list[str]) -> list[str]:
-    found: list[str] = []
+def detect_rule_from_path(path: str) -> str | None:
+    name = os.path.basename(path).upper()
+    for rule in RULE_CODES:
+        if rule.upper() in name:
+            return rule
+    return None
+
+
+def find_149_error_files(
+    errors_dir: str | None,
+    reports_dir: str,
+    explicit_files: list[str],
+) -> dict[str, str]:
+    """rule_code -> path to newest error file."""
+    by_rule: dict[str, str] = {}
+
     for f in explicit_files or []:
         p = f if os.path.isabs(f) else os.path.join(_PROJECT_ROOT, f)
-        if os.path.isfile(p):
-            found.append(p)
-        else:
+        if not os.path.isfile(p):
             print(f'  [WARN] Файл не найден: {p}')
-    if found:
-        return found
+            continue
+        rule = detect_rule_from_path(p)
+        if not rule:
+            print(f'  [WARN] Не удалось определить правило (149.1/149.2) для: {p}')
+            continue
+        by_rule[rule] = p
+        print(f'  {rule}: {p}')
+    if by_rule and explicit_files:
+        return by_rule
 
     search_roots: list[str] = []
     if errors_dir:
         d = errors_dir if os.path.isabs(errors_dir) else os.path.join(_PROJECT_ROOT, errors_dir)
         search_roots.append(d)
     else:
-        # последние errors_* в quality_reports
         pattern = os.path.join(reports_dir, 'errors_*')
         dirs = sorted(glob.glob(pattern), key=os.path.getmtime, reverse=True)
         if dirs:
@@ -138,18 +154,32 @@ def find_149_error_files(errors_dir: str | None, reports_dir: str, explicit_file
             print(f'  [WARN] Папка не найдена: {root}')
             continue
         for rule in RULE_CODES:
+            if rule in by_rule:
+                continue
             matches = []
             for ext in ('*.csv', '*.xlsx', '*.xls'):
                 matches.extend(glob.glob(os.path.join(root, f'{rule}_*{ext}')))
                 matches.extend(glob.glob(os.path.join(root, '**', f'{rule}_*{ext}'), recursive=True))
-            # dedupe, newest first
             matches = sorted(set(matches), key=os.path.getmtime, reverse=True)
             if matches:
-                found.append(matches[0])
+                by_rule[rule] = matches[0]
                 print(f'  Найден {rule}: {matches[0]}')
             else:
                 print(f'  [WARN] Нет файла ошибок для {rule} в {root}')
-    return found
+    return by_rule
+
+
+def normalize_rule_arg(value: str) -> str:
+    v = str(value or '').strip().upper().replace(' ', '')
+    if v in ('BOTH', 'ALL', '149', 'SEPARATE'):
+        return 'BOTH'
+    if v in ('COMBINED', 'UNION', 'MERGE'):
+        return 'COMBINED'
+    if v in ('149.1', 'RCCOMP_149.1', '1'):
+        return 'RCCOMP_149.1'
+    if v in ('149.2', 'RCCOMP_149.2', '2'):
+        return 'RCCOMP_149.2'
+    raise ValueError(f'Неизвестный --rule: {value!r}. Ожидается 149.1 / 149.2 / both / combined')
 
 
 def resolve_table_name(conn, table_name: str) -> str:
@@ -174,7 +204,6 @@ def resolve_customer_column(conn, table_name: str) -> str:
 def fetch_by_customers(conn, table_name: str, customer_col: str, customer_ids: list[str]) -> pd.DataFrame:
     if not customer_ids:
         return pd.DataFrame()
-    # расширяем варианты ключей для SQL
     variants: list[str] = []
     seen: set[str] = set()
     for cid in customer_ids:
@@ -189,18 +218,15 @@ def fetch_by_customers(conn, table_name: str, customer_col: str, customer_ids: l
     for i in range(0, len(variants), BATCH_SIZE):
         batch = variants[i:i + BATCH_SIZE]
         placeholders = ','.join(['?'] * len(batch))
-        # сравнение по «сырому» тексту и по нормализованным цифрам сложно в SQLite —
-        # берём IN по вариантам + доп. фильтр в pandas
         query = (
             f'SELECT * FROM {quoted_table} '
-            f'WHERE TRIM(REPLACE(CAST({quoted_col} AS TEXT), char(160), \'\')) IN ({placeholders})'
+            f"WHERE TRIM(REPLACE(CAST({quoted_col} AS TEXT), char(160), '')) IN ({placeholders})"
         )
         part = pd.read_sql_query(query, conn, params=batch)
         if not part.empty:
             frames.append(part)
 
     if not frames:
-        # fallback: читаем колонку ключа и фильтруем в pandas (если таблица не гигантская)
         print(f'  [INFO] {table_name}: SQL IN не нашёл строк — fallback filter по нормализованному ключу')
         keys = set(customer_ids)
         df_all = pd.read_sql_query(f'SELECT * FROM {quoted_table}', conn)
@@ -210,11 +236,9 @@ def fetch_by_customers(conn, table_name: str, customer_col: str, customer_ids: l
         return df_all.loc[mask].copy()
 
     out = pd.concat(frames, ignore_index=True)
-    # оставить только клиентов из списка (после нормализации)
     keys = set(customer_ids)
     mask = out[customer_col].map(normalize_customer_id).isin(keys)
-    out = out.loc[mask].drop_duplicates().copy()
-    return out
+    return out.loc[mask].drop_duplicates().copy()
 
 
 def save_df(df: pd.DataFrame, output_base: str, fmt: str) -> list[str]:
@@ -226,7 +250,6 @@ def save_df(df: pd.DataFrame, output_base: str, fmt: str) -> list[str]:
         saved.append(path)
     if fmt in ('xlsx', 'both'):
         path = f'{output_base}.xlsx'
-        # Excel лимит строк
         if len(df) > 1_000_000:
             print(f'  [WARN] {len(df):,} строк > Excel limit — xlsx пропущен, используйте csv')
         else:
@@ -235,14 +258,58 @@ def save_df(df: pd.DataFrame, output_base: str, fmt: str) -> list[str]:
     return saved
 
 
+def export_for_customers(
+    conn,
+    tables: list[str],
+    customer_ids: list[str],
+    out_dir: str,
+    fmt: str,
+    label: str,
+) -> None:
+    os.makedirs(out_dir, exist_ok=True)
+    list_path = os.path.join(out_dir, f'customers_{label}.txt')
+    with open(list_path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(customer_ids) + '\n')
+    print(f'  Список клиентов ({len(customer_ids):,}): {list_path}')
+
+    for table in tables:
+        try:
+            actual = resolve_table_name(conn, table)
+            cust_col = resolve_customer_column(conn, actual)
+            print(f'\n  [{label} / {table}] колонка клиента: {cust_col}')
+            df = fetch_by_customers(conn, actual, cust_col, customer_ids)
+            print(f'    строк выгружено: {len(df):,}')
+            base = os.path.join(out_dir, f'{table}_by_{label}_error_customers')
+            saved = save_df(df, base, fmt)
+            for p in saved:
+                print(f'    → {p}')
+            if not df.empty:
+                found = {normalize_customer_id(v) for v in df[cust_col].tolist()}
+                found.discard('')
+                missing = [c for c in customer_ids if c not in found]
+                print(f'    клиентов в выгрузке: {len(found):,} / {len(customer_ids):,}')
+                if missing:
+                    miss_path = os.path.join(out_dir, f'{table}_missing_customers.txt')
+                    with open(miss_path, 'w', encoding='utf-8') as mf:
+                        mf.write('\n'.join(missing) + '\n')
+                    print(f'    не найдено в {table}: {len(missing):,} → {miss_path}')
+        except Exception as e:
+            print(f'    [ERROR] {table}: {e}')
+
+
 def parse_args():
     p = argparse.ArgumentParser(
-        description='Выгрузка KNVP/KNA1/KNVV из БД только по клиентам из ошибок RCCOMP_149.1-2'
+        description='Выгрузка KNVP/KNA1/KNVV из БД по клиентам из ошибок RCCOMP_149.1 / 149.2'
     )
     p.add_argument('--db', default=None, help='Путь к .db (иначе config/database.json)')
     p.add_argument('--errors-dir', default=None, help='Папка errors_YYYY-... (иначе последняя в quality_reports)')
     p.add_argument('--error-file', action='append', default=[], help='Явный файл ошибок (можно несколько)')
     p.add_argument('--reports-dir', default=DEFAULT_REPORTS_DIR, help='Корень quality_reports')
+    p.add_argument(
+        '--rule',
+        default='both',
+        help='149.1 | 149.2 | both (раздельно, default) | combined (общий список)',
+    )
     p.add_argument(
         '--tables',
         default=','.join(DEFAULT_TABLES),
@@ -259,63 +326,62 @@ def main() -> int:
     print('Выгрузка таблиц по клиентам из ошибок RCCOMP_149.1 / 149.2')
     print('=' * 72)
 
-    error_files = find_149_error_files(args.errors_dir, args.reports_dir, args.error_file)
-    if not error_files:
+    try:
+        rule_mode = normalize_rule_arg(args.rule)
+    except ValueError as e:
+        print(f'ОШИБКА: {e}')
+        return 1
+
+    by_rule = find_149_error_files(args.errors_dir, args.reports_dir, args.error_file)
+    if not by_rule:
         print('ОШИБКА: не найдены файлы ошибок 149.1/149.2. Укажите --errors-dir или --error-file')
         return 1
 
-    customers: set[str] = set()
-    for path in error_files:
-        customers |= collect_customers_from_error_file(path)
-    if not customers:
+    if rule_mode in ('RCCOMP_149.1', 'RCCOMP_149.2'):
+        if rule_mode not in by_rule:
+            print(f'ОШИБКА: нет файла ошибок для {rule_mode}')
+            return 1
+        by_rule = {rule_mode: by_rule[rule_mode]}
+
+    customers_by_rule: dict[str, list[str]] = {}
+    for rule, path in by_rule.items():
+        keys = collect_customers_from_error_file(path)
+        customers_by_rule[rule] = sorted(keys)
+        print(f'{rule}: {len(keys):,} клиентов')
+
+    if not any(customers_by_rule.values()):
         print('ОШИБКА: в файлах ошибок нет клиентов')
         return 1
-    customer_ids = sorted(customers)
-    print(f'\nИтого уникальных клиентов: {len(customer_ids):,}')
 
     db_path, db_source = resolve_database_path(_PROJECT_ROOT, args.db, must_exist=True)
     print(f'БД ({db_source}): {db_path}')
 
     ts = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    out_dir = os.path.join(args.output_dir, f'rccomp_149_customers_{ts}')
-    os.makedirs(out_dir, exist_ok=True)
-
-    list_path = os.path.join(out_dir, 'customers_from_149_errors.txt')
-    with open(list_path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(customer_ids) + '\n')
-    print(f'Список клиентов: {list_path}')
-
+    root_out = os.path.join(args.output_dir, f'rccomp_149_customers_{ts}')
+    os.makedirs(root_out, exist_ok=True)
     tables = [t.strip().upper() for t in str(args.tables).split(',') if t.strip()]
+
     conn = connect_sqlite(db_path)
     try:
-        for table in tables:
-            try:
-                actual = resolve_table_name(conn, table)
-                cust_col = resolve_customer_column(conn, actual)
-                print(f'\n[{table}] колонка клиента: {cust_col}')
-                df = fetch_by_customers(conn, actual, cust_col, customer_ids)
-                print(f'  строк выгружено: {len(df):,}')
-                base = os.path.join(out_dir, f'{table}_by_149_error_customers')
-                saved = save_df(df, base, args.format)
-                for p in saved:
-                    print(f'  → {p}')
-                # сколько клиентов реально нашлось
-                if not df.empty:
-                    found = {normalize_customer_id(v) for v in df[cust_col].tolist()}
-                    found.discard('')
-                    missing = [c for c in customer_ids if c not in found]
-                    print(f'  клиентов в выгрузке: {len(found):,} / {len(customer_ids):,}')
-                    if missing:
-                        miss_path = os.path.join(out_dir, f'{table}_missing_customers.txt')
-                        with open(miss_path, 'w', encoding='utf-8') as mf:
-                            mf.write('\n'.join(missing) + '\n')
-                        print(f'  не найдено в {table}: {len(missing):,} → {miss_path}')
-            except Exception as e:
-                print(f'  [ERROR] {table}: {e}')
+        if rule_mode == 'COMBINED':
+            merged: set[str] = set()
+            for ids in customers_by_rule.values():
+                merged.update(ids)
+            label = 'RCCOMP_149_combined'
+            print(f'\n--- {label}: {len(merged):,} клиентов (объединение) ---')
+            export_for_customers(conn, tables, sorted(merged), os.path.join(root_out, label), args.format, label)
+        else:
+            for rule, ids in customers_by_rule.items():
+                if not ids:
+                    print(f'\n--- {rule}: пусто, пропуск ---')
+                    continue
+                label = rule.replace('.', '_')
+                print(f'\n=== {rule}: {len(ids):,} клиентов ===')
+                export_for_customers(conn, tables, ids, os.path.join(root_out, label), args.format, label)
     finally:
         conn.close()
 
-    print(f'\nГотово. Папка: {out_dir}')
+    print(f'\nГотово. Папка: {root_out}')
     return 0
 
 
