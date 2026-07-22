@@ -1,13 +1,13 @@
-"""Выгрузка таблиц из БД только по клиентам из ошибок RCCOMP_149.1 / 149.2.
+"""Выгрузка ПОЛНЫХ строк таблиц из БД по клиентам из ошибок RCCOMP_149.1 / 149.2.
 
-По умолчанию — раздельно: подпапки RCCOMP_149_1 и RCCOMP_149_2.
-Опция --rule combined — один общий список клиентов.
+Не «список клиентов», а срезы таблиц (SELECT *), где KUNNR/Customer ∈ ошибки 149.
+По умолчанию раздельно: подпапки RCCOMP_149_1 и RCCOMP_149_2.
 
 Примеры:
   python scripts/export_tables_by_149_error_customers.py
+  python scripts/export_tables_by_149_error_customers.py --tables KNVP --workers 3
   python scripts/export_tables_by_149_error_customers.py --workers 3 --parallel-rules
   python scripts/export_tables_by_149_error_customers.py --rule 149.1
-  python scripts/export_tables_by_149_error_customers.py --rule combined
 """
 from __future__ import annotations
 
@@ -413,7 +413,7 @@ def _export_one_table(
             variants=variants,
             progress_desc=f'{label}/{table}',
         )
-        base = os.path.join(out_dir, f'{table}_by_{label}_error_customers')
+        base = os.path.join(out_dir, f'{table}_rows_for_{label}_error_customers')
         saved = save_df(df, base, fmt)
         found = set()
         missing: list[str] = []
@@ -459,12 +459,19 @@ def export_for_customers(
     label: str,
     *,
     workers: int = DEFAULT_WORKERS,
+    write_customer_list: bool = False,
 ) -> None:
     os.makedirs(out_dir, exist_ok=True)
-    list_path = os.path.join(out_dir, f'customers_{label}.txt')
-    with open(list_path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(customer_ids) + '\n')
-    print(f'  Список клиентов ({len(customer_ids):,}): {list_path}')
+    print(
+        f'  Выгружаем ПОЛНЫЕ строки таблиц {", ".join(tables)} '
+        f'только по {len(customer_ids):,} клиентам из ошибок ({label})',
+        flush=True,
+    )
+    if write_customer_list:
+        list_path = os.path.join(out_dir, f'customers_{label}.txt')
+        with open(list_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(customer_ids) + '\n')
+        print(f'  (опц.) список клиентов: {list_path}')
 
     variants = build_customer_variants(customer_ids)
     print(f'  Ключей для JOIN (с вариантами): {len(variants):,}')
@@ -489,16 +496,21 @@ def export_for_customers(
                     print(f'\n  [ERROR] {table}: {res["error"]}', flush=True)
                 else:
                     print(
-                        f'\n  [{label} / {table}] col={res["cust_col"]} | '
+                        f'\n  [{label} / {table}] ПОЛНЫЕ СТРОКИ таблицы | col={res["cust_col"]} | '
                         f'rows={res["rows"]:,} | customers={res["found"]:,}/{len(customer_ids):,} | '
                         f'{res["sec"]:.1f}с',
                         flush=True,
                     )
                     for p in res.get('saved') or []:
-                        print(f'    → {p}', flush=True)
+                        print(f'    → TABLE FILE: {p}', flush=True)
                     if res.get('missing'):
                         print(f'    не найдено в {table}: {res["missing"]:,}', flush=True)
                 tables_bar.update(1)
+
+    ok_files = [p for r in results for p in (r.get('saved') or [])]
+    print(f'\n  Итого файлов таблиц для {label}: {len(ok_files)}', flush=True)
+    for p in ok_files:
+        print(f'    • {p}', flush=True)
 
 def parse_args():
     p = argparse.ArgumentParser(
@@ -534,6 +546,11 @@ def parse_args():
         '--parallel-rules',
         action='store_true',
         help='Параллельно выгружать 149.1 и 149.2 (отдельные соединения)',
+    )
+    p.add_argument(
+        '--write-customer-list',
+        action='store_true',
+        help='Дополнительно сохранить txt со списком клиентов (по умолчанию только таблицы)',
     )
     return p.parse_args()
 
@@ -618,10 +635,11 @@ def main() -> int:
                 jobs.append((rule.replace('.', '_'), ids))
 
     def _run_job(label: str, ids: list[str]) -> None:
-        print(f'\n=== {label}: {len(ids):,} клиентов ===', flush=True)
+        print(f'\n=== {label}: {len(ids):,} клиентов из ошибок → полные строки таблиц ===', flush=True)
         export_for_customers(
             db_path, tables, ids, os.path.join(root_out, label), args.format, label,
             workers=workers,
+            write_customer_list=bool(args.write_customer_list),
         )
 
     if args.parallel_rules and len(jobs) > 1:
