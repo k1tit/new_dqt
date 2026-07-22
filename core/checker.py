@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-22-rcccomp-149-save-all-errors'
+    CHECKER_BUILD_ID = '2026-07-22-rcccomp-149-unlimited-errors'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -48,7 +48,7 @@ class FastDataQualityChecker:
         'RCCONF_39.5', 'RCCONF_39.5.2', 'RCCONF_18.2', 'RCCONF_63.1',
         'RCCOMP_149.1', 'RCCOMP_149.2',
     })
-    TABLES_SAVE_ALL_ERRORS = frozenset({'ADR2', 'BUT000'})
+    TABLES_SAVE_ALL_ERRORS = frozenset({'ADR2', 'BUT000', 'KNVP'})
     ADR2_NON_BLOCKED_MOBILE_RULES = frozenset({
         'RCCOMP_375.1.2',
         'RCCONF_39.3', 'RCCONF_39.3.2', 'RCCONF_39.5', 'RCCONF_39.5.2',
@@ -112,8 +112,9 @@ class FastDataQualityChecker:
         return False
 
     def _error_save_limit(self, rule_code, table_name):
+        """None = без лимита (писать все строки ошибок)."""
         if self._saves_all_errors(rule_code, table_name):
-            return self.EXCEL_MAX_ROWS
+            return None
         return self.MAX_ERRORS_TO_SAVE
 
     def _load_column_map(self):
@@ -2205,6 +2206,9 @@ class FastDataQualityChecker:
                 return
         key = f'{rule_code}_{table_name}'
         limit_errors = self._error_save_limit(rule_code, table_name)
+        unlimited = limit_errors is None
+        if unlimited:
+            print(f'      [SAVE-ALL] {rule_code} ({table_name}): лимит отключён — пишем все ошибки ({int(error_count):,})')
         total_error_count = int(error_count)
         if len(error_df) > error_count * 1.1:
             print(f'      [WARN] Для {rule_code} ({table_name}): error_df содержит {len(error_df)} строк, но error_count={error_count}')
@@ -2218,7 +2222,7 @@ class FastDataQualityChecker:
         if key in self.rule_errors:
             existing_count = self.rule_errors[key].get('error_count', 0)
             existing_df = self.rule_errors[key]['error_df']
-            if existing_count >= limit_errors:
+            if (not unlimited) and existing_count >= limit_errors:
                 print(f'      [WARN] {rule_code} ({table_name}): уже накоплено {existing_count:,} ошибок (лимит {limit_errors:,}), новые ошибки не добавляются')
                 return
             combined_df = pd.concat([existing_df, error_df_to_save], ignore_index=True)
@@ -2246,22 +2250,22 @@ class FastDataQualityChecker:
                 if drop.any():
                     combined_df = combined_df.loc[~drop].copy()
                     total_combined = len(combined_df)
-            if total_combined > limit_errors:
+            if (not unlimited) and total_combined > limit_errors:
                 combined_df = combined_df.head(limit_errors)
                 is_truncated = True
                 print(f'      [WARN] {rule_code} ({table_name}): ошибок {total_combined:,}, сохранено только {limit_errors:,} (первые {limit_errors:,})')
             saved_rows = len(combined_df)
-            is_truncated = is_truncated or saved_rows < total_error_count or self.rule_errors[key].get('is_truncated', False)
-            if is_truncated and saved_rows >= limit_errors:
+            is_truncated = is_truncated or ((not unlimited) and (saved_rows < total_error_count or self.rule_errors[key].get('is_truncated', False)))
+            if is_truncated and (not unlimited) and saved_rows >= limit_errors:
                 print(f'      [WARN] {rule_code} ({table_name}): ошибок {total_error_count:,}, сохранено только {saved_rows:,} (первые {limit_errors:,})')
             self.rule_errors[key] = {'rule_code': rule_code, 'table_name': table_name, 'error_df': combined_df, 'error_count': total_error_count, 'total_error_count': total_error_count, 'saved_error_count': saved_rows, 'is_suspicious': is_suspicious, 'total_rows': total_rows, 'is_truncated': is_truncated}
         else:
-            if len(error_df_to_save) > limit_errors:
+            if (not unlimited) and len(error_df_to_save) > limit_errors:
                 error_df_to_save = error_df_to_save.head(limit_errors)
                 is_truncated = True
                 print(f'      [WARN] {rule_code} ({table_name}): ошибок {total_error_count:,}, сохранено только {limit_errors:,} (первые {limit_errors:,})')
             saved_rows = len(error_df_to_save)
-            is_truncated = is_truncated or saved_rows < total_error_count
+            is_truncated = (not unlimited) and (is_truncated or saved_rows < total_error_count)
             self.rule_errors[key] = {'rule_code': rule_code, 'table_name': table_name, 'error_df': error_df_to_save, 'error_count': total_error_count, 'total_error_count': total_error_count, 'saved_error_count': saved_rows, 'is_suspicious': is_suspicious, 'total_rows': total_rows, 'is_truncated': is_truncated}
 
     def _check_if_suspicious(self, rule_code, error_count, total_rows):
@@ -5176,18 +5180,21 @@ class FastDataQualityChecker:
                 original_error_count = error_data.get('total_error_count') or error_data.get('error_count', total_errors)
                 no_100k_limit = self._saves_all_errors(rule_code, table_name)
                 limit_save = self._error_save_limit(rule_code, table_name)
-                if total_errors > limit_save:
+                if limit_save is not None and total_errors > limit_save:
                     error_df = error_df.head(limit_save)
                     is_truncated = True
                     print(f'   [WARN] {rule_code} ({table_name}): ошибок {original_error_count:,}, в файл сохранено только {limit_save:,} (первые {limit_save:,})')
+                elif no_100k_limit:
+                    is_truncated = False
+                    print(f'   [SAVE-ALL] {rule_code} ({table_name}): в файл уходят все {len(error_df):,} строк ошибок (лимит 100k отключён)')
                 if is_adr2:
                     from utils.sap_date_format import format_dataframe_sap_date_columns
                     error_df = format_dataframe_sap_date_columns(error_df)
                     self._save_adr2_rule_errors_to_db(error_df, rule_code=rule_code, run_ts=timestamp)
-                if is_truncated and len(error_df) > 0:
+                if is_truncated and len(error_df) > 0 and limit_save is not None:
                     warning_row = pd.DataFrame([{col: f'[!] ВНИМАНИЕ: Всего ошибок {original_error_count:,}, показано только первые {limit_save:,}' if col == error_df.columns[0] else '' for col in error_df.columns}])
                     error_df = pd.concat([warning_row, error_df], ignore_index=True)
-                use_csv = no_100k_limit or original_error_count > self.EXCEL_MAX_ROWS or total_errors > limit_save or (len(error_df) > limit_save)
+                use_csv = no_100k_limit or original_error_count > self.EXCEL_MAX_ROWS or (limit_save is not None and (total_errors > limit_save or len(error_df) > limit_save)) or len(error_df) > 100000
                 safe_table_name = self._safe_filename_token(table_name)
                 if str(table_name or '').strip().upper() == 'KNB1' and self._normalize_rule_code(rule_code) in self.RULES_ERROR_EXPORT_KNA1_KTOKD:
                     error_df = self._enrich_error_df_kna1_ktokd(error_df, table_name, rule_code)
