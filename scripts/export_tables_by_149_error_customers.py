@@ -5,9 +5,9 @@
 
 Примеры:
   python scripts/export_tables_by_149_error_customers.py
+  python scripts/export_tables_by_149_error_customers.py --workers 3 --parallel-rules
   python scripts/export_tables_by_149_error_customers.py --rule 149.1
   python scripts/export_tables_by_149_error_customers.py --rule combined
-  python scripts/export_tables_by_149_error_customers.py --errors-dir quality_reports/errors_...
 """
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ import glob
 import os
 import re
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import pandas as pd
@@ -39,7 +41,8 @@ CUSTOMER_COL_CANDIDATES = (
     'KUNNR', 'Customer', 'CUSTOMER', 'customer_code', 'Customer_1',
     '_cust_key', 'HgLvCust_', 'PARTNER',
 )
-BATCH_SIZE = 400
+BATCH_SIZE = 900  # SQLite лимит переменных ~999
+DEFAULT_WORKERS = 3
 
 try:
     from tqdm import tqdm as _tqdm  # type: ignore
@@ -267,16 +270,7 @@ def resolve_customer_column(conn, table_name: str) -> str:
     raise RuntimeError(f'В {table_name} не найдена колонка клиента. Колонки: {cols[:25]}...')
 
 
-def fetch_by_customers(
-    conn,
-    table_name: str,
-    customer_col: str,
-    customer_ids: list[str],
-    *,
-    progress_desc: str = '',
-) -> pd.DataFrame:
-    if not customer_ids:
-        return pd.DataFrame()
+def build_customer_variants(customer_ids: list[str]) -> list[str]:
     variants: list[str] = []
     seen: set[str] = set()
     for cid in customer_ids:
@@ -284,40 +278,92 @@ def fetch_by_customers(
             if v not in seen:
                 seen.add(v)
                 variants.append(v)
+    return variants
 
-    frames: list[pd.DataFrame] = []
-    quoted_col = f'"{customer_col}"'
-    quoted_table = f'"{table_name}"'
+
+def _open_export_conn(db_path: str):
+    """Отдельное read-friendly соединение (для параллельных воркеров)."""
+    conn = connect_sqlite(db_path)
+    try:
+        conn.execute('PRAGMA temp_store=MEMORY')
+        conn.execute('PRAGMA cache_size=-262144')  # ~256MB
+        conn.execute('PRAGMA mmap_size=268435456')
+    except Exception:
+        pass
+    return conn
+
+
+def _fill_temp_customer_keys(conn, variants: list[str], *, progress_desc: str = '') -> str:
+    """Создаёт TEMP TABLE с ключами клиентов — один JOIN вместо сотен IN-запросов."""
+    tmp = '_dq_export_cust_keys'
+    conn.execute(f'DROP TABLE IF EXISTS "{tmp}"')
+    conn.execute(f'CREATE TEMP TABLE "{tmp}" (k TEXT PRIMARY KEY NOT NULL)')
     batches = list(range(0, len(variants), BATCH_SIZE))
-    desc = progress_desc or f'SQL {table_name}'
-    with ProgressBar(len(batches), desc=desc, unit='batch') as bar:
+    with ProgressBar(len(batches) or 1, desc=progress_desc or 'load keys', unit='batch') as bar:
+        if not batches:
+            bar.update(1)
         for i in batches:
             batch = variants[i:i + BATCH_SIZE]
-            placeholders = ','.join(['?'] * len(batch))
-            query = (
-                f'SELECT * FROM {quoted_table} '
-                f"WHERE TRIM(REPLACE(CAST({quoted_col} AS TEXT), char(160), '')) IN ({placeholders})"
-            )
-            part = pd.read_sql_query(query, conn, params=tuple(batch))
-            if not part.empty:
-                frames.append(part)
+            conn.executemany(f'INSERT OR IGNORE INTO "{tmp}"(k) VALUES (?)', [(v,) for v in batch])
             bar.update(1)
+    conn.commit()
+    return tmp
 
-    if not frames:
-        print(f'  [INFO] {table_name}: SQL IN не нашёл строк — fallback filter по нормализованному ключу')
-        keys = set(customer_ids)
-        print(f'  [..] читаю всю {table_name} (может занять время)...', flush=True)
-        df_all = pd.read_sql_query(f'SELECT * FROM {quoted_table}', conn)
-        if df_all.empty:
-            return df_all
-        with ProgressBar(1, desc=f'filter {table_name}', unit='pass') as bar:
-            mask = df_all[customer_col].map(normalize_customer_id).isin(keys)
-            out = df_all.loc[mask].copy()
-            bar.update(1)
+
+def fetch_by_customers(
+    conn,
+    table_name: str,
+    customer_col: str,
+    customer_ids: list[str],
+    *,
+    variants: list[str] | None = None,
+    progress_desc: str = '',
+) -> pd.DataFrame:
+    if not customer_ids:
+        return pd.DataFrame()
+    variants = variants if variants is not None else build_customer_variants(customer_ids)
+    keys = set(customer_ids)
+    quoted_col = f'"{customer_col}"'
+    quoted_table = f'"{table_name}"'
+    desc = progress_desc or f'SQL {table_name}'
+
+    t0 = time.perf_counter()
+    tmp = _fill_temp_customer_keys(conn, variants, progress_desc=f'{desc} keys')
+
+    # 1) быстрый путь: точное равенство текста (без TRIM на каждой строке таблицы)
+    query_fast = (
+        f'SELECT t.* FROM {quoted_table} AS t '
+        f'INNER JOIN "{tmp}" AS c ON CAST(t.{quoted_col} AS TEXT) = c.k'
+    )
+    print(f'    [..] {table_name}: JOIN по ключам ({len(variants):,} вариантов)...', flush=True)
+    out = pd.read_sql_query(query_fast, conn)
+    elapsed = time.perf_counter() - t0
+    print(f'    [..] {table_name}: JOIN за {elapsed:.1f}с → {len(out):,} строк', flush=True)
+
+    if out.empty:
+        # 2) медленный fallback: TRIM (если в БД мусорные пробелы) — один проход, не сотни IN
+        print(f'    [INFO] {table_name}: точный JOIN пуст — fallback TRIM JOIN', flush=True)
+        t1 = time.perf_counter()
+        query_trim = (
+            f'SELECT t.* FROM {quoted_table} AS t '
+            f'INNER JOIN "{tmp}" AS c ON '
+            f"TRIM(REPLACE(CAST(t.{quoted_col} AS TEXT), char(160), '')) = c.k"
+        )
+        out = pd.read_sql_query(query_trim, conn)
+        print(
+            f'    [..] {table_name}: TRIM JOIN за {time.perf_counter() - t1:.1f}с → {len(out):,} строк',
+            flush=True,
+        )
+
+    try:
+        conn.execute(f'DROP TABLE IF EXISTS "{tmp}"')
+    except Exception:
+        pass
+
+    if out.empty:
         return out
 
-    out = pd.concat(frames, ignore_index=True)
-    keys = set(customer_ids)
+    # финальная нормализация к каноническим id из ошибок
     mask = out[customer_col].map(normalize_customer_id).isin(keys)
     return out.loc[mask].drop_duplicates().copy()
 
@@ -347,13 +393,72 @@ def save_df(df: pd.DataFrame, output_base: str, fmt: str) -> list[str]:
     return saved
 
 
+def _export_one_table(
+    db_path: str,
+    table: str,
+    customer_ids: list[str],
+    variants: list[str],
+    out_dir: str,
+    fmt: str,
+    label: str,
+) -> dict:
+    """Воркер: своё соединение → выгрузка одной таблицы."""
+    t0 = time.perf_counter()
+    conn = _open_export_conn(db_path)
+    try:
+        actual = resolve_table_name(conn, table)
+        cust_col = resolve_customer_column(conn, actual)
+        df = fetch_by_customers(
+            conn, actual, cust_col, customer_ids,
+            variants=variants,
+            progress_desc=f'{label}/{table}',
+        )
+        base = os.path.join(out_dir, f'{table}_by_{label}_error_customers')
+        saved = save_df(df, base, fmt)
+        found = set()
+        missing: list[str] = []
+        if not df.empty:
+            found = {normalize_customer_id(v) for v in df[cust_col].tolist()}
+            found.discard('')
+            missing = [c for c in customer_ids if c not in found]
+            if missing:
+                miss_path = os.path.join(out_dir, f'{table}_missing_customers.txt')
+                with open(miss_path, 'w', encoding='utf-8') as mf:
+                    mf.write('\n'.join(missing) + '\n')
+        return {
+            'table': table,
+            'cust_col': cust_col,
+            'rows': len(df),
+            'found': len(found),
+            'missing': len(missing),
+            'saved': saved,
+            'sec': time.perf_counter() - t0,
+            'error': None,
+        }
+    except Exception as e:
+        return {
+            'table': table,
+            'cust_col': None,
+            'rows': 0,
+            'found': 0,
+            'missing': 0,
+            'saved': [],
+            'sec': time.perf_counter() - t0,
+            'error': str(e),
+        }
+    finally:
+        conn.close()
+
+
 def export_for_customers(
-    conn,
+    db_path: str,
     tables: list[str],
     customer_ids: list[str],
     out_dir: str,
     fmt: str,
     label: str,
+    *,
+    workers: int = DEFAULT_WORKERS,
 ) -> None:
     os.makedirs(out_dir, exist_ok=True)
     list_path = os.path.join(out_dir, f'customers_{label}.txt')
@@ -361,35 +466,39 @@ def export_for_customers(
         f.write('\n'.join(customer_ids) + '\n')
     print(f'  Список клиентов ({len(customer_ids):,}): {list_path}')
 
+    variants = build_customer_variants(customer_ids)
+    print(f'  Ключей для JOIN (с вариантами): {len(variants):,}')
+    n_workers = max(1, min(int(workers), len(tables)))
+    print(f'  Параллельных воркеров: {n_workers} (таблицы: {", ".join(tables)})', flush=True)
+
+    results: list[dict] = []
     with ProgressBar(len(tables), desc=f'{label} tables', unit='table') as tables_bar:
-        for table in tables:
-            tables_bar.set_description(f'{label} → {table}')
-            try:
-                actual = resolve_table_name(conn, table)
-                cust_col = resolve_customer_column(conn, actual)
-                print(f'\n  [{label} / {table}] колонка клиента: {cust_col}', flush=True)
-                df = fetch_by_customers(
-                    conn, actual, cust_col, customer_ids,
-                    progress_desc=f'{label}/{table} SQL',
-                )
-                print(f'    строк выгружено: {len(df):,}', flush=True)
-                base = os.path.join(out_dir, f'{table}_by_{label}_error_customers')
-                saved = save_df(df, base, fmt)
-                for p in saved:
-                    print(f'    → {p}', flush=True)
-                if not df.empty:
-                    found = {normalize_customer_id(v) for v in df[cust_col].tolist()}
-                    found.discard('')
-                    missing = [c for c in customer_ids if c not in found]
-                    print(f'    клиентов в выгрузке: {len(found):,} / {len(customer_ids):,}', flush=True)
-                    if missing:
-                        miss_path = os.path.join(out_dir, f'{table}_missing_customers.txt')
-                        with open(miss_path, 'w', encoding='utf-8') as mf:
-                            mf.write('\n'.join(missing) + '\n')
-                        print(f'    не найдено в {table}: {len(missing):,} → {miss_path}', flush=True)
-            except Exception as e:
-                print(f'    [ERROR] {table}: {e}', flush=True)
-            tables_bar.update(1)
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            futs = {
+                pool.submit(
+                    _export_one_table, db_path, table, customer_ids, variants, out_dir, fmt, label
+                ): table
+                for table in tables
+            }
+            for fut in as_completed(futs):
+                table = futs[fut]
+                tables_bar.set_description(f'{label} ✓ {table}')
+                res = fut.result()
+                results.append(res)
+                if res.get('error'):
+                    print(f'\n  [ERROR] {table}: {res["error"]}', flush=True)
+                else:
+                    print(
+                        f'\n  [{label} / {table}] col={res["cust_col"]} | '
+                        f'rows={res["rows"]:,} | customers={res["found"]:,}/{len(customer_ids):,} | '
+                        f'{res["sec"]:.1f}с',
+                        flush=True,
+                    )
+                    for p in res.get('saved') or []:
+                        print(f'    → {p}', flush=True)
+                    if res.get('missing'):
+                        print(f'    не найдено в {table}: {res["missing"]:,}', flush=True)
+                tables_bar.update(1)
 
 def parse_args():
     p = argparse.ArgumentParser(
@@ -415,6 +524,17 @@ def parse_args():
     )
     p.add_argument('--output-dir', default=DEFAULT_OUTPUT_DIR, help='Куда писать выгрузки')
     p.add_argument('--format', choices=('csv', 'xlsx', 'both'), default='csv', help='Формат файлов')
+    p.add_argument(
+        '--workers',
+        type=int,
+        default=DEFAULT_WORKERS,
+        help=f'Параллельных таблиц одновременно (default {DEFAULT_WORKERS})',
+    )
+    p.add_argument(
+        '--parallel-rules',
+        action='store_true',
+        help='Параллельно выгружать 149.1 и 149.2 (отдельные соединения)',
+    )
     return p.parse_args()
 
 
@@ -484,6 +604,7 @@ def main() -> int:
     root_out = os.path.join(args.output_dir, f'rccomp_149_customers_{ts}')
     os.makedirs(root_out, exist_ok=True)
     tables = [t.strip().upper() for t in str(args.tables).split(',') if t.strip()]
+    workers = max(1, int(args.workers))
 
     jobs: list[tuple[str, list[str]]] = []
     if rule_mode == 'COMBINED':
@@ -496,16 +617,32 @@ def main() -> int:
             if ids:
                 jobs.append((rule.replace('.', '_'), ids))
 
-    conn = connect_sqlite(db_path)
-    try:
+    def _run_job(label: str, ids: list[str]) -> None:
+        print(f'\n=== {label}: {len(ids):,} клиентов ===', flush=True)
+        export_for_customers(
+            db_path, tables, ids, os.path.join(root_out, label), args.format, label,
+            workers=workers,
+        )
+
+    if args.parallel_rules and len(jobs) > 1:
+        print(f'Параллельный экспорт правил: {len(jobs)} jobs', flush=True)
+        with ProgressBar(len(jobs), desc='Правила', unit='rule') as jobs_bar:
+            with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+                futs = {pool.submit(_run_job, label, ids): label for label, ids in jobs}
+                for fut in as_completed(futs):
+                    label = futs[fut]
+                    try:
+                        fut.result()
+                    except Exception as e:
+                        print(f'[ERROR] {label}: {e}', flush=True)
+                    jobs_bar.set_description(f'Готово {label}')
+                    jobs_bar.update(1)
+    else:
         with ProgressBar(len(jobs), desc='Правила', unit='rule') as jobs_bar:
             for label, ids in jobs:
                 jobs_bar.set_description(f'Экспорт {label}')
-                print(f'\n=== {label}: {len(ids):,} клиентов ===', flush=True)
-                export_for_customers(conn, tables, ids, os.path.join(root_out, label), args.format, label)
+                _run_job(label, ids)
                 jobs_bar.update(1)
-    finally:
-        conn.close()
 
     print(f'\nГотово. Папка: {root_out}')
     return 0
