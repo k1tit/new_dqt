@@ -36,6 +36,67 @@ CUSTOMER_COL_CANDIDATES = (
 )
 BATCH_SIZE = 400
 
+try:
+    from tqdm import tqdm as _tqdm  # type: ignore
+except ImportError:
+    _tqdm = None
+
+
+class ProgressBar:
+    """tqdm если установлен, иначе простой ASCII-бар в stderr."""
+
+    def __init__(self, total: int, desc: str = '', unit: str = 'it'):
+        self.total = max(0, int(total))
+        self.desc = desc
+        self.unit = unit
+        self.n = 0
+        self._bar = None
+        if _tqdm is not None:
+            self._bar = _tqdm(total=self.total, desc=desc, unit=unit, file=sys.stderr, leave=True)
+        else:
+            self._render()
+
+    def update(self, n: int = 1) -> None:
+        self.n = min(self.total, self.n + int(n))
+        if self._bar is not None:
+            self._bar.update(n)
+        else:
+            self._render()
+
+    def set_description(self, desc: str) -> None:
+        self.desc = desc
+        if self._bar is not None:
+            self._bar.set_description(desc)
+        else:
+            self._render()
+
+    def close(self) -> None:
+        if self._bar is not None:
+            self._bar.close()
+        else:
+            sys.stderr.write('\n')
+            sys.stderr.flush()
+
+    def _render(self) -> None:
+        width = 28
+        if self.total <= 0:
+            pct = 100.0
+            filled = width
+        else:
+            pct = 100.0 * self.n / self.total
+            filled = int(width * self.n / self.total)
+        bar = '#' * filled + '-' * (width - filled)
+        line = f'\r{self.desc}: |{bar}| {self.n}/{self.total} {self.unit} ({pct:5.1f}%)'
+        sys.stderr.write(line)
+        sys.stderr.flush()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+        return False
+
 
 def normalize_customer_id(value) -> str:
     if value is None or (isinstance(value, float) and pd.isna(value)):
@@ -201,7 +262,14 @@ def resolve_customer_column(conn, table_name: str) -> str:
     raise RuntimeError(f'В {table_name} не найдена колонка клиента. Колонки: {cols[:25]}...')
 
 
-def fetch_by_customers(conn, table_name: str, customer_col: str, customer_ids: list[str]) -> pd.DataFrame:
+def fetch_by_customers(
+    conn,
+    table_name: str,
+    customer_col: str,
+    customer_ids: list[str],
+    *,
+    progress_desc: str = '',
+) -> pd.DataFrame:
     if not customer_ids:
         return pd.DataFrame()
     variants: list[str] = []
@@ -215,25 +283,33 @@ def fetch_by_customers(conn, table_name: str, customer_col: str, customer_ids: l
     frames: list[pd.DataFrame] = []
     quoted_col = f'"{customer_col}"'
     quoted_table = f'"{table_name}"'
-    for i in range(0, len(variants), BATCH_SIZE):
-        batch = variants[i:i + BATCH_SIZE]
-        placeholders = ','.join(['?'] * len(batch))
-        query = (
-            f'SELECT * FROM {quoted_table} '
-            f"WHERE TRIM(REPLACE(CAST({quoted_col} AS TEXT), char(160), '')) IN ({placeholders})"
-        )
-        part = pd.read_sql_query(query, conn, params=tuple(batch))
-        if not part.empty:
-            frames.append(part)
+    batches = list(range(0, len(variants), BATCH_SIZE))
+    desc = progress_desc or f'SQL {table_name}'
+    with ProgressBar(len(batches), desc=desc, unit='batch') as bar:
+        for i in batches:
+            batch = variants[i:i + BATCH_SIZE]
+            placeholders = ','.join(['?'] * len(batch))
+            query = (
+                f'SELECT * FROM {quoted_table} '
+                f"WHERE TRIM(REPLACE(CAST({quoted_col} AS TEXT), char(160), '')) IN ({placeholders})"
+            )
+            part = pd.read_sql_query(query, conn, params=tuple(batch))
+            if not part.empty:
+                frames.append(part)
+            bar.update(1)
 
     if not frames:
         print(f'  [INFO] {table_name}: SQL IN не нашёл строк — fallback filter по нормализованному ключу')
         keys = set(customer_ids)
+        print(f'  [..] читаю всю {table_name} (может занять время)...', flush=True)
         df_all = pd.read_sql_query(f'SELECT * FROM {quoted_table}', conn)
         if df_all.empty:
             return df_all
-        mask = df_all[customer_col].map(normalize_customer_id).isin(keys)
-        return df_all.loc[mask].copy()
+        with ProgressBar(1, desc=f'filter {table_name}', unit='pass') as bar:
+            mask = df_all[customer_col].map(normalize_customer_id).isin(keys)
+            out = df_all.loc[mask].copy()
+            bar.update(1)
+        return out
 
     out = pd.concat(frames, ignore_index=True)
     keys = set(customer_ids)
@@ -244,17 +320,25 @@ def fetch_by_customers(conn, table_name: str, customer_col: str, customer_ids: l
 def save_df(df: pd.DataFrame, output_base: str, fmt: str) -> list[str]:
     os.makedirs(os.path.dirname(output_base) or '.', exist_ok=True)
     saved: list[str] = []
+    steps = []
     if fmt in ('csv', 'both'):
-        path = f'{output_base}.csv'
-        df.to_csv(path, index=False, encoding='utf-8-sig', sep=';')
-        saved.append(path)
+        steps.append('csv')
     if fmt in ('xlsx', 'both'):
-        path = f'{output_base}.xlsx'
-        if len(df) > 1_000_000:
-            print(f'  [WARN] {len(df):,} строк > Excel limit — xlsx пропущен, используйте csv')
-        else:
-            df.to_excel(path, index=False, engine='openpyxl')
+        steps.append('xlsx')
+    with ProgressBar(len(steps) or 1, desc=f'write {os.path.basename(output_base)}', unit='file') as bar:
+        if fmt in ('csv', 'both'):
+            path = f'{output_base}.csv'
+            df.to_csv(path, index=False, encoding='utf-8-sig', sep=';')
             saved.append(path)
+            bar.update(1)
+        if fmt in ('xlsx', 'both'):
+            path = f'{output_base}.xlsx'
+            if len(df) > 1_000_000:
+                print(f'  [WARN] {len(df):,} строк > Excel limit — xlsx пропущен, используйте csv')
+            else:
+                df.to_excel(path, index=False, engine='openpyxl')
+                saved.append(path)
+            bar.update(1)
     return saved
 
 
@@ -272,30 +356,35 @@ def export_for_customers(
         f.write('\n'.join(customer_ids) + '\n')
     print(f'  Список клиентов ({len(customer_ids):,}): {list_path}')
 
-    for table in tables:
-        try:
-            actual = resolve_table_name(conn, table)
-            cust_col = resolve_customer_column(conn, actual)
-            print(f'\n  [{label} / {table}] колонка клиента: {cust_col}')
-            df = fetch_by_customers(conn, actual, cust_col, customer_ids)
-            print(f'    строк выгружено: {len(df):,}')
-            base = os.path.join(out_dir, f'{table}_by_{label}_error_customers')
-            saved = save_df(df, base, fmt)
-            for p in saved:
-                print(f'    → {p}')
-            if not df.empty:
-                found = {normalize_customer_id(v) for v in df[cust_col].tolist()}
-                found.discard('')
-                missing = [c for c in customer_ids if c not in found]
-                print(f'    клиентов в выгрузке: {len(found):,} / {len(customer_ids):,}')
-                if missing:
-                    miss_path = os.path.join(out_dir, f'{table}_missing_customers.txt')
-                    with open(miss_path, 'w', encoding='utf-8') as mf:
-                        mf.write('\n'.join(missing) + '\n')
-                    print(f'    не найдено в {table}: {len(missing):,} → {miss_path}')
-        except Exception as e:
-            print(f'    [ERROR] {table}: {e}')
-
+    with ProgressBar(len(tables), desc=f'{label} tables', unit='table') as tables_bar:
+        for table in tables:
+            tables_bar.set_description(f'{label} → {table}')
+            try:
+                actual = resolve_table_name(conn, table)
+                cust_col = resolve_customer_column(conn, actual)
+                print(f'\n  [{label} / {table}] колонка клиента: {cust_col}', flush=True)
+                df = fetch_by_customers(
+                    conn, actual, cust_col, customer_ids,
+                    progress_desc=f'{label}/{table} SQL',
+                )
+                print(f'    строк выгружено: {len(df):,}', flush=True)
+                base = os.path.join(out_dir, f'{table}_by_{label}_error_customers')
+                saved = save_df(df, base, fmt)
+                for p in saved:
+                    print(f'    → {p}', flush=True)
+                if not df.empty:
+                    found = {normalize_customer_id(v) for v in df[cust_col].tolist()}
+                    found.discard('')
+                    missing = [c for c in customer_ids if c not in found]
+                    print(f'    клиентов в выгрузке: {len(found):,} / {len(customer_ids):,}', flush=True)
+                    if missing:
+                        miss_path = os.path.join(out_dir, f'{table}_missing_customers.txt')
+                        with open(miss_path, 'w', encoding='utf-8') as mf:
+                            mf.write('\n'.join(missing) + '\n')
+                        print(f'    не найдено в {table}: {len(missing):,} → {miss_path}', flush=True)
+            except Exception as e:
+                print(f'    [ERROR] {table}: {e}', flush=True)
+            tables_bar.update(1)
 
 def parse_args():
     p = argparse.ArgumentParser(
@@ -344,10 +433,13 @@ def main() -> int:
         by_rule = {rule_mode: by_rule[rule_mode]}
 
     customers_by_rule: dict[str, list[str]] = {}
-    for rule, path in by_rule.items():
-        keys = collect_customers_from_error_file(path)
-        customers_by_rule[rule] = sorted(keys)
-        print(f'{rule}: {len(keys):,} клиентов')
+    with ProgressBar(len(by_rule), desc='Читаем файлы ошибок', unit='file') as bar:
+        for rule, path in by_rule.items():
+            bar.set_description(f'Ошибки {rule}')
+            keys = collect_customers_from_error_file(path)
+            customers_by_rule[rule] = sorted(keys)
+            print(f'{rule}: {len(keys):,} клиентов', flush=True)
+            bar.update(1)
 
     if not any(customers_by_rule.values()):
         print('ОШИБКА: в файлах ошибок нет клиентов')
@@ -355,29 +447,33 @@ def main() -> int:
 
     db_path, db_source = resolve_database_path(_PROJECT_ROOT, args.db, must_exist=True)
     print(f'БД ({db_source}): {db_path}')
+    if _tqdm is None:
+        print('[INFO] Для красивого прогресс-бара можно поставить: pip install tqdm')
 
     ts = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     root_out = os.path.join(args.output_dir, f'rccomp_149_customers_{ts}')
     os.makedirs(root_out, exist_ok=True)
     tables = [t.strip().upper() for t in str(args.tables).split(',') if t.strip()]
 
+    jobs: list[tuple[str, list[str]]] = []
+    if rule_mode == 'COMBINED':
+        merged: set[str] = set()
+        for ids in customers_by_rule.values():
+            merged.update(ids)
+        jobs.append(('RCCOMP_149_combined', sorted(merged)))
+    else:
+        for rule, ids in customers_by_rule.items():
+            if ids:
+                jobs.append((rule.replace('.', '_'), ids))
+
     conn = connect_sqlite(db_path)
     try:
-        if rule_mode == 'COMBINED':
-            merged: set[str] = set()
-            for ids in customers_by_rule.values():
-                merged.update(ids)
-            label = 'RCCOMP_149_combined'
-            print(f'\n--- {label}: {len(merged):,} клиентов (объединение) ---')
-            export_for_customers(conn, tables, sorted(merged), os.path.join(root_out, label), args.format, label)
-        else:
-            for rule, ids in customers_by_rule.items():
-                if not ids:
-                    print(f'\n--- {rule}: пусто, пропуск ---')
-                    continue
-                label = rule.replace('.', '_')
-                print(f'\n=== {rule}: {len(ids):,} клиентов ===')
+        with ProgressBar(len(jobs), desc='Правила', unit='rule') as jobs_bar:
+            for label, ids in jobs:
+                jobs_bar.set_description(f'Экспорт {label}')
+                print(f'\n=== {label}: {len(ids):,} клиентов ===', flush=True)
                 export_for_customers(conn, tables, ids, os.path.join(root_out, label), args.format, label)
+                jobs_bar.update(1)
     finally:
         conn.close()
 
