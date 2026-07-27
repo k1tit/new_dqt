@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-27-rcccomp-149-parvw-replace-in-errors'
+    CHECKER_BUILD_ID = '2026-07-27-rcccomp-149-1-completeness-locked'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -2508,13 +2508,17 @@ class FastDataQualityChecker:
     RCCOMP_149_ORDER_BLOCK_SKIP = frozenset({'S', 'SP', 'E', 'G', 'S2', 'S3', 'S4', 'S5', 'S9', 'R', 'U', 'S1', 'SY', 'IA', 'IB', 'RN'})
     # Коллега: IF NOT LIKE '90%' THEN skip ≈ «если не 9038 — забить» → оцениваем только KTOKD=9038.
     RCCOMP_149_ACCOUNT_GROUP_ONLY = frozenset({'9038'})
+    # RCCOMP_149.1 = Completeness (заполненность): у клиента в SO 01-01/04-02
+    # должны быть ВСЕ PF ниже с заполненным partner_code (KUNN2≠0/пусто).
+    # OK только при полном наборе; частичное совпадение — ошибка.
     RCCOMP_149_1_REQUIRED_PF = frozenset({'BP', 'PY', 'ZY', 'SP', 'SH', 'YR'})
-    # SAP DE→EN aliases for PARVW (rules use EN; dump often has German codes)
+    # Зафиксированные DE→EN псевдонимы PARVW (замена при проверке и в ошибках).
+    # YR / ZY уже EN — без маппинга.
     RCCOMP_149_PARVW_ALIASES = {
+        'AG': 'SP',  # Sold-to
         'WE': 'SH',  # Ship-to
         'RG': 'PY',  # Payer
         'RE': 'BP',  # Bill-to
-        'AG': 'SP',  # Sold-to
     }
     KNVV_ORDER_BLOCK_BLOCKED = frozenset({'S', 'NH', 'S3', 'S4', 'SY', 'U', 'R', 'PR'})
     KNVV_DM_SALES_ORG_SCOPE_RULES = frozenset({
@@ -2978,8 +2982,8 @@ class FastDataQualityChecker:
             bad = (present[required] == 0).any(axis=1)
             error_keys = set(present.index[bad])
             error_description = (
-                f'Missing Partner function: required partner_function_code in {", ".join(required)} '
-                f'with assigned partner_code (SO 01-01/04-02). PARVW mapped: {alias_note}.'
+                f'Completeness: missing Partner Function — required filled partner_code for all of '
+                f'{", ".join(required)} (SO 01-01/04-02). PARVW DE→EN: {alias_note}; YR/ZY as-is.'
             )
         else:
             zw_ok = set(df_scoped.loc[filled & (df_scoped['_parvw_u'] == 'ZW'), '_cust_key'])
