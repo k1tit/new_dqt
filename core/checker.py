@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-27-rcccomp-149-parvw-aliases-no-cust-dedup'
+    CHECKER_BUILD_ID = '2026-07-27-rcccomp-149-parvw-replace-in-errors'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -2962,9 +2962,11 @@ class FastDataQualityChecker:
         total_rows = len(df_scoped)
         print(f'      [FILTER] {rule_code} «Всего записей» = {total_rows:,} строк KNVP (без дедупа по Customer; клиентов: {n_customers:,})')
         filled = self._partner_code_filled_mask(df_scoped[parc_col])
-        df_scoped['_parvw_u'] = self._normalize_parvw_series_for_149(df_scoped[parvw_col])
+        # DE→EN замена PARVW и при проверке, и в файле ошибок (AG→SP, WE→SH, RG→PY, RE→BP)
         alias_note = ', '.join((f'{k}->{v}' for k, v in sorted(self.RCCOMP_149_PARVW_ALIASES.items())))
-        print(f'      [MAP] {rule_code} PARVW aliases: {alias_note}')
+        df_scoped[parvw_col] = self._normalize_parvw_series_for_149(df_scoped[parvw_col])
+        df_scoped['_parvw_u'] = df_scoped[parvw_col]
+        print(f'      [MAP] {rule_code} PARVW заменены на EN: {alias_note}')
         if rule_code == 'RCCOMP_149.1':
             required = sorted(self.RCCOMP_149_1_REQUIRED_PF)
             df_pf = df_scoped.loc[filled & df_scoped['_parvw_u'].isin(self.RCCOMP_149_1_REQUIRED_PF)]
@@ -2977,14 +2979,14 @@ class FastDataQualityChecker:
             error_keys = set(present.index[bad])
             error_description = (
                 f'Missing Partner function: required partner_function_code in {", ".join(required)} '
-                f'with assigned partner_code (SO 01-01/04-02). PARVW aliases: {alias_note}.'
+                f'with assigned partner_code (SO 01-01/04-02). PARVW mapped: {alias_note}.'
             )
         else:
             zw_ok = set(df_scoped.loc[filled & (df_scoped['_parvw_u'] == 'ZW'), '_cust_key'])
             error_keys = eval_keys - zw_ok
             error_description = (
                 "Indirect customer (KVGR4='IN') must have partner_function_code='ZW' "
-                f"with assigned partner_code (SO 01-01/04-02). PARVW aliases: {alias_note}."
+                f"with assigned partner_code (SO 01-01/04-02). PARVW mapped: {alias_note}."
             )
         # В ошибки — ВСЕ строки клиентов с нарушением (без head(1) / drop_duplicates по Customer)
         error_mask = df_scoped['_cust_key'].isin(error_keys) if error_keys else pd.Series(False, index=df_scoped.index)
