@@ -1995,14 +1995,14 @@
       "rule_code": "RCCOMP_149.1",
       "rule_description": "Missing Partner Function",
       "technical_definition_RU": [
-        "COMPLETENESS / заполненность: у клиента в SO 01-01/04-02 должны быть ВСЕ",
-        "partner_function_code IN ('BP','PY','ZY','SP','SH','YR') с заполненным partner_code (KUNN2).",
-        "OK только при полном наборе; иначе ошибка. Частичное совпадение ≠ OK.",
+        "COMPLETENESS по PARVW: у клиента в SO 01-01/04-02 должны быть ВСЕ",
+        "partner_function_code IN ('BP','PY','ZY','SP','SH','YR'). KUNN2/partner_code НЕ проверяем.",
+        "OK только при полном наборе PARVW; иначе ошибка. Частичное совпадение != OK.",
         "PARVW DE→EN (замена при проверке и в ошибках): AG→SP, WE→SH, RG→PY, RE→BP; YR/ZY без изменений.",
         "IF account_group_code NOT LIKE '90%' OR order_block_code IN ('S', 'SP', 'E', 'G',",
         "'S2', 'S3', 'S4', 'S5', 'S9', 'R', 'U', 'S1','SY',' IA','IB','RN') THEN '' ELSE",
-        "IF a.partner_code IS NOT EXIST for any of partner_function_code IN ('BP', 'PY',",
-        "'ZY', 'SP', 'SH', 'YR') THEN '0' ELSE '1' /*do not dedupe errors by Customer*/"
+        "IF any of partner_function_code IN ('BP', 'PY', 'ZY', 'SP', 'SH', 'YR') is missing",
+        "THEN '0' ELSE '1' /*do not dedupe errors by Customer*/"
       ],
       "value_checked": "IF check_status = '0' THEN\n'Missing Partner function: a.partner_function_code ELSE a.partner_function_code+_+a.partner_code",
       "datamart_or_reference_table_used": "dm_customer_partner (a) where distribution_channel_code = '01' AND division_code = '01' dm_customer_general (c) c INNER a on customer_code",
@@ -2018,12 +2018,12 @@
       "rule_code": "RCCOMP_149.2",
       "rule_description": "Indirect Customers must have Partner Function: ZW",
       "technical_definition_RU": [
-        "COMPLETENESS: for KVGR4='IN' must exist PARVW='ZW' with filled partner_code.",
+        "COMPLETENESS по PARVW: for KVGR4='IN' must exist PARVW='ZW'. KUNN2 not checked.",
         "PARVW DE→EN same as 149.1: AG→SP, WE→SH, RG→PY, RE→BP; YR/ZY as-is.",
         "IF account_group_code NOT LIKE '90%' OR order_block_code IN ('S', 'SP', 'E', 'G',",
         "'S2', 'S3', 'S4', 'S5', 'S9', 'R', 'U', 'S1','SY',' IA','IB','RN') OR",
-        "customer_group_4_code != 'IN' THEN '' IF partner_code IS NULL /*for customer with",
-        "customer_group_4_code = 'IN' not exists ZW; colleague: if not 9038 then skip,",
+        "customer_group_4_code != 'IN' THEN '' IF PARVW='ZW' not exists /*for customer with",
+        "customer_group_4_code = 'IN'; colleague: if not 9038 then skip,",
         "evaluate only 9038*/ THEN '0' ELSE",
         "'1'"
       ],

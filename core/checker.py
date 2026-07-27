@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-27-rcccomp-149-1-completeness-locked'
+    CHECKER_BUILD_ID = '2026-07-27-rcccomp-149-parvw-only'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -2508,8 +2508,8 @@ class FastDataQualityChecker:
     RCCOMP_149_ORDER_BLOCK_SKIP = frozenset({'S', 'SP', 'E', 'G', 'S2', 'S3', 'S4', 'S5', 'S9', 'R', 'U', 'S1', 'SY', 'IA', 'IB', 'RN'})
     # Коллега: IF NOT LIKE '90%' THEN skip ≈ «если не 9038 — забить» → оцениваем только KTOKD=9038.
     RCCOMP_149_ACCOUNT_GROUP_ONLY = frozenset({'9038'})
-    # RCCOMP_149.1 = Completeness (заполненность): у клиента в SO 01-01/04-02
-    # должны быть ВСЕ PF ниже с заполненным partner_code (KUNN2≠0/пусто).
+    # RCCOMP_149.1 = Completeness по PARVW: у клиента в SO 01-01/04-02
+    # должны быть ВСЕ PF ниже (после DE→EN). KUNN2/partner_code НЕ проверяем.
     # OK только при полном наборе; частичное совпадение — ошибка.
     RCCOMP_149_1_REQUIRED_PF = frozenset({'BP', 'PY', 'ZY', 'SP', 'SH', 'YR'})
     # Зафиксированные DE→EN псевдонимы PARVW (замена при проверке и в ошибках).
@@ -2860,7 +2860,60 @@ class FastDataQualityChecker:
         return self.RCCOMP_149_PARVW_ALIASES.get(s, s)
 
     def _normalize_parvw_series_for_149(self, series: pd.Series) -> pd.Series:
-        return series.map(self._normalize_parvw_for_149)
+        # category→object: иначе DE→EN может дать NaN в старых pandas
+        return series.astype(object).map(self._normalize_parvw_for_149)
+
+    def _iter_149_partner_code_candidate_cols(self, df) -> list:
+        """KUNN2 often all-zero while ParC/Customer_1 hold the real partner — collect all candidates."""
+        if df is None or df.empty:
+            return []
+        names = ('KUNN2', 'ParC', 'Customer_1', 'partner_code', 'Part', 'Counterparty', 'Partner', 'Cust.')
+        seen = set()
+        out = []
+        for name in names:
+            col = self._resolve_column_for_rule(df, name, 'KNVP')
+            if not col or col not in df.columns:
+                col = next((c for c in df.columns if str(c).strip().upper() == str(name).strip().upper()), None)
+            if not col or col not in df.columns:
+                continue
+            key = str(col)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(col)
+        return out
+
+    def _coalesce_partner_code_for_149(self, df, rule_code=None):
+        """
+        Build effective partner_code: first non-zero among KUNN2 / ParC / Customer_1 / …
+        Dump often has KUNN2=0 for every row while ParC has the real partner → without
+        coalesce RCCOMP_149.1 fails 100%.
+        Returns (series, primary_col_name_for_export).
+        """
+        cols = self._iter_149_partner_code_candidate_cols(df)
+        if not cols:
+            return (None, None)
+        stats = []
+        for c in cols:
+            n_filled = int(self._partner_code_filled_mask(df[c]).sum())
+            stats.append((n_filled, c))
+        stats.sort(key=lambda x: -x[0])
+        if rule_code:
+            detail = ', '.join((f'{c}={n_filled:,}' for n_filled, c in stats))
+            print(f'      [DIAG] {rule_code} partner_code fill (!=0): {detail}')
+        result = pd.Series(pd.NA, index=df.index, dtype='object')
+        covered = pd.Series(False, index=df.index)
+        for _n, c in stats:
+            m = self._partner_code_filled_mask(df[c]) & ~covered
+            if not m.any():
+                continue
+            result.loc[m] = df.loc[m, c].astype(object).to_numpy()
+            covered |= m
+        primary = stats[0][1]
+        n_eff = int(self._partner_code_filled_mask(result).sum())
+        if rule_code:
+            print(f'      [DIAG] {rule_code} partner_code after coalesce: filled {n_eff:,}/{len(df):,} (primary export col: {primary})')
+        return (result, primary)
 
     def _rcccomp_149_scope_criteria_short(self, rule_code):
         only = ','.join(sorted(self.RCCOMP_149_ACCOUNT_GROUP_ONLY))
@@ -2893,23 +2946,8 @@ class FastDataQualityChecker:
             self._log_skipped_rule(rule, table_name, f'{rule_code}: не найден ключ клиента (KUNNR/Customer)', timestamp)
             return (0, 0)
         parvw_col = self._resolve_column_for_rule(df, 'PARVW', 'KNVP') or matched_column
-        # partner_code в SAP DDIC = KUNN2; старые дампы могут иметь ParC
-        parc_col = self._resolve_column_for_rule(df, 'KUNN2', 'KNVP')
-        if not parc_col:
-            parc_col = self._resolve_column_for_rule(df, 'ParC', 'KNVP')
-        if not parc_col:
-            parc_col = self._find_column_alternative(df.columns, 'KUNN2', 'KNVP')
-        if not parc_col:
-            parc_col = self._find_column_alternative(df.columns, 'ParC', 'KNVP')
-        if not parc_col:
-            parc_col = self._find_column_alternative(df.columns, 'partner_code', 'KNVP')
-        if not parc_col:
-            for cand in ('KUNN2', 'ParC', 'Part', 'Counterparty', 'Partner'):
-                parc_col = next((c for c in df.columns if str(c).strip().upper() == cand.upper()), None)
-                if parc_col:
-                    break
-        if not parvw_col or parvw_col not in df.columns or not parc_col or parc_col not in df.columns:
-            self._log_skipped_rule(rule, table_name, f'{rule_code}: не найдены колонки partner function ({parvw_col}) / partner code KUNN2/ParC ({parc_col})', timestamp)
+        if not parvw_col or parvw_col not in df.columns:
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: не найдены колонки partner function ({parvw_col})', timestamp)
             return (0, 0)
         df_work = df.copy()
         before_rows = len(df_work)
@@ -2923,6 +2961,7 @@ class FastDataQualityChecker:
         if df_work.empty:
             self._log_skipped_rule(rule, table_name, f"{rule_code}: нет строк KNVP в SO 01-01/04-02 (проверяется: {self._rcccomp_149_scope_criteria_short(rule_code)})", timestamp)
             return (0, 0)
+        # Completeness по PARVW only — KUNN2/partner_code не участвует в проверке
         df_work = self._add_account_group_code_from_kna1(df_work, table_name, rule_code)
         ag_col = self._find_account_group_column(df_work)
         df_work = self._add_order_block_code_from_kna1_customer(df_work, table_name, rule_code, kunnr_col)
@@ -2965,32 +3004,43 @@ class FastDataQualityChecker:
         df_scoped = df_work[df_work['_cust_key'].isin(eval_keys)].copy()
         total_rows = len(df_scoped)
         print(f'      [FILTER] {rule_code} «Всего записей» = {total_rows:,} строк KNVP (без дедупа по Customer; клиентов: {n_customers:,})')
-        filled = self._partner_code_filled_mask(df_scoped[parc_col])
         # DE→EN замена PARVW и при проверке, и в файле ошибок (AG→SP, WE→SH, RG→PY, RE→BP)
         alias_note = ', '.join((f'{k}->{v}' for k, v in sorted(self.RCCOMP_149_PARVW_ALIASES.items())))
         df_scoped[parvw_col] = self._normalize_parvw_series_for_149(df_scoped[parvw_col])
-        df_scoped['_parvw_u'] = df_scoped[parvw_col]
-        print(f'      [MAP] {rule_code} PARVW заменены на EN: {alias_note}')
+        df_scoped['_parvw_u'] = df_scoped[parvw_col].astype(object)
+        print(f'      [MAP] {rule_code} PARVW заменены на EN: {alias_note} (проверка только PARVW, без KUNN2)')
+        try:
+            top_pf = df_scoped['_parvw_u'].astype(str).value_counts().head(12)
+            print(f'      [DIAG] {rule_code} top PARVW(EN): ' + ', '.join((f'{k}={int(v):,}' for k, v in top_pf.items())))
+        except Exception:
+            pass
         if rule_code == 'RCCOMP_149.1':
             required = sorted(self.RCCOMP_149_1_REQUIRED_PF)
-            df_pf = df_scoped.loc[filled & df_scoped['_parvw_u'].isin(self.RCCOMP_149_1_REQUIRED_PF)]
-            present = df_pf.groupby(['_cust_key', '_parvw_u']).size().unstack(fill_value=0)
+            df_pf = df_scoped.loc[df_scoped['_parvw_u'].isin(self.RCCOMP_149_1_REQUIRED_PF)]
+            present = df_pf.groupby(['_cust_key', '_parvw_u'], observed=False).size().unstack(fill_value=0)
             for pf in required:
                 if pf not in present.columns:
                     present[pf] = 0
             present = present.reindex(list(eval_keys), fill_value=0)
+            for pf in required:
+                n_ok = int((present[pf] > 0).sum())
+                print(f'      [DIAG] {rule_code} клиентов с PARVW={pf}: {n_ok:,}/{n_customers:,}')
             bad = (present[required] == 0).any(axis=1)
             error_keys = set(present.index[bad])
+            n_ok_cust = n_customers - len(error_keys)
+            print(f'      [DIAG] {rule_code} клиентов OK (полный набор PARVW): {n_ok_cust:,}/{n_customers:,}')
             error_description = (
-                f'Completeness: missing Partner Function — required filled partner_code for all of '
-                f'{", ".join(required)} (SO 01-01/04-02). PARVW DE→EN: {alias_note}; YR/ZY as-is.'
+                f'Completeness: missing Partner Function PARVW — required all of '
+                f'{", ".join(required)} (SO 01-01/04-02). KUNN2 not checked. '
+                f'PARVW DE→EN: {alias_note}; YR/ZY as-is.'
             )
         else:
-            zw_ok = set(df_scoped.loc[filled & (df_scoped['_parvw_u'] == 'ZW'), '_cust_key'])
+            zw_ok = set(df_scoped.loc[df_scoped['_parvw_u'] == 'ZW', '_cust_key'])
             error_keys = eval_keys - zw_ok
+            print(f'      [DIAG] {rule_code} клиентов с PARVW=ZW: {len(zw_ok):,}/{n_customers:,}')
             error_description = (
-                "Indirect customer (KVGR4='IN') must have partner_function_code='ZW' "
-                f"with assigned partner_code (SO 01-01/04-02). PARVW mapped: {alias_note}."
+                "Completeness: indirect customer (KVGR4='IN') must have PARVW='ZW' "
+                f"(SO 01-01/04-02). KUNN2 not checked. PARVW mapped: {alias_note}."
             )
         # В ошибки — ВСЕ строки клиентов с нарушением (без head(1) / drop_duplicates по Customer)
         error_mask = df_scoped['_cust_key'].isin(error_keys) if error_keys else pd.Series(False, index=df_scoped.index)
@@ -2998,7 +3048,7 @@ class FastDataQualityChecker:
         print(f'      [FILTER] {rule_code} ошибок: {error_count:,} строк ({len(error_keys):,} клиентов)')
         error_df = validator._prepare_error_dataframe(df_scoped, error_mask, 'COMPLETENESS', error_description) if error_count > 0 else None
         if error_df is not None and (not error_df.empty):
-            error_df = error_df.drop(columns=['_parvw_u', '_cust_key'], errors='ignore')
+            error_df = error_df.drop(columns=['_parvw_u', '_cust_key', '_partner_code_149'], errors='ignore')
             error_df = self._attach_kna1_ktokd_export_columns(error_df, rule_code)
             if rule_code == 'RCCOMP_149.2':
                 error_df = self._attach_149_2_indirect_export_columns(error_df, rule_code)
