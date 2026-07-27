@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-22-rcccomp-149-unlimited-errors'
+    CHECKER_BUILD_ID = '2026-07-27-rcccomp-149-parvw-aliases-no-cust-dedup'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -2509,6 +2509,13 @@ class FastDataQualityChecker:
     # Коллега: IF NOT LIKE '90%' THEN skip ≈ «если не 9038 — забить» → оцениваем только KTOKD=9038.
     RCCOMP_149_ACCOUNT_GROUP_ONLY = frozenset({'9038'})
     RCCOMP_149_1_REQUIRED_PF = frozenset({'BP', 'PY', 'ZY', 'SP', 'SH', 'YR'})
+    # SAP DE→EN aliases for PARVW (rules use EN; dump often has German codes)
+    RCCOMP_149_PARVW_ALIASES = {
+        'WE': 'SH',  # Ship-to
+        'RG': 'PY',  # Payer
+        'RE': 'BP',  # Bill-to
+        'AG': 'SP',  # Sold-to
+    }
     KNVV_ORDER_BLOCK_BLOCKED = frozenset({'S', 'NH', 'S3', 'S4', 'SY', 'U', 'R', 'PR'})
     KNVV_DM_SALES_ORG_SCOPE_RULES = frozenset({
         'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCOMP_144.1', 'RCCOMP_153.1', 'RCCOMP_154.1',
@@ -2839,6 +2846,18 @@ class FastDataQualityChecker:
         print(f"      [EXPORT] {rule_code}: в ошибках отражён customer_group_4_code/KVGR4='IN' — {filled:,}/{len(out):,} строк")
         return out
 
+    def _normalize_parvw_for_149(self, value) -> str:
+        """Map SAP DE partner-function codes to EN aliases used in RCCOMP_149 rules."""
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return ''
+        s = str(value).strip().upper()
+        if not s or s in {'NONE', 'NULL', 'NAN', 'NA', '-', '.'}:
+            return ''
+        return self.RCCOMP_149_PARVW_ALIASES.get(s, s)
+
+    def _normalize_parvw_series_for_149(self, series: pd.Series) -> pd.Series:
+        return series.map(self._normalize_parvw_for_149)
+
     def _rcccomp_149_scope_criteria_short(self, rule_code):
         only = ','.join(sorted(self.RCCOMP_149_ACCOUNT_GROUP_ONLY))
         base = f"KNVP SO 01-01/04-02, только KTOKD={only} (не {only} — skip), без order block"
@@ -2932,17 +2951,20 @@ class FastDataQualityChecker:
             eval_scope = eval_scope & cust_df['_cust_key'].isin(in_keys)
             scope_desc = f"indirect (KVGR4='IN'), SO 01-01/04-02, только KTOKD={only}"
         eval_keys = set(cust_df.index[eval_scope])
-        total_rows = len(eval_keys)
-        print(f'      [FILTER] {rule_code} «Всего записей» = {total_rows:,} клиентов ({scope_desc})')
-        print(f'      [FILTER] {rule_code} к оценке ошибок (без blocked order_block): {len(eval_keys):,} клиентов')
-        if total_rows == 0:
+        n_customers = len(eval_keys)
+        print(f'      [FILTER] {rule_code} клиентов в scope: {n_customers:,} ({scope_desc})')
+        if n_customers == 0:
             n_indirect = len(in_keys) if rule_code == 'RCCOMP_149.2' else None
             self._log_skipped_rule(rule, table_name, self._rcccomp_149_scope_skip_message(rule_code, len(cust_df), n_skip_not_9038, n_skip_blocked, n_indirect=n_indirect, n_9038=n_9038), timestamp)
             return (0, 0)
+        # Все строки KNVP по клиентам scope — дубли по Customer НЕ удаляем
         df_scoped = df_work[df_work['_cust_key'].isin(eval_keys)].copy()
+        total_rows = len(df_scoped)
+        print(f'      [FILTER] {rule_code} «Всего записей» = {total_rows:,} строк KNVP (без дедупа по Customer; клиентов: {n_customers:,})')
         filled = self._partner_code_filled_mask(df_scoped[parc_col])
-        df_scoped['_parvw_u'] = df_scoped[parvw_col].astype(str).str.strip().str.upper()
-        rep_idx = df_scoped.groupby('_cust_key', sort=False).head(1).index
+        df_scoped['_parvw_u'] = self._normalize_parvw_series_for_149(df_scoped[parvw_col])
+        alias_note = ', '.join((f'{k}->{v}' for k, v in sorted(self.RCCOMP_149_PARVW_ALIASES.items())))
+        print(f'      [MAP] {rule_code} PARVW aliases: {alias_note}')
         if rule_code == 'RCCOMP_149.1':
             required = sorted(self.RCCOMP_149_1_REQUIRED_PF)
             df_pf = df_scoped.loc[filled & df_scoped['_parvw_u'].isin(self.RCCOMP_149_1_REQUIRED_PF)]
@@ -2953,19 +2975,24 @@ class FastDataQualityChecker:
             present = present.reindex(list(eval_keys), fill_value=0)
             bad = (present[required] == 0).any(axis=1)
             error_keys = set(present.index[bad])
-            error_count = int(bad.sum())
-            error_description = f'Missing Partner function: required partner_function_code in {", ".join(required)} with assigned partner_code (SO 01-01/04-02).'
+            error_description = (
+                f'Missing Partner function: required partner_function_code in {", ".join(required)} '
+                f'with assigned partner_code (SO 01-01/04-02). PARVW aliases: {alias_note}.'
+            )
         else:
             zw_ok = set(df_scoped.loc[filled & (df_scoped['_parvw_u'] == 'ZW'), '_cust_key'])
             error_keys = eval_keys - zw_ok
-            error_count = len(error_keys)
-            error_description = "Indirect customer (KVGR4='IN') must have partner_function_code='ZW' with assigned partner_code (SO 01-01/04-02)."
-        error_mask = pd.Series(False, index=df_scoped.index)
-        if error_keys:
-            rep_df = df_scoped.loc[rep_idx]
-            error_mask.loc[rep_df[rep_df['_cust_key'].isin(error_keys)].index] = True
+            error_description = (
+                "Indirect customer (KVGR4='IN') must have partner_function_code='ZW' "
+                f"with assigned partner_code (SO 01-01/04-02). PARVW aliases: {alias_note}."
+            )
+        # В ошибки — ВСЕ строки клиентов с нарушением (без head(1) / drop_duplicates по Customer)
+        error_mask = df_scoped['_cust_key'].isin(error_keys) if error_keys else pd.Series(False, index=df_scoped.index)
+        error_count = int(error_mask.sum())
+        print(f'      [FILTER] {rule_code} ошибок: {error_count:,} строк ({len(error_keys):,} клиентов)')
         error_df = validator._prepare_error_dataframe(df_scoped, error_mask, 'COMPLETENESS', error_description) if error_count > 0 else None
         if error_df is not None and (not error_df.empty):
+            error_df = error_df.drop(columns=['_parvw_u', '_cust_key'], errors='ignore')
             error_df = self._attach_kna1_ktokd_export_columns(error_df, rule_code)
             if rule_code == 'RCCOMP_149.2':
                 error_df = self._attach_149_2_indirect_export_columns(error_df, rule_code)

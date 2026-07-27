@@ -1999,7 +1999,8 @@
         "'S2', 'S3', 'S4', 'S5', 'S9', 'R', 'U', 'S1','SY',' IA','IB','RN') THEN '' ELSE",
         "IF a.partner_code IS NOT EXIST for any of partner_function_code IN ('BP', 'PY',",
         "'ZY', 'SP', 'SH', 'YR') THEN '0' ELSE '1' /*partner_code MUST BE assigned to all",
-        "partner_function_code: 'BP', 'PY', 'ZY', 'SP', 'SH', 'YR'*/"
+        "partner_function_code: 'BP', 'PY', 'ZY', 'SP', 'SH', 'YR';",
+        "PARVW DE aliases in dump: WE->SH, RG->PY, RE->BP, AG->SP; do not dedupe errors by Customer*/"
       ],
       "value_checked": "IF check_status = '0' THEN\n'Missing Partner function: a.partner_function_code ELSE a.partner_function_code+_+a.partner_code",
       "datamart_or_reference_table_used": "dm_customer_partner (a) where distribution_channel_code = '01' AND division_code = '01' dm_customer_general (c) c INNER a on customer_code",
