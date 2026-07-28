@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-27-rcccomp-149-parvw-only'
+    CHECKER_BUILD_ID = '2026-07-28-rcccomp-149-1-exists-any-pf'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -2509,8 +2509,8 @@ class FastDataQualityChecker:
     # Коллега: IF NOT LIKE '90%' THEN skip ≈ «если не 9038 — забить» → оцениваем только KTOKD=9038.
     RCCOMP_149_ACCOUNT_GROUP_ONLY = frozenset({'9038'})
     # RCCOMP_149.1 = Completeness по PARVW: у клиента в SO 01-01/04-02
-    # должны быть ВСЕ PF ниже (после DE→EN). KUNN2/partner_code НЕ проверяем.
-    # OK только при полном наборе; частичное совпадение — ошибка.
+    # достаточно ХОТЯ БЫ ОДНОГО PF из списка (EXISTS / any). KUNN2 НЕ проверяем.
+    # Ошибка только если нет ни одного кода из списка (после DE→EN).
     RCCOMP_149_1_REQUIRED_PF = frozenset({'BP', 'PY', 'ZY', 'SP', 'SH', 'YR'})
     # Зафиксированные DE→EN псевдонимы PARVW (замена при проверке и в ошибках).
     # YR / ZY уже EN — без маппинга.
@@ -3016,21 +3016,16 @@ class FastDataQualityChecker:
             pass
         if rule_code == 'RCCOMP_149.1':
             required = sorted(self.RCCOMP_149_1_REQUIRED_PF)
-            df_pf = df_scoped.loc[df_scoped['_parvw_u'].isin(self.RCCOMP_149_1_REQUIRED_PF)]
-            present = df_pf.groupby(['_cust_key', '_parvw_u'], observed=False).size().unstack(fill_value=0)
+            # EXISTS: хотя бы один PARVW из списка (не полный набор)
+            ok_keys = set(df_scoped.loc[df_scoped['_parvw_u'].isin(self.RCCOMP_149_1_REQUIRED_PF), '_cust_key'])
+            error_keys = eval_keys - ok_keys
+            n_ok_cust = len(ok_keys & eval_keys)
             for pf in required:
-                if pf not in present.columns:
-                    present[pf] = 0
-            present = present.reindex(list(eval_keys), fill_value=0)
-            for pf in required:
-                n_ok = int((present[pf] > 0).sum())
-                print(f'      [DIAG] {rule_code} клиентов с PARVW={pf}: {n_ok:,}/{n_customers:,}')
-            bad = (present[required] == 0).any(axis=1)
-            error_keys = set(present.index[bad])
-            n_ok_cust = n_customers - len(error_keys)
-            print(f'      [DIAG] {rule_code} клиентов OK (полный набор PARVW): {n_ok_cust:,}/{n_customers:,}')
+                n_pf = int(df_scoped.loc[df_scoped['_parvw_u'] == pf, '_cust_key'].nunique())
+                print(f'      [DIAG] {rule_code} клиентов с PARVW={pf}: {n_pf:,}/{n_customers:,}')
+            print(f'      [DIAG] {rule_code} клиентов OK (EXISTS any of {", ".join(required)}): {n_ok_cust:,}/{n_customers:,}')
             error_description = (
-                f'Completeness: missing Partner Function PARVW — required all of '
+                f'Completeness: missing Partner Function PARVW — need EXISTS at least one of '
                 f'{", ".join(required)} (SO 01-01/04-02). KUNN2 not checked. '
                 f'PARVW DE→EN: {alias_note}; YR/ZY as-is.'
             )

@@ -1995,14 +1995,14 @@
       "rule_code": "RCCOMP_149.1",
       "rule_description": "Missing Partner Function",
       "technical_definition_RU": [
-        "COMPLETENESS по PARVW: у клиента в SO 01-01/04-02 должны быть ВСЕ",
-        "partner_function_code IN ('BP','PY','ZY','SP','SH','YR'). KUNN2/partner_code НЕ проверяем.",
-        "OK только при полном наборе PARVW; иначе ошибка. Частичное совпадение != OK.",
+        "COMPLETENESS по PARVW: у клиента в SO 01-01/04-02 достаточно ХОТЯ БЫ ОДНОГО",
+        "partner_function_code IN ('BP','PY','ZY','SP','SH','YR') (EXISTS / any). KUNN2 НЕ проверяем.",
+        "Ошибка только если нет ни одного кода из списка. Полный набор НЕ требуется.",
         "PARVW DE→EN (замена при проверке и в ошибках): AG→SP, WE→SH, RG→PY, RE→BP; YR/ZY без изменений.",
         "IF account_group_code NOT LIKE '90%' OR order_block_code IN ('S', 'SP', 'E', 'G',",
         "'S2', 'S3', 'S4', 'S5', 'S9', 'R', 'U', 'S1','SY',' IA','IB','RN') THEN '' ELSE",
-        "IF any of partner_function_code IN ('BP', 'PY', 'ZY', 'SP', 'SH', 'YR') is missing",
-        "THEN '0' ELSE '1' /*do not dedupe errors by Customer*/"
+        "IF EXISTS partner_function_code IN ('BP', 'PY', 'ZY', 'SP', 'SH', 'YR')",
+        "THEN '1' ELSE '0' /*do not dedupe errors by Customer*/"
       ],
       "value_checked": "IF check_status = '0' THEN\n'Missing Partner function: a.partner_function_code ELSE a.partner_function_code+_+a.partner_code",
       "datamart_or_reference_table_used": "dm_customer_partner (a) where distribution_channel_code = '01' AND division_code = '01' dm_customer_general (c) c INNER a on customer_code",
