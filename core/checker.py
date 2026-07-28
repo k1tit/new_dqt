@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-28-rcccomp-149-1-exists-any-pf'
+    CHECKER_BUILD_ID = '2026-07-28-rcccomp-149-exists-aligned'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
@@ -2511,7 +2511,9 @@ class FastDataQualityChecker:
     # RCCOMP_149.1 = Completeness по PARVW: у клиента в SO 01-01/04-02
     # достаточно ХОТЯ БЫ ОДНОГО PF из списка (EXISTS / any). KUNN2 НЕ проверяем.
     # Ошибка только если нет ни одного кода из списка (после DE→EN).
+    # RCCOMP_149.2 = та же EXISTS-логика, но один код ZW + scope KVGR4='IN'.
     RCCOMP_149_1_REQUIRED_PF = frozenset({'BP', 'PY', 'ZY', 'SP', 'SH', 'YR'})
+    RCCOMP_149_2_REQUIRED_PF = frozenset({'ZW'})
     # Зафиксированные DE→EN псевдонимы PARVW (замена при проверке и в ошибках).
     # YR / ZY уже EN — без маппинга.
     RCCOMP_149_PARVW_ALIASES = {
@@ -3030,12 +3032,16 @@ class FastDataQualityChecker:
                 f'PARVW DE→EN: {alias_note}; YR/ZY as-is.'
             )
         else:
-            zw_ok = set(df_scoped.loc[df_scoped['_parvw_u'] == 'ZW', '_cust_key'])
+            # 149.2: та же EXISTS-логика, что 149.1, но один код ZW (scope уже KVGR4='IN')
+            required_zw = sorted(self.RCCOMP_149_2_REQUIRED_PF)
+            zw_ok = set(df_scoped.loc[df_scoped['_parvw_u'].isin(self.RCCOMP_149_2_REQUIRED_PF), '_cust_key'])
             error_keys = eval_keys - zw_ok
-            print(f'      [DIAG] {rule_code} клиентов с PARVW=ZW: {len(zw_ok):,}/{n_customers:,}')
+            n_ok_cust = len(zw_ok & eval_keys)
+            print(f'      [DIAG] {rule_code} клиентов OK (EXISTS PARVW in {", ".join(required_zw)}): {n_ok_cust:,}/{n_customers:,}')
             error_description = (
-                "Completeness: indirect customer (KVGR4='IN') must have PARVW='ZW' "
-                f"(SO 01-01/04-02). KUNN2 not checked. PARVW mapped: {alias_note}."
+                f"Completeness: indirect (KVGR4='IN') — need EXISTS PARVW in {', '.join(required_zw)} "
+                f"(SO 01-01/04-02). Same EXISTS logic as 149.1. KUNN2 not checked. "
+                f"PARVW DE→EN: {alias_note}."
             )
         # В ошибки — ВСЕ строки клиентов с нарушением (без head(1) / drop_duplicates по Customer)
         error_mask = df_scoped['_cust_key'].isin(error_keys) if error_keys else pd.Series(False, index=df_scoped.index)
