@@ -39,11 +39,27 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-28-rcccomp-149-exists-aligned'
-    ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR'})
+    CHECKER_BUILD_ID = '2026-07-30-lot-gc-adr-but020-383-384'
+    ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
+    LOT_GC_ADR_TABLE_ALIASES = frozenset({'/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
+    # LOT_GC_ADR / ADRC / ADR2: клиент только через BUT020 (не CLIENT)
+    KNA1_JOIN_VIA_BUT020_TABLES = frozenset({'ADRC', 'ADR2', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
+    # Гео-правила: LOT_GC_ADR.ADRNR → BUT020.Addr.No. → PARTNER → KNA1
+    RULES_LOT_GC_ADR_BUT020 = frozenset({
+        'RCCONF_383.1', 'RCCONF_384.1',
+        'RCCOMP_383.1', 'RCCOMP_384.1',
+    })
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
-    RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
-    RULES_ERROR_EXPORT_KNA1_KTOKD = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCONF_113.1', 'RCCONF_24.1', 'RCCONF_115.11', 'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2'})
+    RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({
+        'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1',
+        'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2',
+        'RCCONF_383.1', 'RCCONF_384.1', 'RCCOMP_383.1', 'RCCOMP_384.1',
+    })
+    RULES_ERROR_EXPORT_KNA1_KTOKD = frozenset({
+        'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCONF_113.1', 'RCCONF_24.1', 'RCCONF_115.11',
+        'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2',
+        'RCCONF_383.1', 'RCCONF_384.1', 'RCCOMP_383.1', 'RCCOMP_384.1',
+    })
     RULES_SAVE_ALL_ERRORS = frozenset({
         'RCCONF_39.5', 'RCCONF_39.5.2', 'RCCONF_18.2', 'RCCONF_63.1',
         'RCCOMP_149.1', 'RCCOMP_149.2',
@@ -58,7 +74,6 @@ class FastDataQualityChecker:
         'RCCONF_39.3', 'RCCONF_39.3.2', 'RCCONF_39.5', 'RCCONF_39.5.2', 'RCCOMP_375.1.2',
     })
     KNA1_JOIN_BLOCKED_COLUMNS = frozenset({'CLIENT', 'CL', 'MANDT', 'MANDANT'})
-    KNA1_JOIN_VIA_BUT020_TABLES = frozenset({'ADRC', 'ADR2'})
 
     def __init__(self, db_path: str, rules_file: str, output_dir: str='quality_reports', parallel_tables: int=0, use_async_load: bool=False, debug: bool=False, reference_datetime=None):
         self.db_path = db_path
@@ -1434,11 +1449,25 @@ class FastDataQualityChecker:
             if 'account_group_code' in technical_def_lower or 'accountgroupcode' in technical_def_lower.replace(' ', '').replace('_', '') or 'ktokd' in technical_def_lower:
                 needs_account_group_code = True
         if needs_account_group_code:
-            if rule_code == 'RCCONF_24.1' and self._is_adrc_table(table_name):
+            rule_u = str(rule_code or '').strip().upper()
+            if rule_u in self.RULES_LOT_GC_ADR_BUT020 and self._is_lot_gc_adr_table(table_name):
+                print(f'      [JOIN] [{self.CHECKER_BUILD_ID}] {rule_code} — LOT_GC_ADR.ADRNR → BUT020.Addr.No. → PARTNER → KNA1')
+                df_to_validate = self._join_kna1_ktokd_lot_gc_adr_via_but020(df_to_validate, table_name, rule_code)
+                if rule_u.startswith('RCCOMP_'):
+                    # Completeness: ещё central_order_block из KNA1.AUFSD по PARTNER
+                    partner_col = next((c for c in df_to_validate.columns if str(c).strip().upper() == 'PARTNER'), None)
+                    if partner_col:
+                        df_to_validate = self._add_order_block_code_from_kna1_customer(df_to_validate, table_name, rule_code, partner_col)
+            elif rule_code == 'RCCONF_24.1' and self._is_adrc_table(table_name):
                 print(f'      [JOIN] [{self.CHECKER_BUILD_ID}] RCCONF_24.1 — принудительный путь ADRC→BUT020→KNA1 (CLIENT запрещён)')
                 df_to_validate = self._join_kna1_ktokd_rconf_24_1_adrc(df_to_validate, table_name, rule_code)
             else:
                 df_to_validate = self._add_account_group_code_from_kna1(df_to_validate, table_name, rule_code)
+            if rule_u in self.RULES_LOT_GC_ADR_BUT020 and self._is_lot_gc_adr_table(table_name):
+                ag_col = self._find_account_group_column(df_to_validate)
+                if not ag_col:
+                    self._log_skipped_rule(rule, table_name, f'{rule_code}: account_group_code (KTOKD) не получен после JOIN LOT_GC_ADR->BUT020->KNA1', timestamp)
+                    return (0, 0)
             if rule_code == 'RCCONF_24.1' and self._is_adrc_table(table_name):
                 ag_col = self._find_account_group_column(df_to_validate)
                 if not ag_col:
@@ -3087,9 +3116,11 @@ class FastDataQualityChecker:
                 out.append(t)
         if needs_ausp and 'AUSP' not in out:
             out.append('AUSP')
-        kna1_dependent = {'BUT0BK', 'BUT051', 'KNB1', 'KNVV', 'KNVP', 'KNVH', 'ADR2', 'ADRC', 'BUT050'}
-        if any((str(t).strip().upper() in kna1_dependent for t in out)) and 'KNA1' not in out:
+        kna1_dependent = {'BUT0BK', 'BUT051', 'KNB1', 'KNVV', 'KNVP', 'KNVH', 'ADR2', 'ADRC', 'BUT050', 'LOTGC_ADR', '/LOT/GC_ADR', 'LOT_GC_ADR'}
+        if any((str(t).strip().upper() in kna1_dependent or str(t).strip().upper().replace('/', '').replace('_', '') == 'LOTGCADR' for t in out)) and 'KNA1' not in out:
             out.append('KNA1')
+        if any((str(t).strip().upper().replace('/', '').replace('_', '') == 'LOTGCADR' for t in out)) and 'BUT020' not in out:
+            out.append('BUT020')
         if 'KNA1' in out and 'ZW2_CMDEMAND' not in out:
             out.append('ZW2_CMDEMAND')
         seen = set()
@@ -3949,6 +3980,16 @@ class FastDataQualityChecker:
     def _resolve_addrnumber_column(self, df, table_name='ADRC'):
         if df is None or df.empty:
             return None
+        # LOT_GC_ADR: явный ADRNR (не Addr. No. из ADRC)
+        if self._is_lot_gc_adr_table(table_name):
+            for cand in ('ADRNR', 'ADDRNUMBER', 'Addr. No.', 'Addr__No_'):
+                col = self._resolve_column_for_rule(df, cand, table_name)
+                if col and col in df.columns:
+                    return col
+            for c in df.columns:
+                cu = str(c).strip().upper().replace(' ', '').replace('_', '').replace('.', '')
+                if cu in ('ADRNR', 'ADDRNUMBER', 'ADDRNO', 'ADDRNR'):
+                    return c
         col = self._resolve_column_for_rule(df, 'ADDRNUMBER', table_name)
         if col:
             return col
@@ -3957,6 +3998,80 @@ class FastDataQualityChecker:
             if cu in ('ADDRNUMBER', 'ADRNR', 'ADDRNRADRC', 'ADDRNO') or ('ADDR' in cu and 'NO' in cu):
                 return c
         return next((c for c in df.columns if 'ADDRNUMBER' in str(c).upper()), None)
+
+    def _addr_digits_series(self, series: pd.Series) -> pd.Series:
+        """Только цифры адреса; пустые/мусор → '' (без исключений)."""
+        try:
+            s = series.astype(str).str.strip()
+            s = s.mask(series.isna(), '')
+            s = s.str.replace('\\.0$', '', regex=True)
+            bad = s.str.lower().isin({'', 'nan', 'none', 'null', 'na', '<na>'})
+            s = s.where(~bad, '')
+            return s.str.replace('\\D+', '', regex=True).fillna('')
+        except Exception:
+            return pd.Series([''] * (len(series) if series is not None else 0), index=getattr(series, 'index', None))
+
+    def _addr_key_variants_series(self, digits: pd.Series, *, optional_leading_zeros: bool=False) -> list:
+        """Варианты ключа Addr: as-is, lstrip0, zfill10, опционально +00 для LOT_GC_ADR."""
+        variants = []
+        d = digits.fillna('').astype(str)
+        variants.append(d)
+        stripped = d.str.lstrip('0')
+        stripped = stripped.mask(stripped.eq('') & d.ne(''), '0')
+        stripped = stripped.where(d.ne(''), '')
+        variants.append(stripped)
+        z10 = d.apply(lambda x: x.zfill(10) if x else '')
+        variants.append(z10)
+        if optional_leading_zeros:
+            # В LOT_GC_ADR часто нет ведущих двух нулей — пробуем добавить
+            with00 = d.where(d.eq('') | d.str.startswith('00'), '00' + d)
+            variants.append(with00)
+            variants.append(with00.apply(lambda x: x.zfill(10) if x else ''))
+            # и наоборот: если есть 00 — вариант без них
+            no00 = d.where(~d.str.startswith('00') | (d.str.len() <= 2) | d.eq(''), d.str.slice(2))
+            variants.append(no00)
+            variants.append(no00.apply(lambda x: x.zfill(10) if x else ''))
+        return variants
+
+    def _build_but020_partner_lookup(self, but020_df, addr_but, partner_but, *, optional_leading_zeros: bool=False) -> dict:
+        """dict: addr_key_variant -> PARTNER (первый wins). Без raise."""
+        lookup = {}
+        try:
+            dig = self._addr_digits_series(but020_df[addr_but])
+            partners = but020_df[partner_but]
+            for keys in self._addr_key_variants_series(dig, optional_leading_zeros=optional_leading_zeros):
+                for k, p in zip(keys.tolist(), partners.tolist()):
+                    if not k:
+                        continue
+                    if k in lookup:
+                        continue
+                    if p is None or (isinstance(p, float) and pd.isna(p)):
+                        continue
+                    ps = str(p).strip()
+                    if not ps or ps.lower() in {'nan', 'none', 'null', 'na'}:
+                        continue
+                    lookup[k] = p
+        except Exception as e:
+            print(f'      [WARN] BUT020 lookup build failed: {e}')
+        return lookup
+
+    def _map_partner_via_but020_lookup(self, addr_series: pd.Series, lookup: dict, *, optional_leading_zeros: bool=False) -> pd.Series:
+        """Сопоставить адреса с PARTNER по вариантам ключа; без ошибок при несовпадении длины/нулей."""
+        out = pd.Series(pd.NA, index=addr_series.index, dtype='object')
+        if not lookup:
+            return out
+        try:
+            dig = self._addr_digits_series(addr_series)
+            for keys in self._addr_key_variants_series(dig, optional_leading_zeros=optional_leading_zeros):
+                mapped = keys.map(lookup)
+                need = out.isna() | (out.astype(str).str.strip() == '') | (out.astype(str).str.strip().str.lower() == 'nan')
+                hit = mapped.notna() & (mapped.astype(str).str.strip() != '')
+                take = need & hit
+                if take.any():
+                    out = out.where(~take, mapped)
+        except Exception as e:
+            print(f'      [WARN] BUT020 partner map failed: {e}')
+        return out
 
     def _resolve_but020_join_columns(self, but020_df):
         if but020_df is None or but020_df.empty:
@@ -3974,7 +4089,7 @@ class FastDataQualityChecker:
         return (addr_col, partner_col)
 
     def _merge_adrc_partner_from_but020(self, df, table_name, rule_code=None):
-        """RCCONF_24.1: ADRC Addr. No. = BUT020 Addr. No. -> Business Partner (KUNNR/Customer)."""
+        """ADRC Addr. No. = BUT020 Addr. No. -> Business Partner (KUNNR/Customer)."""
         if df is None or df.empty:
             return (df, None)
         out = self._apply_rule_time_column_map(df.copy(), table_name or 'ADRC')
@@ -3990,27 +4105,72 @@ class FastDataQualityChecker:
         if not addr_but or not partner_but:
             print(f'      [WARN] {rule_code or table_name}: в BUT020 не найдены Addr. No. и Business Partner (колонки: {list(but020_df.columns)[:10]})')
             return (out, None)
-        but_join = but020_df[[addr_but, partner_but]].copy()
-
-        def _norm_addr_key(series: pd.Series) -> pd.Series:
-            s = series.astype(str).str.strip()
-            s = s.str.replace('\\.0$', '', regex=True)
-            s = s.str.replace('\\D+', '', regex=True)
-            return s.str.zfill(10)
-        out['_addr_key_norm'] = _norm_addr_key(out[addr_col])
-        but_join['_addr_key_norm'] = _norm_addr_key(but_join[addr_but])
-        but_join = but_join.drop_duplicates(subset=['_addr_key_norm'], keep='first')
-        out = out.merge(but_join[['_addr_key_norm', partner_but]], on='_addr_key_norm', how='left')
-        out = out.drop(columns=['_addr_key_norm'], errors='ignore')
-        if addr_but in out.columns and addr_but != addr_col:
-            out = out.drop(columns=[addr_but], errors='ignore')
-        if partner_but in out.columns and partner_but != 'PARTNER':
-            out = out.rename(columns={partner_but: 'PARTNER'})
-        join_col = 'PARTNER' if 'PARTNER' in out.columns else partner_but
-        if join_col and join_col in out.columns:
-            pf = int(out[join_col].astype(str).str.strip().ne('').sum())
-            print(f'      [JOIN] {rule_code or table_name}: ADRC.[{addr_col}] = BUT020.[{addr_but}] -> Business Partner [{partner_but}]: заполнено {pf:,}/{len(out):,}')
+        # ADRC: прежнее поведение zfill(10) через варианты без optional +00
+        lookup = self._build_but020_partner_lookup(but020_df, addr_but, partner_but, optional_leading_zeros=False)
+        out['PARTNER'] = self._map_partner_via_but020_lookup(out[addr_col], lookup, optional_leading_zeros=False)
+        join_col = 'PARTNER'
+        pf = int(out[join_col].astype(str).str.strip().ne('').sum()) if join_col in out.columns else 0
+        print(f'      [JOIN] {rule_code or table_name}: ADRC.[{addr_col}] = BUT020.[{addr_but}] -> Business Partner [{partner_but}]: заполнено {pf:,}/{len(out):,}')
         return (out, join_col)
+
+    def _merge_lot_gc_adr_partner_from_but020(self, df, table_name, rule_code=None):
+        """LOT_GC_ADR.ADRNR = BUT020.Addr.No. -> PARTNER. Опционально +ведущие 00."""
+        if df is None or df.empty:
+            return (df, None)
+        try:
+            out = self._apply_rule_time_column_map(df.copy(), table_name or '/LOT/GC_ADR')
+            addr_col = self._resolve_addrnumber_column(out, table_name or '/LOT/GC_ADR')
+            if not addr_col:
+                print(f'      [WARN] {rule_code or table_name}: в LOT_GC_ADR не найдена колонка ADRNR')
+                return (out, None)
+            but020_df = self._get_but020_table_for_join()
+            if but020_df is None or but020_df.empty:
+                print(f'      [WARN] {rule_code or table_name}: таблица BUT020 не найдена или пуста')
+                return (out, None)
+            addr_but, partner_but = self._resolve_but020_join_columns(but020_df)
+            if not addr_but or not partner_but:
+                print(f'      [WARN] {rule_code or table_name}: в BUT020 не найдены Addr. No. / PARTNER (колонки: {list(but020_df.columns)[:10]})')
+                return (out, None)
+            lookup = self._build_but020_partner_lookup(but020_df, addr_but, partner_but, optional_leading_zeros=True)
+            out['PARTNER'] = self._map_partner_via_but020_lookup(out[addr_col], lookup, optional_leading_zeros=True)
+            join_col = 'PARTNER'
+            dig = self._addr_digits_series(out[addr_col])
+            n_addr = int((dig != '').sum())
+            pf = self._non_empty_key_count(out[join_col])
+            print(
+                f'      [JOIN] {rule_code or table_name}: LOT_GC_ADR.[{addr_col}/ADRNR] = BUT020.[{addr_but}/Addr.No.] '
+                f'-> PARTNER [{partner_but}]: matched {pf:,}/{len(out):,} (ADRNR filled {n_addr:,}; optional leading 00 enabled)'
+            )
+            return (out, join_col)
+        except Exception as e:
+            print(f'      [WARN] {rule_code or table_name}: LOT_GC_ADR→BUT020 join failed (no hard error): {e}')
+            return (df, None)
+
+    def _join_kna1_ktokd_lot_gc_adr_via_but020(self, df, table_name='/LOT/GC_ADR', rule_code='RCCONF_383.1'):
+        """LOT_GC_ADR.ADRNR -> BUT020.PARTNER -> KNA1.KTOKD (как RCCONF_24.1 для ADRC)."""
+        print(f'      [JOIN] [{self.CHECKER_BUILD_ID}] {rule_code}: LOT_GC_ADR.[ADRNR] -> BUT020.[Addr. No.] -> KNA1.[KTOKD]')
+        if df is None or df.empty:
+            return df
+        out = self._drop_kna1_account_group_columns(df)
+        out, join_col = self._merge_lot_gc_adr_partner_from_but020(out, table_name, rule_code)
+        if not join_col or join_col not in out.columns:
+            print(f'      [WARN] {rule_code}: не удалось получить PARTNER через BUT020')
+            return out
+        if self._is_blocked_kna1_join_column(join_col):
+            print(f'      [ERROR] {rule_code}: колонка {join_col} не может использоваться для JOIN с KNA1')
+            return out
+        partner_filled = self._non_empty_key_count(out[join_col])
+        if partner_filled == 0:
+            print(f'      [WARN] {rule_code}: PARTNER пустой после LOT_GC_ADR->BUT020 (колонка {join_col})')
+            return out
+        if self._get_table_for_rules('KNA1') is None or self._get_table_for_rules('KNA1').empty:
+            print(f'      [INFO] KNA1 отсутствует в RAM для {rule_code} — загружаем...')
+            try:
+                self.memory_manager.load_selected_tables_to_ram(['KNA1'], add_reference_tables=False)
+                setattr(self, '_kna1_ktokd_lookup_df', None)
+            except Exception as e:
+                print(f'      [WARN] Не удалось загрузить KNA1: {e}')
+        return self._merge_kna1_account_group_from_lookup(out, table_name or '/LOT/GC_ADR', rule_code, join_col)
 
     def _attach_partner_from_but020_by_addr(self, df, addr_col, log_prefix=''):
         """Подтянуть PARTNER из BUT020 по ADDRNUMBER (с маппингом Addr__No_/Business_Partner)."""
@@ -4022,22 +4182,16 @@ class FastDataQualityChecker:
         addr_but, partner_but = self._resolve_but020_join_columns(but020_df)
         if not addr_but or not partner_but:
             return df
-        j = lambda x: str(x).strip().lstrip('0') or '0'
-        out = df.copy()
-        out['_ak'] = out[addr_col].apply(j)
-        but_join = but020_df[[addr_but, partner_but]].copy()
-        but_join['_ak'] = but_join[addr_but].apply(j)
-        but_join = but_join.drop_duplicates('_ak', keep='first')
-        if partner_but != 'PARTNER':
-            but_join = but_join.rename(columns={partner_but: 'PARTNER'})
-        out = out.merge(but_join[['_ak', 'PARTNER']], on='_ak', how='left')
-        out = out.drop(columns=['_ak'], errors='ignore')
-        if 'PARTNER_y' in out.columns:
-            out['PARTNER'] = out['PARTNER_y']
-            out = out.drop(columns=['PARTNER_x', 'PARTNER_y'], errors='ignore')
-        if log_prefix and 'PARTNER' in out.columns:
-            print(f'{log_prefix} PARTNER из BUT020: {out["PARTNER"].notna().sum():,} из {len(out):,}')
-        return out
+        try:
+            lookup = self._build_but020_partner_lookup(but020_df, addr_but, partner_but, optional_leading_zeros=True)
+            out = df.copy()
+            out['PARTNER'] = self._map_partner_via_but020_lookup(out[addr_col], lookup, optional_leading_zeros=True)
+            if log_prefix and 'PARTNER' in out.columns:
+                print(f'{log_prefix} PARTNER из BUT020: {self._non_empty_key_count(out["PARTNER"]):,} из {len(out):,}')
+            return out
+        except Exception as e:
+            print(f'{log_prefix}[WARN] BUT020 attach failed: {e}')
+            return df
 
     def _load_knvv_for_rules_join(self):
         knvv = self._get_table_for_rules('KNVV')
@@ -4421,6 +4575,13 @@ class FastDataQualityChecker:
         norm = tn.replace('/', '').replace(' ', '').replace('_', '')
         return norm in ('LOTGCADR', 'DMCUSTOMERADDRESS')
 
+    def _is_lot_gc_adr_table(self, table_name) -> bool:
+        tn = str(table_name or '').strip().upper()
+        if tn in self.LOT_GC_ADR_TABLE_ALIASES:
+            return True
+        norm = tn.replace('/', '').replace(' ', '').replace('_', '')
+        return norm == 'LOTGCADR'
+
     def _is_blocked_kna1_join_column(self, col_name) -> bool:
         if col_name is None:
             return True
@@ -4440,7 +4601,7 @@ class FastDataQualityChecker:
             name_order = ('CUSTOMER', 'KUNNR', 'CUSTOMER_CODE', 'KUNNR_KNB1')
         elif tn == 'KNA1':
             name_order = ('KUNNR', 'CUSTOMER', 'CUSTOMER_CODE', 'KUNNR_KNB1')
-        elif tn in self.KNA1_JOIN_VIA_BUT020_TABLES:
+        elif tn in self.KNA1_JOIN_VIA_BUT020_TABLES or self._is_lot_gc_adr_table(table_name):
             name_order = ('PARTNER', 'CUSTOMER', 'KUNNR', 'CUSTOMER_CODE')
         else:
             name_order = ('CUSTOMER', 'KUNNR', 'CUSTOMER_CODE', 'PARTNER')
@@ -4521,6 +4682,8 @@ class FastDataQualityChecker:
             table_u = str(table_name or '').strip().upper()
             if rule_code_u == 'RCCONF_24.1' and self._is_adrc_table(table_name):
                 return self._join_kna1_ktokd_rconf_24_1_adrc(df, table_name, rule_code)
+            if rule_code_u in self.RULES_LOT_GC_ADR_BUT020 and self._is_lot_gc_adr_table(table_name):
+                return self._join_kna1_ktokd_lot_gc_adr_via_but020(df, table_name, rule_code)
             force_rebuild_for_rule = table_u == 'KNB1' or rule_code_u in getattr(self, 'RULES_FORCE_KNA1_KTOKD_JOIN', ('RCCONF_24.1', 'RCCONF_115.11'))
             if str(rule_code).strip().upper() == 'RCCONF_113.1':
                 print('      [DEBUG] RCCONF_113.1 JOIN PATH v2 (memory->sqlite fallback)')

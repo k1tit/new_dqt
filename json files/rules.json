@@ -2377,7 +2377,8 @@
       "technical_definition_RU": [
         "IF longitude IS NULL OR account_group_code LIKE '7%' OR TO_INTEGER(longitude) =",
         "'0' THEN '' ELSE IF longitude has format (-)xx.xxxxxx OR (-)x.xxxxxx OR",
-        "(-)xxx.xxxxxx THEN '1' ELSE '0'"
+        "(-)xxx.xxxxxx THEN '1' ELSE '0'",
+        "/*KTOKD via LOT_GC_ADR.ADRNR=BUT020.Addr.No.→PARTNER→KNA1; optional leading 00 on ADRNR*/"
       ],
       "value_checked": "longitude",
       "datamart_or_reference_table_used": "dm_customer_general",
@@ -2393,7 +2394,8 @@
       "rule_description": "Missing Longitude",
       "technical_definition_RU": [
         "IF account_group_code LIKE '7%' OR central_order_block_code IN (S, SP, E, G, S2,",
-        "S3, S4, S5, S9, R, U, M, NR) THEN '' ELSE IF longitude IS NULL THEN '0' ELSE '1'"
+        "S3, S4, S5, S9, R, U, M, NR) THEN '' ELSE IF longitude IS NULL THEN '0' ELSE '1'",
+        "/*KTOKD/AUFSD via LOT_GC_ADR.ADRNR→BUT020→KNA1; optional leading 00*/"
       ],
       "value_checked": "longitude",
       "datamart_or_reference_table_used": "dm_customer_general",
@@ -2460,7 +2462,8 @@
       "rule_description": "Missing Latitude",
       "technical_definition_RU": [
         "IF account_group_code LIKE '7%' OR central_order_block_code IN (S, SP, E, G, S2,",
-        "S3, S4, S5, S9, R, U, M, NR) THEN '' ELSE IF latitude IS NULL THEN '0' ELSE '1'"
+        "S3, S4, S5, S9, R, U, M, NR) THEN '' ELSE IF latitude IS NULL THEN '0' ELSE '1'",
+        "/*KTOKD/AUFSD via LOT_GC_ADR.ADRNR→BUT020→KNA1; optional leading 00*/"
       ],
       "value_checked": "latitude",
       "datamart_or_reference_table_used": "dm_customer_general",
@@ -2477,7 +2480,8 @@
       "technical_definition_RU": [
         "IF latitude IS NULL OR account_group_code LIKE '7%' OR TO_INTEGER(latitude) = '0'",
         "THEN '' ELSE IF latitude has format (-)xx.xxxxxx OR (-)x.xxxxxx OR (-)xxx.xxxxxx",
-        "THEN '1' ELSE '0'"
+        "THEN '1' ELSE '0'",
+        "/*KTOKD via LOT_GC_ADR.ADRNR=BUT020.Addr.No.→PARTNER→KNA1; optional leading 00 on ADRNR*/"
       ],
       "value_checked": "latitude",
       "datamart_or_reference_table_used": "dm_customer_general",

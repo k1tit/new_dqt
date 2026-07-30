@@ -557,7 +557,15 @@
     "longitude": "_LOT_GC_LONGITUD",
     "latitude": "_LOT_GC_LATITUDE",
     "_LOT_GC_LONGITUD": "_LOT_GC_LONGITUD",
-    "_LOT_GC_LATITUDE": "_LOT_GC_LATITUDE"
+    "_LOT_GC_LATITUDE": "_LOT_GC_LATITUDE",
+    "ADRNR": "ADRNR",
+    "ADDRNUMBER": "ADRNR",
+    "address_number": "ADRNR",
+    "_aliases": {
+      "ADRNR": ["ADRNR", "ADDRNUMBER", "Addr. No.", "Addr__No_", "address_number", "Address"],
+      "_LOT_GC_LONGITUD": ["_LOT_GC_LONGITUD", "/LOT/GC_LONGITUD", "LONGITUDE", "longitude"],
+      "_LOT_GC_LATITUDE": ["_LOT_GC_LATITUDE", "/LOT/GC_LATITUDE", "LATITUDE", "latitude"]
+    }
   }
 }
 

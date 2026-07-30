@@ -213,6 +213,13 @@ class MemoryManager:
                 match = self._find_table_in_db(ref, all_in_db)
                 if match:
                     to_load.add(match)
+        # LOT_GC_ADR / LOTGC_ADR → нужен BUT020 + KNA1 (клиент по ADRNR)
+        lot_names = {'/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'}
+        if any((str(t).strip().upper().replace('/', '').replace('_', '') == 'LOTGCADR' or str(t).strip().upper() in lot_names for t in table_names)):
+            for ref in ('BUT020', 'KNA1'):
+                match = self._find_table_in_db(ref, all_in_db)
+                if match:
+                    to_load.add(match)
         return sorted(to_load)
 
     def _needs_ausp_load(self, table_names):
