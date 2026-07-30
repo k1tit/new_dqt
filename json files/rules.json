@@ -2373,11 +2373,11 @@
   "/LOT/GC_ADR": [
     {
       "rule_code": "RCCONF_383.1",
-      "rule_description": "Longitude Format should be xx.xxxxxx",
+      "rule_description": "Longitude Format should be xx.y… (any fractional digits)",
       "technical_definition_RU": [
         "IF longitude IS NULL OR account_group_code LIKE '7%' OR TO_INTEGER(longitude) =",
-        "'0' THEN '' ELSE IF longitude has format (-)xx.xxxxxx OR (-)x.xxxxxx OR",
-        "(-)xxx.xxxxxx THEN '1' ELSE '0'",
+        "'0' THEN '' ELSE IF longitude has format (-)x/xx/xxx .|, <any digits>",
+        "THEN '1' ELSE '0' /*fractional length NOT fixed to 6; . or , ok*/",
         "/*KTOKD via LOT_GC_ADR.ADRNR=BUT020.Addr.No.→PARTNER→KNA1; optional leading 00 on ADRNR*/"
       ],
       "value_checked": "longitude",
@@ -2476,11 +2476,11 @@
     },
     {
       "rule_code": "RCCONF_384.1",
-      "rule_description": "Latitude Format should be xx.xxxxxx",
+      "rule_description": "Latitude Format should be xx.y… (any fractional digits)",
       "technical_definition_RU": [
         "IF latitude IS NULL OR account_group_code LIKE '7%' OR TO_INTEGER(latitude) = '0'",
-        "THEN '' ELSE IF latitude has format (-)xx.xxxxxx OR (-)x.xxxxxx OR (-)xxx.xxxxxx",
-        "THEN '1' ELSE '0'",
+        "THEN '' ELSE IF latitude has format (-)x/xx/xxx .|, <any digits>",
+        "THEN '1' ELSE '0' /*fractional length NOT fixed to 6; . or , ok*/",
         "/*KTOKD via LOT_GC_ADR.ADRNR=BUT020.Addr.No.→PARTNER→KNA1; optional leading 00 on ADRNR*/"
       ],
       "value_checked": "latitude",

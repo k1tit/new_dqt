@@ -39,26 +39,34 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-30-lot-gc-adr-but020-383-384'
+    CHECKER_BUILD_ID = '2026-07-30-geo-any-decimal-digits'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
     LOT_GC_ADR_TABLE_ALIASES = frozenset({'/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
     # LOT_GC_ADR / ADRC / ADR2: клиент только через BUT020 (не CLIENT)
     KNA1_JOIN_VIA_BUT020_TABLES = frozenset({'ADRC', 'ADR2', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
     # Гео-правила: LOT_GC_ADR.ADRNR → BUT020.Addr.No. → PARTNER → KNA1
     RULES_LOT_GC_ADR_BUT020 = frozenset({
-        'RCCONF_383.1', 'RCCONF_384.1',
+        'RCCONF_383.1', 'RCCONF_383.2', 'RCCONF_383.3', 'RCCONF_383.4',
+        'RCCONF_384.1', 'RCCONF_384.2', 'RCCONF_384.3',
         'RCCOMP_383.1', 'RCCOMP_384.1',
     })
+    # Формат координат: любое число знаков после . или ,
+    GEO_COORD_FORMAT_RULES = frozenset({'RCCONF_383.1', 'RCCONF_384.1'})
+    GEO_COORD_FORMAT_RE = r'^-?\d{1,3}[.,]\d+$'
     RULES_KTOKD_ONLY_9038_SCOPE = frozenset({'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCOMP_142.1', 'RCCOMP_143.1'})
     RULES_FORCE_KNA1_KTOKD_JOIN = frozenset({
         'RCCONF_113.1', 'RCCONF_115.11', 'RCCONF_24.1', 'RCCOMP_113.1', 'RCCOMP_115.1',
         'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2',
-        'RCCONF_383.1', 'RCCONF_384.1', 'RCCOMP_383.1', 'RCCOMP_384.1',
+        'RCCONF_383.1', 'RCCONF_383.2', 'RCCONF_383.3', 'RCCONF_383.4',
+        'RCCONF_384.1', 'RCCONF_384.2', 'RCCONF_384.3',
+        'RCCOMP_383.1', 'RCCOMP_384.1',
     })
     RULES_ERROR_EXPORT_KNA1_KTOKD = frozenset({
         'RCCOMP_113.1', 'RCCOMP_115.1', 'RCCONF_113.1', 'RCCONF_24.1', 'RCCONF_115.11',
         'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCONF_154.4', 'RCCOMP_149.1', 'RCCOMP_149.2',
-        'RCCONF_383.1', 'RCCONF_384.1', 'RCCOMP_383.1', 'RCCOMP_384.1',
+        'RCCONF_383.1', 'RCCONF_383.2', 'RCCONF_383.3', 'RCCONF_383.4',
+        'RCCONF_384.1', 'RCCONF_384.2', 'RCCONF_384.3',
+        'RCCOMP_383.1', 'RCCOMP_384.1',
     })
     RULES_SAVE_ALL_ERRORS = frozenset({
         'RCCONF_39.5', 'RCCONF_39.5.2', 'RCCONF_18.2', 'RCCONF_63.1',
@@ -1736,7 +1744,7 @@ class FastDataQualityChecker:
                     else:
                         self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
                 return (error_count, total_rows)
-            if rule_code in ('RCCONF_383.1', 'RCCONF_384.1'):
+            if rule_code in self.GEO_COORD_FORMAT_RULES:
                 coord_col = matched_column if matched_column in df_to_validate.columns else None
                 if coord_col is None:
                     is_long = rule_code == 'RCCONF_383.1'
@@ -1764,11 +1772,15 @@ class FastDataQualityChecker:
                 print(f'      [DEBUG] {rule_code}: total={len(df_to_validate):,}, null_like={int(null_like.sum()):,}, to_integer_zero={int(zero_skip.sum()):,}, account_group_7xx={int(account_group_skip.sum()):,}, evaluated={total_rows:,}')
                 if total_rows == 0:
                     return (0, 0)
-                fmt_ok = s.str.match('^-?\\d{1,3}\\.\\d{6}$', na=False)
+                # Любое число знаков после . или , (не обязательно 6)
+                fmt_ok = s.str.match(self.GEO_COORD_FORMAT_RE, na=False)
                 error_mask = evaluated_mask & ~fmt_ok
                 error_count = int(error_mask.sum())
-                print(f'      [DEBUG] {rule_code}: coord_col={coord_col}, evaluated={total_rows:,}, errors={error_count:,}')
-                error_description = f'Invalid coordinate format in {coord_col}. Expected (-)x.xxxxxx / (-)xx.xxxxxx / (-)xxx.xxxxxx with dot as decimal separator.'
+                print(f'      [DEBUG] {rule_code}: coord_col={coord_col}, evaluated={total_rows:,}, errors={error_count:,} (any decimals after .|,)')
+                error_description = (
+                    f'Invalid coordinate format in {coord_col}. '
+                    f'Expected (-)x.y… / (-)xx.y… / (-)xxx.y… with . or , and any number of fractional digits.'
+                )
                 error_df = validator._prepare_error_dataframe(df_to_validate, error_mask, 'CONFORMITY', error_description) if error_count > 0 else None
                 is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
                 if save_result:

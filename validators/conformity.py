@@ -213,7 +213,7 @@ class ConformityValidator(BaseValidator):
             error_df['DQ_TIMESTAMP'] = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
             return (total_rows, error_count, error_df)
         if effective_rule_code in {'RCCONF_383.1', 'RCCONF_384.1'}:
-            print(f'      [DEBUG] {effective_rule_code}: strict geo-format validator active (dot + 6 decimals)')
+            print(f'      [DEBUG] {effective_rule_code}: geo-format validator (any fractional digits after . or ,)')
             account_group_col = None
             for c in df.columns:
                 cu = str(c).strip().lower()
@@ -234,13 +234,17 @@ class ConformityValidator(BaseValidator):
             total_rows = int(evaluated_mask.sum())
             if total_rows == 0:
                 return (0, 0, None)
-            fmt_ok = s.str.match('^-?\\d{1,3}\\.\\d{6}$', na=False)
+            # Любое число знаков после . или , (не обязательно 6)
+            fmt_ok = s.str.match(r'^-?\d{1,3}[.,]\d+$', na=False)
             error_mask = evaluated_mask & ~fmt_ok
             error_count = int(error_mask.sum())
             print(f'      [DEBUG] {effective_rule_code}: evaluated={total_rows:,}, errors={error_count:,}')
             if error_count == 0:
                 return (total_rows, 0, None)
-            error_df = self._prepare_error_dataframe(df, error_mask, 'CONFORMITY', f'Invalid coordinate format in {column_name}. Expected (-)x.xxxxxx / (-)xx.xxxxxx / (-)xxx.xxxxxx with dot as decimal separator.')
+            error_df = self._prepare_error_dataframe(
+                df, error_mask, 'CONFORMITY',
+                f'Invalid coordinate format in {column_name}. Expected (-)x.y… / (-)xx.y… / (-)xxx.y… with . or , and any number of fractional digits.',
+            )
             return (total_rows, error_count, error_df)
         if effective_rule_code == 'RCCONF_22.4':
             filled = _value_filled_mask(df[column_name])
