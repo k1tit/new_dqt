@@ -204,7 +204,7 @@ class KNA1Handler:
     def _rule_9038_completeness(self, rule: Dict, logical_name: str, fallback_col: str) -> Dict:
         ktokd_col = _find_col(self.df, KTOKD, 'KTOKD', 'account_group_code', table_name=self.table_name, column_map=self._column_map, project_root=self._project_root)
         if not ktokd_col or ktokd_col not in self.df.columns:
-            return self._error_result(rule, 'В KNA1 не найдена колонка группы счетов (KTOKD)')
+            return self._error_result(rule, 'В KNA1 не найдена колонка KTOKD')
         col = self._col(logical_name, fallback_col)
         if not col or col not in self.df.columns:
             return self._error_result(rule, f'Колонка для проверки ({fallback_col}) не найдена')

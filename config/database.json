@@ -1,5 +1,3 @@
 {
-  "database": "db_june.db",
-  "period": "2026-06",
-  "comment": "Каждый месяц: положите новый .db в корень проекта и измените только поле database (например db_may.db). Либо задайте переменную окружения DQ_DATABASE."
+  "database": "db_june.db"
 }
