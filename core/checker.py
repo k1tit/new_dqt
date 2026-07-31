@@ -39,7 +39,9 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-31-dm-customer-general-ktokd-9038'
+    CHECKER_BUILD_ID = '2026-07-31-dm-customer-general-aufsd-not-s'
+    # dm_customer_general hard scope: no central order block S (AUFSD)
+    DM_CUSTOMER_GENERAL_AUFSD_EXCLUDE = frozenset({'S'})
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
     LOT_GC_ADR_TABLE_ALIASES = frozenset({'/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
     # LOT_GC_ADR / ADRC / ADR2: клиент только через BUT020 (не CLIENT)
@@ -3317,22 +3319,73 @@ class FastDataQualityChecker:
             print(f'      [WARN] {rule_code}: не удалось добавить KTOKD для dm_customer_general: {e}')
             return df
 
+    def _ensure_aufsd_for_dm_customer_general(self, df, table_name, rule_code):
+        """Подтянуть AUFSD / order_block_code из KNA1, если ещё нет."""
+        if df is None or df.empty:
+            return df
+        if self._find_order_block_column(df):
+            return df
+        join_col = None
+        # после BUT020/KTOKD join обычно есть PARTNER
+        for name in ('PARTNER', 'KUNNR', 'CUSTOMER', 'Customer'):
+            hit = next((c for c in df.columns if str(c).strip().upper() == name.upper()), None)
+            if hit and self._non_empty_key_count(df[hit]) > 0:
+                join_col = hit
+                break
+        if not join_col:
+            join_col = self._pick_best_kunnr_column(df, table_name)
+        if not join_col:
+            print(f'      [WARN] {rule_code}: нет ключа клиента для JOIN KNA1.AUFSD (dm_customer_general)')
+            return df
+        return self._add_order_block_code_from_kna1_customer(df, table_name, rule_code, join_col)
+
+    def _filter_rows_exclude_aufsd_blocked_dm_general(self, df, rule_code):
+        """dm_customer_general: исключить AUFSD=S (и др. из DM_CUSTOMER_GENERAL_AUFSD_EXCLUDE)."""
+        if df is None or df.empty:
+            return df
+        ob_col = self._find_order_block_column(df)
+        if not ob_col:
+            print(f'      [WARN] {rule_code}: AUFSD/order_block не найден — фильтр «без блока S» не применён')
+            return df
+        ob = df[ob_col].astype(str).str.strip().str.upper()
+        blocked = ob.isin(self.DM_CUSTOMER_GENERAL_AUFSD_EXCLUDE)
+        n_blocked = int(blocked.sum())
+        out = df.loc[~blocked].copy()
+        print(
+            f'      [FILTER] {rule_code}: dm_customer_general -> AUFSD not in '
+            f'{sorted(self.DM_CUSTOMER_GENERAL_AUFSD_EXCLUDE)}: осталось {len(out):,}/{len(df):,} '
+            f'(исключено block S: {n_blocked:,})'
+        )
+        return out
+
     def _scope_df_to_ktokd_9038_for_dm_customer_general(self, df, table_name, rule_code, rule, timestamp):
         """
-        Жёсткий scope: datamart dm_customer_general → только KTOKD=9038.
+        Жёсткий scope dm_customer_general:
+          - KTOKD=9038
+          - AUFSD не содержит блок S
         Returns filtered df, or None if rule should be skipped (no rows).
         """
         if df is None:
             return None
         out = self._ensure_account_group_for_dm_customer_general(df, table_name, rule_code)
-        before = len(out) if out is not None else 0
+        before_ktokd = len(out) if out is not None else 0
         out = self._filter_rows_only_ktokd_9038(out, rule_code)
-        skipped = before - (len(out) if out is not None else 0)
-        print(f"      [FILTER] {rule_code}: dm_customer_general → hard KTOKD=9038: {len(out) if out is not None else 0:,} из {before:,} (skip не 9038: {skipped:,})")
+        skipped_ktokd = before_ktokd - (len(out) if out is not None else 0)
+        print(f"      [FILTER] {rule_code}: dm_customer_general -> hard KTOKD=9038: {len(out) if out is not None else 0:,} из {before_ktokd:,} (skip не 9038: {skipped_ktokd:,})")
         if out is None or out.empty:
             self._log_skipped_rule(
                 rule, table_name,
                 f'{rule_code}: dm_customer_general — нет строк с KTOKD=9038 после JOIN/фильтра',
+                timestamp,
+            )
+            return None
+        out = self._ensure_aufsd_for_dm_customer_general(out, table_name, rule_code)
+        before_aufsd = len(out)
+        out = self._filter_rows_exclude_aufsd_blocked_dm_general(out, rule_code)
+        if out is None or out.empty:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: dm_customer_general — нет строк после исключения AUFSD=S (было {before_aufsd:,} с KTOKD=9038)',
                 timestamp,
             )
             return None
