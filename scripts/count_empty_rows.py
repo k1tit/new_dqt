@@ -90,12 +90,16 @@ def main() -> int:
     if not args.table and not args.all:
         parser.error('Укажите --table NAME или --all')
 
-    db_path = resolve_database_path(args.db, _PROJECT_ROOT)
+    try:
+        db_path, db_source = resolve_database_path(_PROJECT_ROOT, args.db, must_exist=True)
+    except FileNotFoundError as e:
+        print(f'[ERROR] {e}')
+        return 1
     if not db_path or not os.path.isfile(db_path):
         print(f'[ERROR] БД не найдена: {db_path}')
         return 1
 
-    print(f'[INFO] DB: {db_path}')
+    print(f'[INFO] DB: {db_path} ({db_source})')
     conn = connect_sqlite(db_path)
     try:
         if args.all:
