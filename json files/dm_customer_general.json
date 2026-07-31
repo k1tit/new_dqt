@@ -4,7 +4,7 @@
       "type": "DM",
       "place": "KNA1",
       "alias": "kna",
-      "filtering": "(NODEL != 'X' AND LOEVM != 'X' AND (KTOKD like '9%') AND AUFSD NOT IN ('S', 'NH', 'S3', 'S4', 'SY', 'U', 'R') AND combination KTOKD - Cluster in available in config file)"
+      "filtering": "(NODEL != 'X' AND LOEVM != 'X' AND KTOKD = '9038' /*DQT hard scope: dm_customer_general → only 9038*/ AND AUFSD NOT IN ('S', 'NH', 'S3', 'S4', 'SY', 'U', 'R') AND combination KTOKD - Cluster in available in config file)"
     },
     {
       "type": "DM",

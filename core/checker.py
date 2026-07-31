@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-30-geo-any-decimal-digits'
+    CHECKER_BUILD_ID = '2026-07-31-dm-customer-general-ktokd-9038'
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
     LOT_GC_ADR_TABLE_ALIASES = frozenset({'/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
     # LOT_GC_ADR / ADRC / ADR2: клиент только через BUT020 (не CLIENT)
@@ -936,6 +936,7 @@ class FastDataQualityChecker:
         suspicious_count = 0
         try:
             handler = handler_class(table_name, df, self.memory_manager, self)
+            handler_base_df = handler.df.copy() if getattr(handler, 'df', None) is not None else df
             total_rules = len(table_rules)
             for i, rule in enumerate(table_rules, 1):
                 if self._parallel_lock:
@@ -947,6 +948,18 @@ class FastDataQualityChecker:
                 sys.stdout.write(f'\r    [{i:3d}/{total_rules:3d}] {self.current_rule:20} | ')
                 sys.stdout.flush()
                 rule_start_time = time.time()
+                if self._rule_uses_dm_customer_general(rule):
+                    scoped = self._scope_df_to_ktokd_9038_for_dm_customer_general(
+                        handler_base_df.copy(), table_name, self.current_rule, rule, timestamp,
+                    )
+                    if scoped is None:
+                        execution_time = time.time() - rule_start_time
+                        self._print_rule_stats(self.current_rule, 0, 0, execution_time, False, False, not_evaluated=True)
+                        error_count += 1
+                        continue
+                    handler.df = scoped
+                else:
+                    handler.df = handler_base_df
                 result = handler.validate_rule(rule)
                 execution_time = time.time() - rule_start_time
                 if result and isinstance(result, dict):
@@ -1503,6 +1516,12 @@ class FastDataQualityChecker:
                     print('      [SKIP] RCCONF_113.1: account_group_code не доступен после JOIN (memory/SQLite), правило пропущено')
                     self._log_skipped_rule(rule, table_name, 'RCCONF_113.1 skipped: account_group_code (KTOKD) not available after KNA1 join', timestamp)
                     return (0, 0)
+        # dm_customer_general → жёстко только KTOKD=9038 (для всех таблиц с этим datamart)
+        if self._rule_uses_dm_customer_general(rule):
+            scoped = self._scope_df_to_ktokd_9038_for_dm_customer_general(df_to_validate, table_name, rule_code, rule, timestamp)
+            if scoped is None:
+                return (0, 0)
+            df_to_validate = scoped
         if str(table_name or '').strip().upper() == 'KNVV':
             scope_source = df_to_validate
             if rule_code == 'RCCONF_153.4':
@@ -3267,6 +3286,58 @@ class FastDataQualityChecker:
                 best_filled = filled
                 best_col = col
         return best_col
+
+    def _rule_uses_dm_customer_general(self, rule) -> bool:
+        """True if rule is tied to dm_customer_general datamart (hard KTOKD=9038 scope)."""
+        dm = rule.get('datamart_or_reference_table_used') if rule else None
+        if dm is None:
+            return False
+        if isinstance(dm, list):
+            dm = ' '.join((str(x) for x in dm))
+        return 'dm_customer_general' in str(dm).lower()
+
+    def _ensure_account_group_for_dm_customer_general(self, df, table_name, rule_code):
+        """Подтянуть KTOKD/account_group_code из KNA1 (через BUT020 для ADRC/LOT_GC_ADR)."""
+        if df is None or df.empty:
+            return df
+        if self._find_account_group_column(df):
+            return df
+        tn = str(table_name or '').strip().upper()
+        try:
+            if self._is_lot_gc_adr_table(table_name):
+                return self._join_kna1_ktokd_lot_gc_adr_via_but020(df, table_name, rule_code)
+            if tn == 'ADRC' or (self._is_adrc_table(table_name) and not self._is_lot_gc_adr_table(table_name)):
+                # ADRC: PARTNER через BUT020, затем KTOKD
+                out, join_col = self._merge_adrc_partner_from_but020(df, table_name, rule_code)
+                if join_col and join_col in out.columns and self._non_empty_key_count(out[join_col]) > 0:
+                    return self._merge_kna1_account_group_from_lookup(out, table_name, rule_code, join_col)
+                return self._add_account_group_code_from_kna1(out if out is not None else df, table_name, rule_code)
+            return self._add_account_group_code_from_kna1(df, table_name, rule_code)
+        except Exception as e:
+            print(f'      [WARN] {rule_code}: не удалось добавить KTOKD для dm_customer_general: {e}')
+            return df
+
+    def _scope_df_to_ktokd_9038_for_dm_customer_general(self, df, table_name, rule_code, rule, timestamp):
+        """
+        Жёсткий scope: datamart dm_customer_general → только KTOKD=9038.
+        Returns filtered df, or None if rule should be skipped (no rows).
+        """
+        if df is None:
+            return None
+        out = self._ensure_account_group_for_dm_customer_general(df, table_name, rule_code)
+        before = len(out) if out is not None else 0
+        out = self._filter_rows_only_ktokd_9038(out, rule_code)
+        skipped = before - (len(out) if out is not None else 0)
+        print(f"      [FILTER] {rule_code}: dm_customer_general → hard KTOKD=9038: {len(out) if out is not None else 0:,} из {before:,} (skip не 9038: {skipped:,})")
+        if out is None or out.empty:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: dm_customer_general — нет строк с KTOKD=9038 после JOIN/фильтра',
+                timestamp,
+            )
+            return None
+        out = self._attach_kna1_ktokd_export_columns(out, rule_code)
+        return out
 
     def _filter_rows_only_ktokd_9038(self, df, rule_code):
         from utils.sap_account_keys import norm_sap_account_group
