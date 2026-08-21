@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-08-21-join-cache-adr6'
+    CHECKER_BUILD_ID = '2026-08-21-perf-phase-a'
     # dm_customer_general hard scope: no central order block S (AUFSD)
     DM_CUSTOMER_GENERAL_AUFSD_EXCLUDE = frozenset({'S'})
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
@@ -85,7 +85,7 @@ class FastDataQualityChecker:
     })
     KNA1_JOIN_BLOCKED_COLUMNS = frozenset({'CLIENT', 'CL', 'MANDT', 'MANDANT'})
 
-    def __init__(self, db_path: str, rules_file: str, output_dir: str='quality_reports', parallel_tables: int=0, use_async_load: bool=False, debug: bool=False, reference_datetime=None):
+    def __init__(self, db_path: str, rules_file: str, output_dir: str='quality_reports', parallel_tables: int=0, use_async_load: bool=False, debug: bool=False, reference_datetime=None, save_all_errors: bool=False):
         self.db_path = db_path
         self.rules_file = rules_file
         self.output_dir = output_dir
@@ -93,6 +93,8 @@ class FastDataQualityChecker:
         self.use_async_load = bool(use_async_load)
         self.debug = bool(debug)
         self.reference_datetime = reference_datetime
+        # False (default): всегда лимит MAX_ERRORS_TO_SAVE. True / --save-all-errors: старое поведение.
+        self.save_all_errors = bool(save_all_errors)
         self._parallel_lock = threading.Lock() if self.parallel_tables else None
         self.memory_manager = MemoryManager(db_path)
         print(f'[CHECKER] {self.CHECKER_BUILD_ID} | {os.path.abspath(__file__)}', flush=True)
@@ -132,6 +134,9 @@ class FastDataQualityChecker:
         self.table_handlers = self._load_table_handlers()
 
     def _saves_all_errors(self, rule_code, table_name):
+        """Unlimited error export — only when explicitly enabled (--save-all-errors)."""
+        if not getattr(self, 'save_all_errors', False):
+            return False
         rule_u = self._normalize_rule_code(rule_code)
         tbl = str(table_name or '').strip().upper()
         if rule_u in self.RULES_SAVE_ALL_ERRORS:
@@ -622,7 +627,9 @@ class FastDataQualityChecker:
             print(f'[INFO] Проверяем все таблицы')
         if only_rule_codes:
             print(f'[INFO] Изолированный режим: только правила {sorted(only_rule_codes)}')
-        print(f'[INFO] Настройки: Сохраняется максимум {self.MAX_ERRORS_TO_SAVE:,} ошибок на правило')
+        print(f'[INFO] Настройки: Сохраняется максимум {self.MAX_ERRORS_TO_SAVE:,} ошибок на правило'
+              f'{" (SAVE-ALL включён)" if getattr(self, "save_all_errors", False) else " (SAVE-ALL выкл — лимит всегда)"}')
+        print(f'[INFO] parallel_tables={self.parallel_tables}, async_load={self.use_async_load}')
         print(f'\n[INFO] Загружаем данные из базы...')
         load_start = time.time()
         if hasattr(self.memory_manager, 'load_all_data_to_ram'):

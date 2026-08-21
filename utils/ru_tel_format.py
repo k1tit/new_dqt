@@ -102,3 +102,48 @@ def is_valid_rccconf_39_5_value(val, rule_code: str = 'RCCONF_39.5') -> bool:
     if rc == 'RCCONF_39.5.2':
         return is_valid_rccconf_39_5_2_digits(digits)
     return is_valid_rccconf_39_5_digits(digits)
+
+
+def invalid_rccconf_39_5_mask(series, rule_code: str = 'RCCONF_39.5'):
+    """
+    Vectorized mask: True = format error (same semantics as apply(is_valid...)).
+    Empty / no digits → False (not an error; upstream may exclude empties).
+    """
+    import pandas as pd
+
+    if series is None:
+        return pd.Series(dtype=bool)
+    s = series.astype(str).str.strip().str.replace('\ufeff', '', regex=False)
+    try:
+        s = s.str.translate(_FULLWIDTH)
+    except Exception:
+        pass
+    s = s.str.replace(r'\s+', '', regex=True)
+    empty = series.isna() | s.eq('') | s.str.lower().isin(['none', 'null', 'nan', 'na', '<na>'])
+    trail = s.str.match(r'^\d+\.0+$', na=False)
+    s_norm = s.where(~trail, s.str.replace(r'\.0+$', '', regex=True))
+    digits = s_norm.str.replace(r'\D', '', regex=True)
+    no_digits = digits.eq('') | digits.isna()
+
+    cleaned = s_norm.str.replace(r'[\s\-\(\)\.]', '', regex=True).str.lstrip('+')
+    # scientific / float text already handled via trail; letters / other junk → bad
+    has_letter = s_norm.str.contains(r'[a-zA-Z]', na=False)
+    bad_chars = has_letter | (cleaned.ne(digits) & ~trail)
+
+    rc = str(rule_code or '').strip().upper()
+    len_d = digits.str.len()
+    if rc == 'RCCONF_39.5.2':
+        second = digits.str.get(1).fillna('')
+        fmt_ok = (
+            (len_d.eq(10) & digits.str.startswith('9'))
+            | (len_d.eq(11) & (digits.str.startswith('89') | digits.str.startswith('79')))
+            | (len_d.eq(11) & digits.str.startswith('8') & second.ne('9'))
+        )
+    else:
+        fmt_ok = (
+            (len_d.eq(10) & digits.str.startswith('9'))
+            | (len_d.eq(11) & digits.str.startswith('89'))
+        )
+
+    invalid = (~empty) & (~no_digits) & (bad_chars | ~fmt_ok)
+    return invalid.fillna(False)

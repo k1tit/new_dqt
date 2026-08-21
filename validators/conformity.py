@@ -111,6 +111,106 @@ def _postal_is_valid(val, country: str, standards: list, t005_row: dict | None) 
         return bool(re.fullmatch(r'\d{6}', digits))
     return bool(re.fullmatch(r'[A-Z0-9][A-Z0-9 \-]{0,9}', raw, flags=re.IGNORECASE))
 
+
+def _compile_postal_standards(standards: list) -> tuple:
+    """({cc: [rule,...]}, [star_rules]). rule: {'regex': re|None, 'allowed': set|None}."""
+    by_cc = {}
+    star = []
+    for row in standards or []:
+        row_cc = str(row.get('country_code') or row.get('COUNTRY') or row.get('land1') or '').strip().upper()
+        pattern = row.get('regex') or row.get('pattern')
+        compiled = re.compile(str(pattern), flags=re.IGNORECASE) if pattern else None
+        allowed = None
+        allowed_raw = row.get('postal_code') or row.get('POST_CODE1') or row.get('code')
+        if allowed_raw is not None or row.get('allowed_codes') or row.get('valid_codes'):
+            allowed_set = row.get('allowed_codes') or row.get('valid_codes')
+            if isinstance(allowed_set, (list, set, tuple)):
+                allowed = {str(x).strip().upper() for x in allowed_set}
+            elif allowed_raw is not None:
+                allowed = {str(allowed_raw).strip().upper()}
+        rule = {'regex': compiled, 'allowed': allowed}
+        if not row_cc or row_cc == '*':
+            star.append(rule)
+        else:
+            by_cc.setdefault(row_cc, []).append(rule)
+    return (by_cc, star)
+
+
+def _normalize_postal_series(series: pd.Series) -> pd.Series:
+    """Vectorized-ish normalize for postal codes (handles float .0)."""
+    s = series.astype(str).str.strip().str.replace('\ufeff', '', regex=False)
+    s = s.mask(series.isna(), '')
+    bad = s.str.lower().isin({'none', 'null', 'nan', 'na', '<na>'})
+    s = s.where(~bad, '')
+    # 123456.0 → 123456
+    trail0 = s.str.match(r'^\d+\.0+$', na=False)
+    if trail0.any():
+        s = s.where(~trail0, s.str.replace(r'\.0+$', '', regex=True))
+    return s
+
+
+def _postal_invalid_mask_vectorized(
+    postal_series: pd.Series,
+    country_series: pd.Series,
+    standards: list,
+    t005_by_country: dict | None,
+) -> pd.Series:
+    """
+    True = invalid postal (error). Same semantics as row-wise _postal_is_valid,
+    but grouped by country (avoids DataFrame.apply axis=1).
+    """
+    t005_by_country = t005_by_country or {}
+    by_cc, star_rules = _compile_postal_standards(standards)
+    raw = _normalize_postal_series(postal_series)
+    empty = raw.eq('')
+    digits = raw.str.replace(r'\D', '', regex=True)
+    cc = country_series.astype(str).str.strip().str.upper()
+    cc = cc.mask(country_series.isna() | cc.isin({'NONE', 'NULL', 'NAN', 'NA', '<NA>', ''}), '')
+
+    invalid = pd.Series(False, index=postal_series.index)
+    # Only evaluate non-empty postals (empty = not error / not in scope of filled mask upstream)
+    work = ~empty
+    if not work.any():
+        return invalid
+
+    # Unique countries in scope (typically << rows)
+    countries_present = cc.loc[work].unique().tolist()
+    for country_code in countries_present:
+        mask = work & (cc == country_code)
+        if not mask.any():
+            continue
+        raw_g = raw.loc[mask]
+        dig_g = digits.loc[mask]
+        ok = pd.Series(True, index=raw_g.index)
+
+        t005_row = t005_by_country.get(country_code) if country_code else None
+        expected_len = _t005_primary_postal_length(t005_row)
+        if expected_len is not None:
+            ok &= dig_g.str.len().eq(expected_len)
+
+        rules = list(star_rules)
+        if country_code and country_code in by_cc:
+            rules = rules + by_cc[country_code]
+        # Also standards with empty country_code already in star; matching row_cc in ('*', cc) —
+        # rows with explicit other countries are skipped (same as scalar).
+
+        matched_standard = bool(rules)
+        if matched_standard:
+            for rule in rules:
+                if rule['regex'] is not None:
+                    ok &= raw_g.str.match(rule['regex'], na=False)
+                elif rule['allowed'] is not None:
+                    ok &= raw_g.str.upper().isin(rule['allowed'])
+        else:
+            if country_code == 'RU' or not country_code:
+                ok &= dig_g.str.fullmatch(r'\d{6}', na=False)
+            else:
+                ok &= raw_g.str.fullmatch(r'[A-Z0-9][A-Z0-9 \-]{0,9}', case=False, na=False)
+
+        invalid.loc[mask] = ~ok
+
+    return invalid
+
 class ConformityValidator(BaseValidator):
 
     def validate(self, df, column_name, allowed_values=None, technical_definition=None, rule_code=None, **kwargs):
@@ -251,19 +351,11 @@ class ConformityValidator(BaseValidator):
             total_rows = int(filled.sum())
             if total_rows == 0:
                 return (0, 0, None)
-
-            def _city_has_invalid_number(val) -> bool:
-                if val is None or (isinstance(val, float) and pd.isna(val)):
-                    return False
-                text = str(val).strip()
-                if not text:
-                    return False
-                upper = text.upper()
-                if 'PRAHA' in upper or 'BRATISLAVA' in upper:
-                    return False
-                return bool(re.search(r'\d', text))
-
-            error_mask = filled & df[column_name].apply(_city_has_invalid_number)
+            text = df[column_name].astype(str).str.strip()
+            upper = text.str.upper()
+            has_digit = text.str.contains(r'\d', na=False)
+            exempt = upper.str.contains('PRAHA', na=False) | upper.str.contains('BRATISLAVA', na=False)
+            error_mask = filled & has_digit & ~exempt
             error_count = int(error_mask.sum())
             if error_count == 0:
                 return (total_rows, 0, None)
@@ -291,22 +383,13 @@ class ConformityValidator(BaseValidator):
             if total_rows == 0:
                 return (0, 0, None)
             if country_col and country_col in df.columns:
-                countries = df[country_col].astype(str).str.strip().str.upper()
+                countries = df[country_col]
             else:
                 countries = pd.Series('', index=df.index)
                 print('      [WARN] RCCONF_21.1: колонка страны не найдена — для пустой страны применяется RU-формат (6 цифр)')
-
-            def _row_postal_error(row) -> bool:
-                postal = row[column_name]
-                if not _value_filled_mask(pd.Series([postal])).iloc[0]:
-                    return False
-                cc = countries.loc[row.name] if row.name in countries.index else ''
-                t005_row = t005_by_country.get(cc) if cc else None
-                return not _postal_is_valid(postal, cc, standards, t005_row)
-
-            eval_df = df.loc[filled]
-            error_mask = pd.Series(False, index=df.index)
-            error_mask.loc[filled] = eval_df.apply(_row_postal_error, axis=1)
+            # Vectorized by country (не DataFrame.apply axis=1 — было ~17 мин на ADRC)
+            inv = _postal_invalid_mask_vectorized(df[column_name], countries, standards, t005_by_country)
+            error_mask = filled & inv
             error_count = int(error_mask.sum())
             if error_count == 0:
                 return (total_rows, 0, None)
@@ -426,19 +509,12 @@ class ConformityValidator(BaseValidator):
             total_rows = non_null_mask.sum() if non_null_mask.any() else 0
             return (total_rows, error_count, error_df)
         elif technical_definition and rule_code in ['RCCONF_39.5', 'RCCONF_39.5.2']:
-            from utils.ru_tel_format import is_valid_rccconf_39_5_value, tel_to_digits
+            from utils.ru_tel_format import invalid_rccconf_39_5_mask
             null_mask = df[column_name].isna() | (df[column_name].astype(str).str.strip() == '')
             empty_vals = df[column_name].astype(str).str.strip().str.lower().isin(['none', 'null', 'nan', 'na'])
             null_mask = null_mask | empty_vals
             non_null_mask = ~null_mask
-
-            def _is_error(val, rc):
-                if val is None or (isinstance(val, float) and pd.isna(val)):
-                    return False
-                if not tel_to_digits(val):
-                    return False
-                return not is_valid_rccconf_39_5_value(val, rc)
-            error_mask = df[column_name].apply(lambda v: _is_error(v, rule_code))
+            error_mask = invalid_rccconf_39_5_mask(df[column_name], rule_code) & non_null_mask
             error_count = int(error_mask.sum())
             if rule_code == 'RCCONF_39.5.2':
                 error_description = f'Invalid telephone number format in {column_name}. RCCONF_39.5.2: 10 digits starting with 9, or 11 digits 89…/79…, or 11 digits 8x (second digit not 9). All digits only (spaces, dashes, brackets, leading + allowed).'
