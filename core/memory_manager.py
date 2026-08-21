@@ -190,7 +190,7 @@ class MemoryManager:
                 match = self._find_table_in_db(ref, all_in_db)
                 if match:
                     to_load.add(match)
-        kna1_dependent = {'BUT0BK', 'BUT051', 'KNB1', 'KNVV', 'KNVP', 'KNVH', 'ADR2', 'ADRC', 'BUT050', 'KNA1'}
+        kna1_dependent = {'BUT0BK', 'BUT051', 'KNB1', 'KNVV', 'KNVP', 'KNVH', 'ADR2', 'ADR6', 'ADRC', 'BUT050', 'KNA1'}
         kna1_requested = any((str(t).strip().upper() == 'KNA1' for t in table_names))
         if kna1_dependent.intersection({str(t).strip().upper() for t in table_names}) or kna1_requested:
             match = self._find_table_in_db('KNA1', all_in_db)
@@ -204,11 +204,13 @@ class MemoryManager:
                 match = next((t for t in all_in_db if str(t).strip().upper() == ref), None)
                 if match:
                     to_load.add(match)
-        if any((str(t).strip().upper() == 'ADRC' for t in table_names)):
-            if not any((str(x).strip().upper() == 'ADRC' for x in to_load)):
-                match = next((x for x in all_in_db if str(x).strip().upper() == 'ADRC'), None)
-                if match:
-                    to_load.add(match)
+        # ADRC / ADR2 / ADR6 → BUT020 (Addr.No. → PARTNER)
+        if any((str(t).strip().upper() in ('ADRC', 'ADR2', 'ADR6') for t in table_names)):
+            if any((str(t).strip().upper() == 'ADRC' for t in table_names)):
+                if not any((str(x).strip().upper() == 'ADRC' for x in to_load)):
+                    match = next((x for x in all_in_db if str(x).strip().upper() == 'ADRC'), None)
+                    if match:
+                        to_load.add(match)
             for ref in ('BUT020',):
                 match = self._find_table_in_db(ref, all_in_db)
                 if match:

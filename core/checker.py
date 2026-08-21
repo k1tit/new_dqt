@@ -39,13 +39,13 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-07-31-dm-customer-general-aufsd-not-s'
+    CHECKER_BUILD_ID = '2026-08-21-join-cache-adr6'
     # dm_customer_general hard scope: no central order block S (AUFSD)
     DM_CUSTOMER_GENERAL_AUFSD_EXCLUDE = frozenset({'S'})
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
     LOT_GC_ADR_TABLE_ALIASES = frozenset({'/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
-    # LOT_GC_ADR / ADRC / ADR2: клиент только через BUT020 (не CLIENT)
-    KNA1_JOIN_VIA_BUT020_TABLES = frozenset({'ADRC', 'ADR2', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
+    # LOT_GC_ADR / ADRC / ADR2 / ADR6: клиент только через BUT020 (не CLIENT)
+    KNA1_JOIN_VIA_BUT020_TABLES = frozenset({'ADRC', 'ADR2', 'ADR6', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
     # Гео-правила: LOT_GC_ADR.ADRNR → BUT020.Addr.No. → PARTNER → KNA1
     RULES_LOT_GC_ADR_BUT020 = frozenset({
         'RCCONF_383.1', 'RCCONF_383.2', 'RCCONF_383.3', 'RCCONF_383.4',
@@ -120,6 +120,12 @@ class FastDataQualityChecker:
         self.current_rule = None
         self.start_time = None
         self.table_start_time = None
+        # JOIN caches: avoid redoing BUT020/KNA1 merges on every rule of the same table
+        self._but020_mapped_df = None
+        self._but020_partner_lookup_cache = {}
+        self._kna1_ktokd_lookup_df = None
+        self._kna1_aufsd_lookup_df = None
+        self._table_kna1_preenrich_done = set()
         os.makedirs(output_dir, exist_ok=True)
         os.makedirs(os.path.join(output_dir, 'errors'), exist_ok=True)
         logging.basicConfig(level=logging.INFO, format='%(levelname)s:%(name)s: %(message)s')
@@ -404,7 +410,14 @@ class FastDataQualityChecker:
         else:
             color = '\x1b[91m'
             status = '[!] ОШИБКИ'
-        print(f'\r    {color}{status}\x1b[0m {rule_code:20} | Оценено: {total_rows:8,} | Успех: {success_rate:6.1f}% | Ошибок: {error_count:8,} ({error_percent:5.1f}%) | Время: {exec_time:6.2f}с')
+        # Не показывать «100.0%» при ненулевых ошибках (округление 7/2.3M → 100.0)
+        if error_count > 0 and success_rate >= 99.95:
+            rate_s = f'{success_rate:7.4f}%'
+            err_s = f'{error_percent:6.4f}%'
+        else:
+            rate_s = f'{success_rate:6.1f}%'
+            err_s = f'{error_percent:5.1f}%'
+        print(f'\r    {color}{status}\x1b[0m {rule_code:20} | Оценено: {total_rows:8,} | Успех: {rate_s} | Ошибок: {error_count:8,} ({err_s}) | Время: {exec_time:6.2f}с')
 
     def _print_table_header(self, table_name, rule_count, row_count):
         print('\n' + '=' * 100)
@@ -586,6 +599,10 @@ class FastDataQualityChecker:
         print(f'=' * 100)
         self.start_time = time.time()
         self._rule_time_column_cache = {}
+        self._but020_mapped_df = None
+        self._but020_partner_lookup_cache = {}
+        self._kna1_aufsd_lookup_df = None
+        self._table_kna1_preenrich_done = set()
         rules_config = self.load_configuration()
         if not rules_config:
             self.logger.error('[ERROR] Не удалось загрузить конфигурацию правил')
@@ -776,6 +793,7 @@ class FastDataQualityChecker:
         self.table_start_time = time.time()
         if str(table_name or '').strip().upper() == 'KNB1':
             setattr(self, '_kna1_ktokd_lookup_df', None)
+            setattr(self, '_kna1_aufsd_lookup_df', None)
 
         def _table_available(tname, avail):
             if hasattr(self.memory_manager, 'table_exists') and self.memory_manager.table_exists(tname):
@@ -937,6 +955,8 @@ class FastDataQualityChecker:
         error_count = 0
         suspicious_count = 0
         try:
+            # Один JOIN KNA1/BUT020 на таблицу; _process_single_rule сам делает dm_customer_general scope
+            df = self._preenrich_table_for_kna1_joins(df, table_name, table_rules)
             handler = handler_class(table_name, df, self.memory_manager, self)
             handler_base_df = handler.df.copy() if getattr(handler, 'df', None) is not None else df
             total_rules = len(table_rules)
@@ -950,18 +970,8 @@ class FastDataQualityChecker:
                 sys.stdout.write(f'\r    [{i:3d}/{total_rules:3d}] {self.current_rule:20} | ')
                 sys.stdout.flush()
                 rule_start_time = time.time()
-                if self._rule_uses_dm_customer_general(rule):
-                    scoped = self._scope_df_to_ktokd_9038_for_dm_customer_general(
-                        handler_base_df.copy(), table_name, self.current_rule, rule, timestamp,
-                    )
-                    if scoped is None:
-                        execution_time = time.time() - rule_start_time
-                        self._print_rule_stats(self.current_rule, 0, 0, execution_time, False, False, not_evaluated=True)
-                        error_count += 1
-                        continue
-                    handler.df = scoped
-                else:
-                    handler.df = handler_base_df
+                # Не скоупить здесь повторно — ADRCHandler → _process_single_rule уже делает dm_customer_general
+                handler.df = handler_base_df
                 result = handler.validate_rule(rule)
                 execution_time = time.time() - rule_start_time
                 if result and isinstance(result, dict):
@@ -1048,6 +1058,7 @@ class FastDataQualityChecker:
         error_count = 0
         suspicious_count = 0
         total_rules = len(table_rules)
+        df = self._preenrich_table_for_kna1_joins(df, table_name, table_rules)
         for i, rule in enumerate(table_rules, 1):
             if self._parallel_lock:
                 with self._parallel_lock:
@@ -2266,6 +2277,18 @@ class FastDataQualityChecker:
                     print(f'      [{rule_code}] Убраны из ошибок номера с валидным форматом: {before - error_count} строк, осталось {error_count}')
             if error_df.empty:
                 return
+            # DIAG: почему массовый fail (ожидаемо: не mobile 9…/89… по technical_definition)
+            if rule_code in ['RCCONF_39.5', 'RCCONF_39.5.2'] and tel_col and len(error_df) > 1000:
+                try:
+                    from utils.ru_tel_format import tel_to_digits
+                    digs = error_df[tel_col].map(tel_to_digits)
+                    lens = digs.str.len().value_counts().head(6)
+                    prefixes = digs.str[:2].value_counts().head(8)
+                    print(f'      [DIAG] {rule_code}: top len(digits) среди ошибок: {dict(lens)}')
+                    print(f'      [DIAG] {rule_code}: top prefix2: {dict(prefixes)} (валидны только 9×10 / 89×11'
+                          f"{' / 79×11 / 8×11' if rule_code.endswith('.2') else ''})")
+                except Exception:
+                    pass
         key = f'{rule_code}_{table_name}'
         limit_errors = self._error_save_limit(rule_code, table_name)
         unlimited = limit_errors is None
@@ -2786,46 +2809,61 @@ class FastDataQualityChecker:
             if not join_col:
                 print(f'      [WARN] {rule_code}: не найден ключ клиента для JOIN KNA1.AUFSD')
                 return df
-            kna1_df = self._get_table_for_rules('KNA1')
-            if kna1_df is None or kna1_df.empty:
-                try:
-                    self.memory_manager.load_selected_tables_to_ram(['KNA1'], add_reference_tables=False)
-                    kna1_df = self._get_table_for_rules('KNA1')
-                except Exception:
-                    kna1_df = None
-            if kna1_df is None or kna1_df.empty:
-                try:
-                    conn = connect_sqlite(self.db_path)
-                    kna1_df = pd.read_sql_query('SELECT * FROM "KNA1"', conn)
-                    conn.close()
-                except Exception:
-                    kna1_df = None
-            if kna1_df is None or kna1_df.empty:
-                print(f'      [WARN] {rule_code}: KNA1 пуста, order_block_code не добавлен')
-                return df
-            kna1_df = self._apply_rule_time_column_map(kna1_df.copy(), 'KNA1')
-            kunnr_col = self._pick_best_kunnr_column(kna1_df, 'KNA1')
-            aufsd_col = self._resolve_column_for_rule(kna1_df, 'AUFSD', 'KNA1') or self._resolve_column_for_rule(kna1_df, 'central_order_block_code', 'KNA1')
-            if not aufsd_col:
-                aufsd_col = next((c for c in kna1_df.columns if str(c).strip().upper() in ('AUFSD', 'ORBLK')), None)
-            if not kunnr_col or not aufsd_col:
-                print(f'      [WARN] {rule_code}: в KNA1 не найдены KUNNR/AUFSD для order_block_code')
+            lookup = self._build_kna1_aufsd_lookup(force_reload=False)
+            if lookup is None or lookup.empty:
+                print(f'      [WARN] {rule_code}: справочник KNA1 AUFSD пуст, order_block_code не добавлен')
                 return df
             out = df.copy()
             out['_join_key'] = out[join_col].apply(self._norm_customer_partner_key)
-            kna1_join = kna1_df[[kunnr_col, aufsd_col]].copy()
-            kna1_join['_join_key'] = kna1_join[kunnr_col].apply(self._norm_customer_partner_key)
-            kna1_join = kna1_join[['_join_key', aufsd_col]].drop_duplicates(subset=['_join_key'], keep='first')
-            kna1_join = kna1_join.rename(columns={aufsd_col: 'order_block_code'})
-            out = out.merge(kna1_join, on='_join_key', how='left')
+            out = out.merge(lookup, on='_join_key', how='left')
             out['central_order_block_code'] = out['order_block_code']
             out = out.drop(columns=['_join_key'], errors='ignore')
             filled = int(out['order_block_code'].astype(str).str.strip().ne('').sum())
-            print(f'      [JOIN] {rule_code}: order_block_code из KNA1.{aufsd_col} по {table_name}.{join_col} (заполнено {filled:,}/{len(out):,})')
+            print(f'      [JOIN] {rule_code}: order_block_code из KNA1.AUFSD по {table_name}.{join_col} (заполнено {filled:,}/{len(out):,})')
             return out
         except Exception as e:
             print(f'      [WARN] Ошибка добавления order_block_code из KNA1 для {rule_code}: {e}')
             return df
+
+    def _build_kna1_aufsd_lookup(self, force_reload: bool=False):
+        """Кэш: _join_key → order_block_code (KNA1.AUFSD), один раз на прогон."""
+        cache_key = '_kna1_aufsd_lookup_df'
+        if not force_reload and getattr(self, cache_key, None) is not None:
+            return getattr(self, cache_key)
+        kna1_df = self._get_table_for_rules('KNA1')
+        if kna1_df is None or kna1_df.empty:
+            try:
+                self.memory_manager.load_selected_tables_to_ram(['KNA1'], add_reference_tables=False)
+                kna1_df = self._get_table_for_rules('KNA1')
+            except Exception:
+                kna1_df = None
+        if kna1_df is None or kna1_df.empty:
+            try:
+                conn = connect_sqlite(self.db_path)
+                kna1_df = pd.read_sql_query('SELECT * FROM "KNA1"', conn)
+                conn.close()
+                if kna1_df is not None and not kna1_df.empty:
+                    kna1_df = self._apply_rule_time_column_map(kna1_df.copy(), 'KNA1')
+            except Exception:
+                kna1_df = None
+        lookup = pd.DataFrame(columns=['_join_key', 'order_block_code'])
+        if kna1_df is None or kna1_df.empty:
+            setattr(self, cache_key, lookup)
+            return lookup
+        kunnr_col = self._pick_best_kunnr_column(kna1_df, 'KNA1')
+        aufsd_col = self._resolve_column_for_rule(kna1_df, 'AUFSD', 'KNA1') or self._resolve_column_for_rule(kna1_df, 'central_order_block_code', 'KNA1')
+        if not aufsd_col:
+            aufsd_col = next((c for c in kna1_df.columns if str(c).strip().upper() in ('AUFSD', 'ORBLK')), None)
+        if not kunnr_col or not aufsd_col:
+            setattr(self, cache_key, lookup)
+            return lookup
+        kna1_join = kna1_df[[kunnr_col, aufsd_col]].copy()
+        kna1_join['_join_key'] = kna1_join[kunnr_col].apply(self._norm_customer_partner_key)
+        kna1_join = kna1_join[['_join_key', aufsd_col]].drop_duplicates(subset=['_join_key'], keep='first')
+        kna1_join = kna1_join.rename(columns={aufsd_col: 'order_block_code'})
+        setattr(self, cache_key, kna1_join)
+        print(f'      [CACHE] KNA1 AUFSD lookup: {len(kna1_join):,} keys (из [{aufsd_col}])')
+        return kna1_join
 
     def _knvp_sales_org_scope_mask(self, df, vtweg_col, spart_col):
         if df is None or df.empty or not vtweg_col or not spart_col:
@@ -3298,8 +3336,71 @@ class FastDataQualityChecker:
             dm = ' '.join((str(x) for x in dm))
         return 'dm_customer_general' in str(dm).lower()
 
+    def _table_rules_need_kna1_enrich(self, table_name, table_rules) -> bool:
+        tn = str(table_name or '').strip().upper()
+        if tn in self.KNA1_JOIN_VIA_BUT020_TABLES or self._is_lot_gc_adr_table(table_name):
+            return True
+        for rule in table_rules or []:
+            if self._rule_uses_dm_customer_general(rule):
+                return True
+            rc = str(rule.get('rule_code') or '').strip().upper()
+            if rc in self.RULES_FORCE_KNA1_KTOKD_JOIN or rc in self.RULES_LOT_GC_ADR_BUT020:
+                return True
+            td = str(rule.get('technical_definition') or rule.get('technical_definition_RU') or '').lower()
+            if 'account_group' in td or 'ktokd' in td or 'order_block' in td or 'aufsd' in td:
+                return True
+        return False
+
+    def _preenrich_table_for_kna1_joins(self, df, table_name, table_rules):
+        """Один раз на таблицу: PARTNER (BUT020) + KTOKD + AUFSD — дальше правила только фильтруют."""
+        if df is None or df.empty:
+            return df
+        if not self._table_rules_need_kna1_enrich(table_name, table_rules):
+            return df
+        cache_key = str(table_name or '').strip().upper()
+        if cache_key in getattr(self, '_table_kna1_preenrich_done', set()):
+            # Уже обогащали в этом прогоне; attrs могут быть на df
+            if self._find_account_group_column(df) and self._find_order_block_column(df):
+                print(f'   [CACHE] {table_name}: KNA1/BUT020 attrs уже на df — skip pre-enrich')
+                return df
+        t0 = time.time()
+        n_rules = len(table_rules or [])
+        print(f'   [CACHE] Pre-enrich {table_name}: BUT020/KNA1 attrs once for {n_rules} rule(s)...')
+        out = self._attach_kna1_scope_attrs(df, table_name, rule_code=f'PREENRICH:{cache_key}')
+        if not hasattr(self, '_table_kna1_preenrich_done') or self._table_kna1_preenrich_done is None:
+            self._table_kna1_preenrich_done = set()
+        self._table_kna1_preenrich_done.add(cache_key)
+        ag = self._find_account_group_column(out)
+        ob = self._find_order_block_column(out)
+        partner = next((c for c in out.columns if str(c).strip().upper() == 'PARTNER'), None)
+        print(
+            f'   [CACHE] Pre-enrich {table_name} done in {time.time() - t0:.1f}s '
+            f'(PARTNER={"yes" if partner else "no"}, KTOKD={"yes" if ag else "no"}, AUFSD={"yes" if ob else "no"})'
+        )
+        return out
+
+    def _attach_kna1_scope_attrs(self, df, table_name, rule_code='PREENRICH'):
+        """Attach PARTNER (via BUT020 if needed) + account_group_code + order_block_code."""
+        if df is None or df.empty:
+            return df
+        out = df
+        tn = str(table_name or '').strip().upper()
+        need_but020 = tn in self.KNA1_JOIN_VIA_BUT020_TABLES or self._is_lot_gc_adr_table(table_name)
+        partner_col = next((c for c in out.columns if str(c).strip().upper() == 'PARTNER'), None)
+        partner_filled = self._non_empty_key_count(out[partner_col]) if partner_col else 0
+        if need_but020 and partner_filled == 0:
+            if self._is_lot_gc_adr_table(table_name):
+                out, _jc = self._merge_lot_gc_adr_partner_from_but020(out, table_name, rule_code)
+            else:
+                out, _jc = self._merge_adrc_partner_from_but020(out, table_name, rule_code)
+        if not self._find_account_group_column(out):
+            out = self._ensure_account_group_for_dm_customer_general(out, table_name, rule_code)
+        if not self._find_order_block_column(out):
+            out = self._ensure_aufsd_for_dm_customer_general(out, table_name, rule_code)
+        return out
+
     def _ensure_account_group_for_dm_customer_general(self, df, table_name, rule_code):
-        """Подтянуть KTOKD/account_group_code из KNA1 (через BUT020 для ADRC/LOT_GC_ADR)."""
+        """Подтянуть KTOKD/account_group_code из KNA1 (через BUT020 для ADRC/ADR2/ADR6/LOT_GC_ADR)."""
         if df is None or df.empty:
             return df
         if self._find_account_group_column(df):
@@ -3308,8 +3409,8 @@ class FastDataQualityChecker:
         try:
             if self._is_lot_gc_adr_table(table_name):
                 return self._join_kna1_ktokd_lot_gc_adr_via_but020(df, table_name, rule_code)
-            if tn == 'ADRC' or (self._is_adrc_table(table_name) and not self._is_lot_gc_adr_table(table_name)):
-                # ADRC: PARTNER через BUT020, затем KTOKD
+            if tn in self.KNA1_JOIN_VIA_BUT020_TABLES or (self._is_adrc_table(table_name) and not self._is_lot_gc_adr_table(table_name)):
+                # ADRC/ADR2/ADR6: PARTNER через BUT020, затем KTOKD
                 out, join_col = self._merge_adrc_partner_from_but020(df, table_name, rule_code)
                 if join_col and join_col in out.columns and self._non_empty_key_count(out[join_col]) > 0:
                     return self._merge_kna1_account_group_from_lookup(out, table_name, rule_code, join_col)
@@ -4111,7 +4212,34 @@ class FastDataQualityChecker:
                 but020 = None
         if but020 is None or but020.empty:
             return None
-        return self._apply_rule_time_column_map(but020.copy(), 'BUT020')
+        cached = getattr(self, '_but020_mapped_df', None)
+        if cached is not None and not cached.empty:
+            return cached
+        mapped = self._apply_rule_time_column_map(but020.copy(), 'BUT020')
+        self._but020_mapped_df = mapped
+        return mapped
+
+    def _get_cached_but020_partner_lookup(self, *, optional_leading_zeros: bool=False) -> dict:
+        """Build BUT020 addr→PARTNER dict once per process (std / opt00 variants)."""
+        if not hasattr(self, '_but020_partner_lookup_cache') or self._but020_partner_lookup_cache is None:
+            self._but020_partner_lookup_cache = {}
+        key = 'opt00' if optional_leading_zeros else 'std'
+        if key in self._but020_partner_lookup_cache:
+            return self._but020_partner_lookup_cache[key]
+        but020_df = self._get_but020_table_for_join()
+        if but020_df is None or but020_df.empty:
+            self._but020_partner_lookup_cache[key] = {}
+            return {}
+        addr_but, partner_but = self._resolve_but020_join_columns(but020_df)
+        if not addr_but or not partner_but:
+            self._but020_partner_lookup_cache[key] = {}
+            return {}
+        lookup = self._build_but020_partner_lookup(
+            but020_df, addr_but, partner_but, optional_leading_zeros=optional_leading_zeros,
+        )
+        self._but020_partner_lookup_cache[key] = lookup
+        print(f'      [CACHE] BUT020 partner lookup ({key}): {len(lookup):,} keys')
+        return lookup
 
     def _resolve_addrnumber_column(self, df, table_name='ADRC'):
         if df is None or df.empty:
@@ -4225,13 +4353,17 @@ class FastDataQualityChecker:
         return (addr_col, partner_col)
 
     def _merge_adrc_partner_from_but020(self, df, table_name, rule_code=None):
-        """ADRC Addr. No. = BUT020 Addr. No. -> Business Partner (KUNNR/Customer)."""
+        """ADRC/ADR2/ADR6 Addr. No. = BUT020 Addr. No. -> Business Partner (KUNNR/Customer)."""
         if df is None or df.empty:
             return (df, None)
+        existing = next((c for c in df.columns if str(c).strip().upper() == 'PARTNER'), None)
+        if existing and self._non_empty_key_count(df[existing]) > 0:
+            print(f'      [CACHE] {rule_code or table_name}: PARTNER уже есть — BUT020 skip')
+            return (df, existing)
         out = self._apply_rule_time_column_map(df.copy(), table_name or 'ADRC')
         addr_col = self._resolve_addrnumber_column(out, table_name or 'ADRC')
         if not addr_col:
-            print(f'      [WARN] {rule_code or table_name}: колонка Addr. No. / ADDRNUMBER не найдена в ADRC (колонки: {[c for c in out.columns if "ADDR" in str(c).upper()][:8]})')
+            print(f'      [WARN] {rule_code or table_name}: колонка Addr. No. / ADDRNUMBER не найдена в {table_name} (колонки: {[c for c in out.columns if "ADDR" in str(c).upper()][:8]})')
             return (out, None)
         but020_df = self._get_but020_table_for_join()
         if but020_df is None or but020_df.empty:
@@ -4241,12 +4373,12 @@ class FastDataQualityChecker:
         if not addr_but or not partner_but:
             print(f'      [WARN] {rule_code or table_name}: в BUT020 не найдены Addr. No. и Business Partner (колонки: {list(but020_df.columns)[:10]})')
             return (out, None)
-        # ADRC: прежнее поведение zfill(10) через варианты без optional +00
-        lookup = self._build_but020_partner_lookup(but020_df, addr_but, partner_but, optional_leading_zeros=False)
+        # ADRC/ADR2/ADR6: zfill(10) variants without optional +00
+        lookup = self._get_cached_but020_partner_lookup(optional_leading_zeros=False)
         out['PARTNER'] = self._map_partner_via_but020_lookup(out[addr_col], lookup, optional_leading_zeros=False)
         join_col = 'PARTNER'
         pf = int(out[join_col].astype(str).str.strip().ne('').sum()) if join_col in out.columns else 0
-        print(f'      [JOIN] {rule_code or table_name}: ADRC.[{addr_col}] = BUT020.[{addr_but}] -> Business Partner [{partner_but}]: заполнено {pf:,}/{len(out):,}')
+        print(f'      [JOIN] {rule_code or table_name}: {table_name}.[{addr_col}] = BUT020.[{addr_but}] -> Business Partner [{partner_but}]: заполнено {pf:,}/{len(out):,}')
         return (out, join_col)
 
     def _merge_lot_gc_adr_partner_from_but020(self, df, table_name, rule_code=None):
@@ -4254,6 +4386,10 @@ class FastDataQualityChecker:
         if df is None or df.empty:
             return (df, None)
         try:
+            existing = next((c for c in df.columns if str(c).strip().upper() == 'PARTNER'), None)
+            if existing and self._non_empty_key_count(df[existing]) > 0:
+                print(f'      [CACHE] {rule_code or table_name}: PARTNER уже есть — BUT020 skip')
+                return (df, existing)
             out = self._apply_rule_time_column_map(df.copy(), table_name or '/LOT/GC_ADR')
             addr_col = self._resolve_addrnumber_column(out, table_name or '/LOT/GC_ADR')
             if not addr_col:
@@ -4267,7 +4403,7 @@ class FastDataQualityChecker:
             if not addr_but or not partner_but:
                 print(f'      [WARN] {rule_code or table_name}: в BUT020 не найдены Addr. No. / PARTNER (колонки: {list(but020_df.columns)[:10]})')
                 return (out, None)
-            lookup = self._build_but020_partner_lookup(but020_df, addr_but, partner_but, optional_leading_zeros=True)
+            lookup = self._get_cached_but020_partner_lookup(optional_leading_zeros=True)
             out['PARTNER'] = self._map_partner_via_but020_lookup(out[addr_col], lookup, optional_leading_zeros=True)
             join_col = 'PARTNER'
             dig = self._addr_digits_series(out[addr_col])
@@ -4284,9 +4420,12 @@ class FastDataQualityChecker:
 
     def _join_kna1_ktokd_lot_gc_adr_via_but020(self, df, table_name='/LOT/GC_ADR', rule_code='RCCONF_383.1'):
         """LOT_GC_ADR.ADRNR -> BUT020.PARTNER -> KNA1.KTOKD (как RCCONF_24.1 для ADRC)."""
-        print(f'      [JOIN] [{self.CHECKER_BUILD_ID}] {rule_code}: LOT_GC_ADR.[ADRNR] -> BUT020.[Addr. No.] -> KNA1.[KTOKD]')
         if df is None or df.empty:
             return df
+        if self._find_account_group_column(df):
+            print(f'      [CACHE] {rule_code}: account_group_code уже есть — LOT→BUT020→KNA1 skip')
+            return df
+        print(f'      [JOIN] [{self.CHECKER_BUILD_ID}] {rule_code}: LOT_GC_ADR.[ADRNR] -> BUT020.[Addr. No.] -> KNA1.[KTOKD]')
         out = self._drop_kna1_account_group_columns(df)
         out, join_col = self._merge_lot_gc_adr_partner_from_but020(out, table_name, rule_code)
         if not join_col or join_col not in out.columns:
@@ -4312,6 +4451,9 @@ class FastDataQualityChecker:
         """Подтянуть PARTNER из BUT020 по ADDRNUMBER (с маппингом Addr__No_/Business_Partner)."""
         if df is None or df.empty or not addr_col or addr_col not in df.columns:
             return df
+        existing = next((c for c in df.columns if str(c).strip().upper() == 'PARTNER'), None)
+        if existing and self._non_empty_key_count(df[existing]) > 0:
+            return df
         but020_df = self._get_but020_table_for_join()
         if but020_df is None or but020_df.empty:
             return df
@@ -4319,7 +4461,7 @@ class FastDataQualityChecker:
         if not addr_but or not partner_but:
             return df
         try:
-            lookup = self._build_but020_partner_lookup(but020_df, addr_but, partner_but, optional_leading_zeros=True)
+            lookup = self._get_cached_but020_partner_lookup(optional_leading_zeros=True)
             out = df.copy()
             out['PARTNER'] = self._map_partner_via_but020_lookup(out[addr_col], lookup, optional_leading_zeros=True)
             if log_prefix and 'PARTNER' in out.columns:
@@ -4788,9 +4930,12 @@ class FastDataQualityChecker:
 
     def _join_kna1_ktokd_rconf_24_1_adrc(self, df, table_name='ADRC', rule_code='RCCONF_24.1'):
         """RCCONF_24.1: только ADRC.AddrNo -> BUT020.Business Partner -> KNA1.KTOKD; CLIENT/mandant запрещён."""
-        print(f'      [JOIN] [{self.CHECKER_BUILD_ID}] RCCONF_24.1: ADRC.[Addr. No.] -> BUT020.[Business Partner] -> KNA1.[KTOKD/Group_1]')
         if df is None or df.empty:
             return df
+        if self._find_account_group_column(df):
+            print(f'      [CACHE] {rule_code}: account_group_code уже есть — ADRC→BUT020→KNA1 skip')
+            return df
+        print(f'      [JOIN] [{self.CHECKER_BUILD_ID}] RCCONF_24.1: ADRC.[Addr. No.] -> BUT020.[Business Partner] -> KNA1.[KTOKD/Group_1]')
         out = self._drop_kna1_account_group_columns(df)
         out, join_col = self._merge_adrc_partner_from_but020(out, table_name or 'ADRC', rule_code)
         if not join_col or join_col not in out.columns:
@@ -4989,6 +5134,9 @@ class FastDataQualityChecker:
 
     def _merge_kna1_account_group_from_lookup(self, df, table_name, rule_code, join_col):
         if df is None or df.empty or (not join_col):
+            return df
+        if self._find_account_group_column(df):
+            print(f'      [CACHE] {rule_code}: account_group_code уже есть — KNA1 KTOKD merge skip')
             return df
         if self._is_blocked_kna1_join_column(join_col):
             rule_u = str(rule_code or '').strip().upper()
