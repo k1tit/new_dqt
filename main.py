@@ -137,6 +137,8 @@ def _recreate_checker_from(checker):
         debug=getattr(checker, 'debug', False),
         reference_datetime=getattr(checker, 'reference_datetime', None),
         save_all_errors=getattr(checker, 'save_all_errors', False),
+        use_parquet_cache=getattr(checker, 'use_parquet_cache', True),
+        rebuild_parquet_cache=getattr(checker, 'rebuild_parquet_cache', False),
     )
 
 def _refresh_handlers_before_run(checker):
@@ -364,6 +366,9 @@ def parse_arguments():
     parser.add_argument('--async-load', dest='async_load', action='store_true', default=True, help='Асинхронная загрузка таблиц в RAM (по умолчанию: вкл.)')
     parser.add_argument('--no-async-load', dest='async_load', action='store_false', help='Отключить async-load')
     parser.add_argument('--save-all-errors', action='store_true', default=False, help='Писать все строки ошибок без лимита 100k (старое поведение для ADR2/KNVP/…). По умолчанию: лимит.')
+    parser.add_argument('--parquet-cache', dest='parquet_cache', action='store_true', default=True, help='Кэш таблиц в cache/parquet/ (по умолчанию: вкл., нужен pyarrow)')
+    parser.add_argument('--no-parquet-cache', dest='parquet_cache', action='store_false', help='Отключить parquet-кэш, всегда читать SQLite')
+    parser.add_argument('--rebuild-parquet-cache', action='store_true', default=False, help='Пересобрать parquet из SQLite (игнорировать старый кэш)')
     return parser.parse_args()
 
 def main():
@@ -400,13 +405,24 @@ def main():
     current_dir = setup_environment()
     FastDataQualityChecker = load_checker_module()
     try:
-        checker = FastDataQualityChecker(DB_PATH, RULES_FILE, OUTPUT_DIR, parallel_tables=getattr(args, 'parallel_tables', 2), use_async_load=getattr(args, 'async_load', True), debug=getattr(args, 'debug', False), reference_datetime=reference_dt, save_all_errors=getattr(args, 'save_all_errors', False))
+        checker = FastDataQualityChecker(
+            DB_PATH,
+            RULES_FILE,
+            OUTPUT_DIR,
+            parallel_tables=getattr(args, 'parallel_tables', 2),
+            use_async_load=getattr(args, 'async_load', True),
+            debug=getattr(args, 'debug', False),
+            reference_datetime=reference_dt,
+            save_all_errors=getattr(args, 'save_all_errors', False),
+            use_parquet_cache=getattr(args, 'parquet_cache', True),
+            rebuild_parquet_cache=getattr(args, 'rebuild_parquet_cache', False),
+        )
     except Exception as e:
         print(f'ОШИБКА СОЗДАНИЯ CHECKER: {type(e).__name__}: {e}')
         sys.exit(1)
     build_id = getattr(checker, 'CHECKER_BUILD_ID', '')
     print(f'[INFO] Активная сборка checker: {build_id}')
-    if 'perf-phase-a' not in str(build_id) and 'join-cache-adr6' not in str(build_id):
+    if 'parquet-cache' not in str(build_id) and 'perf-phase-a' not in str(build_id):
         print('[WARN] Сборка checker может быть устаревшей — сделайте git pull')
     if reference_dt:
         print(f'[INFO] Опорная дата для правил «на дату»: {reference_dt} (конец календарного дня)')

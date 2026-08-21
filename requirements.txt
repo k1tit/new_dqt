@@ -1,0 +1,4 @@
+pandas>=2.0
+openpyxl>=3.1
+pyarrow>=14.0
+aiosqlite>=0.19; platform_system!="Windows" or python_version>="3.8"

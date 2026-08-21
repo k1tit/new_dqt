@@ -10,7 +10,7 @@ import pandas as pd
 warnings.filterwarnings('ignore', message='invalid value encountered in cast', category=RuntimeWarning)
 from concurrent.futures import ThreadPoolExecutor
 from utils.empty_rows import fully_empty_rows_mask
-from utils.sqlite_safe import connect_sqlite
+from utils.sqlite_safe import connect_sqlite, find_dq_project_root
 try:
     import asyncio
     import aiosqlite
@@ -30,13 +30,123 @@ class MemoryManager:
     TABLES_UNIQUE_PARTNER = ('ZBUT0000P3VVI9', 'ZBUT0000P', 'ZBUT0000P3VV19')
     TABLE_NAME_ALIASES = {'/LOT/GC_ADR': 'LOTGC_ADR', 'ZBUT0000P3VVI9': 'ZBUT0000P3VVI9_CRM'}
     AUSP_LOAD_NAME = 'AUSP'
+    # drop_duplicates на load для таблиц больше порога — дорого и редко нужно (есть спец. дедуп)
+    DROP_DUPES_MAX_ROWS = 500_000
+    LOAD_THREAD_WORKERS = 4
 
-    def __init__(self, db_path):
+    def __init__(self, db_path, *, use_parquet_cache: bool=True, rebuild_parquet_cache: bool=False):
         self.db_path = db_path
         self.data_cache = {}
         self.reference_cache = {}
         self._unique_partner_count = {}
+        self.use_parquet_cache = bool(use_parquet_cache)
+        self.rebuild_parquet_cache = bool(rebuild_parquet_cache)
+        self._parquet_engine = self._detect_parquet_engine()
+        if self.use_parquet_cache and not self._parquet_engine:
+            print(f'   {_term("WARNING")} Parquet-кэш выключен: установите pyarrow (pip install pyarrow)')
+            self.use_parquet_cache = False
         self._ensure_db_integrity()
+        if self.use_parquet_cache:
+            print(f'   {_term("INFO")} Parquet-кэш: {self._parquet_cache_dir()} (engine={self._parquet_engine}'
+                  f'{", REBUILD" if self.rebuild_parquet_cache else ""})')
+
+    @staticmethod
+    def _detect_parquet_engine():
+        try:
+            import pyarrow  # noqa: F401
+            return 'pyarrow'
+        except ImportError:
+            try:
+                import fastparquet  # noqa: F401
+                return 'fastparquet'
+            except ImportError:
+                return None
+
+    def _parquet_cache_dir(self) -> str:
+        root = find_dq_project_root(__file__)
+        stem = os.path.splitext(os.path.basename(self.db_path or 'db'))[0] or 'db'
+        # безопасное имя каталога
+        stem = re.sub(r'[^\w.\-]+', '_', stem)
+        return os.path.join(root, 'cache', 'parquet', stem)
+
+    def _parquet_path_for_table(self, table_name: str) -> str:
+        safe = re.sub(r'[^\w.\-]+', '_', str(table_name or 'table'))
+        return os.path.join(self._parquet_cache_dir(), f'{safe}.parquet')
+
+    def _db_fingerprint(self) -> tuple:
+        try:
+            st = os.stat(self.db_path)
+            return (int(st.st_mtime_ns), int(st.st_size))
+        except OSError:
+            return (0, 0)
+
+    def _parquet_is_fresh(self, parquet_path: str) -> bool:
+        if self.rebuild_parquet_cache or not self.use_parquet_cache:
+            return False
+        if not parquet_path or not os.path.isfile(parquet_path):
+            return False
+        try:
+            db_mtime = os.path.getmtime(self.db_path)
+            pq_mtime = os.path.getmtime(parquet_path)
+            # parquet не старше БД (допуск 2с на FS)
+            return pq_mtime + 2.0 >= db_mtime
+        except OSError:
+            return False
+
+    def _try_load_parquet(self, table_name: str):
+        if not self.use_parquet_cache or not self._parquet_engine:
+            return None
+        path = self._parquet_path_for_table(table_name)
+        if not self._parquet_is_fresh(path):
+            return None
+        t0 = datetime.now()
+        try:
+            df = pd.read_parquet(path, engine=self._parquet_engine)
+            dt = (datetime.now() - t0).total_seconds()
+            print(f'   {_term("INFO")} {table_name}: parquet cache hit ({len(df):,} строк, {dt:.1f}с) → {os.path.basename(path)}')
+            return df
+        except Exception as e:
+            print(f'   {_term("WARNING")} {table_name}: parquet read failed ({e}), fallback SQLite')
+            return None
+
+    def _save_parquet(self, table_name: str, df: pd.DataFrame):
+        if not self.use_parquet_cache or not self._parquet_engine or df is None:
+            return
+        try:
+            os.makedirs(self._parquet_cache_dir(), exist_ok=True)
+            path = self._parquet_path_for_table(table_name)
+            t0 = datetime.now()
+            # category → object for stable round-trip across engines
+            out = df.copy()
+            for c in out.columns:
+                if str(out[c].dtype) == 'category':
+                    out[c] = out[c].astype(object)
+            out.to_parquet(path, engine=self._parquet_engine, index=False)
+            dt = (datetime.now() - t0).total_seconds()
+            size_mb = os.path.getsize(path) / (1024 * 1024)
+            print(f'   {_term("SAVE")} {table_name}: parquet cache write {size_mb:.1f} MB in {dt:.1f}с')
+        except Exception as e:
+            print(f'   {_term("WARNING")} {table_name}: parquet write failed: {e}')
+
+    def _postprocess_loaded_df(self, df, table_name, actual_name=None):
+        if df is None:
+            return None
+        label = actual_name or table_name
+        if len(df) > 0:
+            df = self._optimize_dataframe(df)
+        if len(df) > 0:
+            if len(df) <= self.DROP_DUPES_MAX_ROWS:
+                before = len(df)
+                df = df.drop_duplicates()
+                if len(df) < before:
+                    print(f'   {_term("INFO")} {table_name}: удалено дубликатов {before - len(df):,} (осталось {len(df):,})', flush=True)
+            else:
+                print(f'   {_term("INFO")} {table_name}: drop_duplicates пропущен (>{self.DROP_DUPES_MAX_ROWS:,} строк)', flush=True)
+        if df is not None and len(df) > 0 and (str(table_name).strip().upper() == 'ADRC'):
+            df = self._apply_adrc_reserved_filter(df, table_name)
+        if df is not None and len(df) > 0:
+            df = self._drop_fully_empty_rows(df, log_label=label)
+        return df
 
     def _ensure_db_integrity(self):
         try:
@@ -464,7 +574,8 @@ class MemoryManager:
             return
         print(f'{_term("ROCKET")} ЗАГРУЗКА В ОЗУ: {len(to_load)} таблиц')
         loaded_count = 0
-        with ThreadPoolExecutor(max_workers=8) as executor:
+        workers = min(self.LOAD_THREAD_WORKERS, max(1, len(to_load)))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {t: executor.submit(self._load_single_table, t) for t in to_load}
             for table_name in to_load:
                 try:
@@ -496,7 +607,8 @@ class MemoryManager:
         all_tables = self._get_all_table_names()
         print(f'{_term("INFO")} Найдено таблиц: {len(all_tables)}')
         loaded_count = 0
-        with ThreadPoolExecutor(max_workers=8) as executor:
+        workers = min(self.LOAD_THREAD_WORKERS, max(1, len(all_tables)))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {}
             for table_name in all_tables:
                 future = executor.submit(self._load_single_table, table_name)
@@ -543,46 +655,46 @@ class MemoryManager:
         return table_name
 
     def _load_single_table(self, table_name):
+        """Load table: parquet cache hit → else one-shot SQLite SELECT * (no COUNT/OFFSET)."""
         try:
-            conn = connect_sqlite(self.db_path)
-            actual_name = self._resolve_table_name(conn, table_name)
-            escaped_table_name = f'"{actual_name}"'
-            cursor = conn.cursor()
-            cursor.execute(f'SELECT COUNT(*) FROM {escaped_table_name}')
-            row_count = cursor.fetchone()[0]
-            if row_count > 500000:
-                print(f'   {_term("INFO")} {table_name}: большая таблица ({row_count:,} строк), загрузка по частям...')
-                chunks = []
-                chunk_size = 200000
-                offset = 0
-                while offset < row_count:
-                    chunk_df = pd.read_sql_query(f'SELECT * FROM {escaped_table_name} LIMIT {chunk_size} OFFSET {offset}', conn)
-                    if len(chunk_df) == 0:
-                        break
-                    chunks.append(chunk_df)
-                    offset += chunk_size
-                df = self._concat_dataframe_chunks(chunks)
-                del chunks
-                if len(df) > 0:
-                    df = self._optimize_dataframe(df)
-            else:
+            cached = self._try_load_parquet(table_name)
+            if cached is not None:
+                return self._filters_after_parquet(cached, table_name)
+
+            t0 = datetime.now()
+            actual_name = table_name
+            conn = connect_sqlite(self.db_path, for_bulk_read=True)
+            try:
+                actual_name = self._resolve_table_name(conn, table_name)
+                if str(actual_name) != str(table_name):
+                    cached = self._try_load_parquet(actual_name)
+                    if cached is not None:
+                        return self._filters_after_parquet(cached, table_name)
+                escaped_table_name = f'"{actual_name}"'
                 df = pd.read_sql_query(f'SELECT * FROM {escaped_table_name}', conn)
-                if len(df) > 0:
-                    df = self._optimize_dataframe(df)
-            if len(df) > 0:
-                before = len(df)
-                df = df.drop_duplicates()
-                if len(df) < before:
-                    print(f'   {_term("INFO")} {table_name}: удалено дубликатов {before - len(df):,} (осталось {len(df):,})', flush=True)
-            if df is not None and len(df) > 0 and (str(table_name).strip().upper() == 'ADRC'):
-                df = self._apply_adrc_reserved_filter(df, table_name)
+            finally:
+                conn.close()
+            dt = (datetime.now() - t0).total_seconds()
+            print(f'   {_term("INFO")} {table_name}: SQLite read {len(df):,} строк за {dt:.1f}с')
+            df = self._postprocess_loaded_df(df, table_name, actual_name=actual_name)
             if df is not None and len(df) > 0:
-                df = self._drop_fully_empty_rows(df, log_label=actual_name)
-            conn.close()
+                self._save_parquet(actual_name, df)
+                if str(actual_name) != str(table_name):
+                    self._save_parquet(table_name, df)
             return df
         except Exception as e:
             print(f'   {_term("ERROR")} Ошибка загрузки {table_name}: {e}')
             return None
+
+    def _filters_after_parquet(self, df, table_name):
+        if df is None:
+            return None
+        out = df
+        if len(out) > 0 and str(table_name).strip().upper() == 'ADRC':
+            out = self._apply_adrc_reserved_filter(out, table_name)
+        if out is not None and len(out) > 0:
+            out = self._drop_fully_empty_rows(out, log_label=table_name)
+        return out
 
     def _apply_adrc_reserved_filter(self, df, table_name='ADRC'):
         name1_col = None
@@ -754,59 +866,21 @@ class MemoryManager:
         return False
 
     async def _load_single_table_async(self, table_name):
-        if not _HAS_AIOSQLITE:
-            return (table_name, None)
+        """Async wrapper: reuse sync loader (parquet + bulk SQLite), run in thread pool."""
         try:
-            async with aiosqlite.connect(self.db_path) as conn:
-                escaped = f'"{table_name}"'
-                async with conn.execute(f'SELECT COUNT(*) FROM {escaped}') as cur:
-                    row = await cur.fetchone()
-                    row_count = row[0] if row else 0
-                if row_count > 500000:
-                    chunks = []
-                    chunk_size = 200000
-                    offset = 0
-                    while offset < row_count:
-                        async with conn.execute(f'SELECT * FROM {escaped} LIMIT {chunk_size} OFFSET {offset}') as cur:
-                            rows = await cur.fetchall()
-                            if not rows:
-                                break
-                            col_names = [d[0] for d in cur.description]
-                            chunk_df = pd.DataFrame(rows, columns=col_names)
-                        chunks.append(chunk_df)
-                        offset += chunk_size
-                    df = self._concat_dataframe_chunks(chunks)
-                    if len(df) > 0:
-                        df = self._optimize_dataframe(df)
-                else:
-                    async with conn.execute(f'SELECT * FROM {escaped}') as cur:
-                        rows = await cur.fetchall()
-                        col_names = [d[0] for d in cur.description]
-                        df = pd.DataFrame(rows, columns=col_names)
-                    if len(df) > 0:
-                        df = self._optimize_dataframe(df)
-                if len(df) > 0:
-                    before = len(df)
-                    df = df.drop_duplicates()
-                    if len(df) < before and before - len(df) > 0:
-                        print(f'   {_term("INFO")} {table_name}: удалено дубликатов {before - len(df):,}')
-                if df is not None and len(df) > 0:
-                    df = self._drop_fully_empty_rows(df, log_label=table_name)
-                return (table_name, df)
+            loop = asyncio.get_running_loop()
+            df = await loop.run_in_executor(None, self._load_single_table, table_name)
+            return (table_name, df)
         except Exception as e:
             print(f'   {_term("ERROR")} {table_name}: {e}')
             return (table_name, None)
 
     async def load_selected_tables_to_ram_async(self, table_names: list, add_reference_tables: bool=True):
-        if not _HAS_AIOSQLITE:
-            print(f'   {_term("WARNING")} aiosqlite не установлен. Используется синхронная загрузка.')
-            self.load_selected_tables_to_ram(table_names, add_reference_tables)
-            return
         to_load = self._collect_tables_to_load(table_names, add_reference_tables)
         if not to_load:
             print(f'   {_term("WARNING")} Нет таблиц для загрузки')
             return
-        print(f'   {_term("INFO")} Async загрузка: {len(to_load)} таблиц')
+        print(f'   {_term("INFO")} Async загрузка: {len(to_load)} таблиц (thread pool + parquet/SQLite)')
         tasks = [self._load_single_table_async(t) for t in to_load]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for i, res in enumerate(results):
@@ -827,7 +901,9 @@ class MemoryManager:
         print(f'{_term("CHECKMARK")} Async загрузка завершена: {total_rows:,} строк, {total_mem:.1f} MB')
 
     def load_selected_tables_to_ram_async_sync(self, table_names: list, add_reference_tables: bool=True):
-        if not _HAS_AIOSQLITE:
+        # Не зависит от aiosqlite: _load_single_table_async → run_in_executor
+        try:
+            asyncio.run(self.load_selected_tables_to_ram_async(table_names, add_reference_tables))
+        except Exception as e:
+            print(f'   {_term("WARNING")} Async load failed ({e}), sync fallback')
             self.load_selected_tables_to_ram(table_names, add_reference_tables)
-            return
-        asyncio.run(self.load_selected_tables_to_ram_async(table_names, add_reference_tables))

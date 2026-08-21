@@ -77,12 +77,29 @@ def resolve_database_path(project_root: str, cli_path: Optional[str]=None, *, mu
         raise FileNotFoundError(f'Файл базы данных не найден: {path}\nИсточник: {source}. Положите .db в корень проекта и обновите {DB_CONFIG_REL} (поле database) или задайте {ENV_DB_VAR} / --db.')
     return (path, source)
 
-def connect_sqlite(db_path: str, *, timeout: Optional[float]=None, busy_timeout_ms: Optional[int]=None, **kwargs) -> sqlite3.Connection:
+def connect_sqlite(db_path: str, *, timeout: Optional[float]=None, busy_timeout_ms: Optional[int]=None, for_bulk_read: bool=False, **kwargs) -> sqlite3.Connection:
+    """Open SQLite. for_bulk_read=True → mmap/cache PRAGMAs for faster full-table loads."""
     t = SQLITE_CONNECT_TIMEOUT_SEC if timeout is None else timeout
     bt = SQLITE_BUSY_TIMEOUT_MS if busy_timeout_ms is None else busy_timeout_ms
     conn = sqlite3.connect(db_path, timeout=t, **kwargs)
     try:
         conn.execute(f'PRAGMA busy_timeout = {int(bt)}')
+        if for_bulk_read:
+            # Read-heavy: memory-map DB file, larger page cache, RAM temp
+            conn.execute('PRAGMA query_only = ON')
+            conn.execute('PRAGMA temp_store = MEMORY')
+            try:
+                conn.execute('PRAGMA mmap_size = 8589934592')  # 8 GiB hint
+            except Exception:
+                pass
+            try:
+                conn.execute('PRAGMA cache_size = -2097152')  # ~2 GiB page cache
+            except Exception:
+                pass
+            try:
+                conn.execute('PRAGMA synchronous = OFF')  # safe with query_only
+            except Exception:
+                pass
     except Exception:
         pass
     return conn

@@ -11,9 +11,11 @@
 *.xls
 *.parquet
 *.txt
+!requirements.txt
 
 # Reports and local data folders
 quality_reports/
+cache/
 telbd/
 AUSP/
 data/

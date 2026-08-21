@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-08-21-perf-phase-a'
+    CHECKER_BUILD_ID = '2026-08-21-parquet-cache'
     # dm_customer_general hard scope: no central order block S (AUFSD)
     DM_CUSTOMER_GENERAL_AUFSD_EXCLUDE = frozenset({'S'})
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
@@ -85,7 +85,7 @@ class FastDataQualityChecker:
     })
     KNA1_JOIN_BLOCKED_COLUMNS = frozenset({'CLIENT', 'CL', 'MANDT', 'MANDANT'})
 
-    def __init__(self, db_path: str, rules_file: str, output_dir: str='quality_reports', parallel_tables: int=0, use_async_load: bool=False, debug: bool=False, reference_datetime=None, save_all_errors: bool=False):
+    def __init__(self, db_path: str, rules_file: str, output_dir: str='quality_reports', parallel_tables: int=0, use_async_load: bool=False, debug: bool=False, reference_datetime=None, save_all_errors: bool=False, use_parquet_cache: bool=True, rebuild_parquet_cache: bool=False):
         self.db_path = db_path
         self.rules_file = rules_file
         self.output_dir = output_dir
@@ -95,8 +95,14 @@ class FastDataQualityChecker:
         self.reference_datetime = reference_datetime
         # False (default): всегда лимит MAX_ERRORS_TO_SAVE. True / --save-all-errors: старое поведение.
         self.save_all_errors = bool(save_all_errors)
+        self.use_parquet_cache = bool(use_parquet_cache)
+        self.rebuild_parquet_cache = bool(rebuild_parquet_cache)
         self._parallel_lock = threading.Lock() if self.parallel_tables else None
-        self.memory_manager = MemoryManager(db_path)
+        self.memory_manager = MemoryManager(
+            db_path,
+            use_parquet_cache=self.use_parquet_cache,
+            rebuild_parquet_cache=self.rebuild_parquet_cache,
+        )
         print(f'[CHECKER] {self.CHECKER_BUILD_ID} | {os.path.abspath(__file__)}', flush=True)
         self.error_manager = ErrorFileManager(output_dir)
         self.column_matcher = ColumnMatcher()
