@@ -90,7 +90,7 @@
     "OrBlk": "AUFSD",
     "_aliases": {
       "KUNNR": ["KUNNR", "customer_code", "Customer", "Customer Code"],
-      "VKORG": ["VKORG", "sales_organization", "Sales Org.", "Sales org.", "Sales Organization", "SOrg", "Sales Org"],
+      "VKORG": ["VKORG", "sales_organization", "Sales Org.", "Sales org.", "Sales Organization", "SOrg", "SOrg.", "Sales Org"],
       "VTWEG": ["VTWEG", "distribution_channel", "Distr. Channel", "Distr.Channel", "Distribution Channel", "DChl"],
       "SPART": ["SPART", "division", "Division", "Div.", "Dv"],
       "VKGRP": ["VKGRP", "sales_group", "sales_group_code", "Sales Group", "Sales group", "Sls.group", "SGrp"],

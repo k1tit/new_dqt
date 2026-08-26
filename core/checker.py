@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-08-21-parquet-cache'
+    CHECKER_BUILD_ID = '2026-08-26-knvv-exclude-sorg-3600-3900'
     # dm_customer_general hard scope: no central order block S (AUFSD)
     DM_CUSTOMER_GENERAL_AUFSD_EXCLUDE = frozenset({'S'})
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
@@ -1560,7 +1560,7 @@ class FastDataQualityChecker:
                 if rule_code == 'RCCONF_153.4':
                     skip_msg = 'RCCONF_153.4: нет строк KNVV с VTWEG/DChl=04 и SPART/Dv=02 (проверьте колонки и значения в дампе)'
                 else:
-                    skip_msg = 'Нет строк KNVV в scope dm_customer_sales_org (VTWEG=01, SPART=01; exclude order_block S,NH,S3,S4,SY,U,R,PR; exclude KDGRP=ZIN)'
+                    skip_msg = 'Нет строк KNVV в scope dm_customer_sales_org (VTWEG=01, SPART=01; exclude SOrg 3600/3900; exclude order_block S,NH,S3,S4,SY,U,R,PR; exclude KDGRP=ZIN)'
                 self._log_skipped_rule(rule, table_name, skip_msg, timestamp)
                 return (0, 0)
         if rule_code == 'RCCONF_371.2' and str(table_name or '').strip().upper() == 'BUT051':
@@ -2621,6 +2621,8 @@ class FastDataQualityChecker:
         'RE': 'BP',  # Bill-to
     }
     KNVV_ORDER_BLOCK_BLOCKED = frozenset({'S', 'NH', 'S3', 'S4', 'SY', 'U', 'R', 'PR'})
+    # В отчёт KNVV не попадают строки с SOrg./VKORG = 3600 или 3900
+    KNVV_SORG_EXCLUDE = frozenset({'3600', '3900'})
     KNVV_DM_SALES_ORG_SCOPE_RULES = frozenset({
         'RCCOMP_142.1', 'RCCOMP_143.1', 'RCCOMP_144.1', 'RCCOMP_153.1', 'RCCOMP_154.1',
         'RCCOMP_163.1', 'RCCOMP_164.1', 'RCCOMP_170.1', 'RCCOMP_148.1',
@@ -2730,13 +2732,77 @@ class FastDataQualityChecker:
             return pd.Series(dtype=str)
         return series.map(self._norm_knvv_so_code_val)
 
+    def _norm_knvv_vkorg_val(self, value) -> str:
+        """Нормализация SOrg./VKORG (обычно 4 цифры: 3600, 3900, …)."""
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return ''
+        if isinstance(value, bytes):
+            try:
+                value = value.decode('utf-8', errors='ignore')
+            except Exception:
+                value = str(value)
+        s = str(value).replace('\ufeff', '').replace('\xa0', ' ').strip().strip("'").strip('"')
+        if not s or s.lower() in ('none', 'null', 'nan', 'na', '<na>', 'nat'):
+            return ''
+        if s.endswith('.0') and s[:-2].replace('-', '').isdigit():
+            s = s[:-2]
+        digits = re.sub('\\D', '', s)
+        if not digits or set(digits) == {'0'}:
+            return ''
+        return digits.zfill(4) if len(digits) <= 4 else digits
+
+    def _norm_knvv_vkorg_series(self, series):
+        if series is None:
+            return pd.Series(dtype=str)
+        return series.map(self._norm_knvv_vkorg_val)
+
+    def _resolve_knvv_vkorg_column(self, df):
+        if df is None or df.empty:
+            return None
+        col = self._resolve_column_for_rule(df, 'VKORG', 'KNVV')
+        if col and col in df.columns:
+            return col
+        for cand in ('VKORG', 'SORG', 'SORG.', 'SALES_ORG', 'SALESORG'):
+            hit = next((c for c in df.columns if str(c).strip().upper().replace(' ', '') == cand.replace('.', '')), None)
+            if hit:
+                return hit
+        for c in df.columns:
+            cu = str(c).strip().upper().replace(' ', '').replace('_', '').replace('.', '')
+            if cu in ('VKORG', 'SORG', 'SALESORG', 'SALESORGANIZATION') or cu.startswith('SORG'):
+                return c
+        return None
+
+    def _filter_knvv_exclude_sorg(self, df, rule_code):
+        """Исключить из отчёта KNVV строки с SOrg./VKORG in (3600, 3900)."""
+        if df is None or df.empty:
+            return df
+        vkorg_col = self._resolve_knvv_vkorg_column(df)
+        if not vkorg_col:
+            print(f'      [WARN] {rule_code}: колонка SOrg./VKORG не найдена — exclude 3600/3900 не применён')
+            return df
+        before = len(df)
+        vk = self._norm_knvv_vkorg_series(df[vkorg_col])
+        blocked = vk.isin(self.KNVV_SORG_EXCLUDE)
+        out = df.loc[~blocked].copy()
+        n_drop = int(blocked.sum())
+        print(
+            f'      [FILTER] {rule_code}: KNVV SOrg./VKORG not in {sorted(self.KNVV_SORG_EXCLUDE)} '
+            f'[{vkorg_col}] -> {len(out):,}/{before:,} (исключено: {n_drop:,})'
+        )
+        return out
+
     def _apply_knvv_dm_sales_org_scope(self, df, rule_code, table_name):
         """dm_customer_sales_org scope: VTWEG=01 & SPART=01, exclude blocked OrBlk and KDGRP=ZIN.
-        RCCONF_153.4 uses VTWEG=04 & SPART=02 per technical_definition (outside 01-01 dump)."""
+        RCCONF_153.4 uses VTWEG=04 & SPART=02 per technical_definition (outside 01-01 dump).
+        Всегда: SOrg./VKORG not in (3600, 3900)."""
         if df is None or df.empty:
             return df
         rule_code = str(rule_code or '').strip().upper()
         if str(table_name or '').strip().upper() != 'KNVV':
+            return df
+        # Сначала убрать запрещённые sales org — для любого правила KNVV
+        df = self._filter_knvv_exclude_sorg(df, rule_code)
+        if df is None or df.empty:
             return df
         before = len(df)
         if rule_code == 'RCCONF_153.4':
