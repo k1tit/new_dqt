@@ -466,7 +466,7 @@ def _read_excel_all_strings_full_load(file_path, max_rows=None):
             _ox_reader.from_excel = _orig_from_excel
     return rows
 
-def merge_and_load_xlsx_files_fast(db_path=None, data_folder=None, target_table=None, skip_header_after_first=True, chunksize=100000, skip_final_dedup=False):
+def merge_and_load_xlsx_files_fast(db_path=None, data_folder=None, target_table=None, skip_header_after_first=True, chunksize=100000, skip_final_dedup=False, data_files=None):
     if db_path is None:
         db_path = _resolve_db_path()
     else:
@@ -480,7 +480,7 @@ def merge_and_load_xlsx_files_fast(db_path=None, data_folder=None, target_table=
     print('\n' + '=' * 80)
     print('ЗАГРУЗКА ТАБЛИЦЫ В БАЗУ ДАННЫХ')
     print('=' * 80)
-    print(f'Папка с данными: {data_folder}')
+    print(f'Папка с данными: {data_folder if data_files is None else "(список файлов)"}')
     print(f'Таблица: {target_table}')
     print(f'База данных: {db_path}')
     print('=' * 80 + '\n')
@@ -488,12 +488,16 @@ def merge_and_load_xlsx_files_fast(db_path=None, data_folder=None, target_table=
     current_step = 1
     print_step(current_step, total_steps, 'Проверка файлов...')
     current_step += 1
-    if not os.path.exists(data_folder):
-        print(f"ОШИБКА: Папка '{data_folder}' не найдена!")
-        return None
-    data_files = _list_data_files(data_folder)
+    if data_files is None:
+        if not os.path.exists(data_folder):
+            print(f"ОШИБКА: Папка '{data_folder}' не найдена!")
+            return None
+        data_files = _list_data_files(data_folder)
+    else:
+        data_files = [f for f in data_files if os.path.isfile(f) and (not os.path.basename(f).startswith('~$'))]
+        data_files = sorted(data_files)
     if not data_files:
-        print(f"ОШИБКА: Нет файлов .xlsx / .xls / .csv в папке '{data_folder}'")
+        print(f"ОШИБКА: Нет файлов .xlsx / .xls / .csv{' в папке ' + repr(data_folder) if data_folder else ''}")
         return None
     total_files = len(data_files)
     print(f'Найдено файлов: {total_files}')
@@ -630,7 +634,7 @@ def merge_and_load_xlsx_files_fast(db_path=None, data_folder=None, target_table=
     print('\n' + '=' * 80)
     return {'table_name': target_table, 'source_files': total_files, 'db_rows': count, 'total_time': total_time, 'rows_per_second': count / total_time if total_time > 0 else 0}
 
-def merge_and_load_xlsx_files_ultra_fast(db_path=None, data_folder=None, target_table=None, skip_header_after_first=True, batch_size=100000, skip_final_dedup=False):
+def merge_and_load_xlsx_files_ultra_fast(db_path=None, data_folder=None, target_table=None, skip_header_after_first=True, batch_size=100000, skip_final_dedup=False, data_files=None):
     if db_path is None:
         db_path = _resolve_db_path()
     else:
@@ -645,11 +649,15 @@ def merge_and_load_xlsx_files_ultra_fast(db_path=None, data_folder=None, target_
     print('УЛЬТРА-БЫСТРАЯ ЗАГРУЗКА ТАБЛИЦЫ')
     print('=' * 80)
     try:
-        if not os.path.exists(data_folder):
-            raise FileNotFoundError(f"Папка '{data_folder}' не найдена!")
-        data_files = _list_data_files(data_folder)
+        if data_files is None:
+            if not os.path.exists(data_folder):
+                raise FileNotFoundError(f"Папка '{data_folder}' не найдена!")
+            data_files = _list_data_files(data_folder)
+        else:
+            data_files = [f for f in data_files if os.path.isfile(f) and (not os.path.basename(f).startswith('~$'))]
+            data_files = sorted(data_files)
         if not data_files:
-            print(f"ОШИБКА: Нет файлов .xlsx / .xls / .csv в папке '{data_folder}'")
+            print(f"ОШИБКА: Нет файлов .xlsx / .xls / .csv{' в папке ' + repr(data_folder) if data_folder else ''}")
             return None
         total_files = len(data_files)
         print(f'Найдено файлов: {total_files}')
@@ -843,18 +851,525 @@ def load_data_to_custom_table(table_name):
     return result
 
 def get_table_folders(base_folder=None):
+    """Имена таблиц для загрузки: подпапки db/ИМЯ + плоские Excel в db/."""
+    groups = collect_db_load_groups(base_folder)
+    return sorted(groups.keys(), key=lambda s: str(s).upper())
+
+
+# --- Excel flat-folder load matched to rules.json ---
+
+_AUSP_DERIVED_TO_ATINN = {
+    'AUSP_143': '143',
+    'AUSP_604': '604',
+    'AUSP_148': '148',
+    'AUSP_151': '151',
+}
+_DUMP_NUM_SUFFIX_RE = re.compile(r'^(?P<base>.+?)(?:[\s_\-\.]*\(?\d+\)?)$', re.IGNORECASE)
+_AUSP_ATINN_STEM_RE = re.compile(r'^AUSP[_\-\s]*(?P<atinn>\d+)$', re.IGNORECASE)
+
+
+def default_rules_path() -> str:
+    return os.path.join(_PROJECT_ROOT, 'json files', 'rules.json')
+
+
+def _split_table_token(raw: str) -> list[str]:
+    """Разбивает 'KNB1 / KNVV', но сохраняет SAP-пути вида /LOT/GC_ADR."""
+    s = str(raw or '').strip()
+    if not s:
+        return []
+    if s.startswith('/'):
+        return [s]
+    if re.search(r'\s/\s', s):
+        return [p.strip() for p in re.split(r'\s*/\s*', s) if p.strip()]
+    return [s]
+
+
+def load_rule_table_names(rules_path=None) -> list[str]:
+    """Имена таблиц из ключей rules.json (+ table_name_checked)."""
+    import json
+    path = rules_path or default_rules_path()
+    with open(path, encoding='utf-8') as f:
+        data = json.load(f)
+    names: set[str] = set()
+    if isinstance(data, dict):
+        for key in data.keys():
+            for part in _split_table_token(key):
+                names.add(part)
+            rules = data.get(key) or []
+            if isinstance(rules, list):
+                for rule in rules:
+                    if not isinstance(rule, dict):
+                        continue
+                    raw = str(rule.get('table_name_checked') or rule.get('table_name') or '').strip()
+                    if not raw:
+                        continue
+                    for part in _split_table_token(raw):
+                        names.add(part)
+    return sorted(names, key=lambda s: (-len(s), s.upper()))
+
+
+def table_name_aliases(table_name: str) -> list[str]:
+    t = str(table_name or '').strip()
+    if not t:
+        return []
+    aliases = [t]
+    if t == '/LOT/GC_ADR' or t.upper().replace('/', '').replace('_', '') == 'LOTGCADR':
+        aliases.extend(['/LOT/GC_ADR', 'LOT_GC_ADR', 'LOTGC_ADR', '_LOT_GC_ADR', 'LOT-GC-ADR', 'LOTGCADR'])
+    if '/' in t:
+        aliases.append(t.replace('/', '_').strip('_'))
+        aliases.append(t.replace('/', ''))
+        aliases.append(t.replace('/', '_'))
+    # unique preserve order
+    seen = set()
+    out = []
+    for a in aliases:
+        key = a.upper()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(a)
+    return out
+
+
+def _build_alias_to_table(known_tables: list[str]) -> dict[str, str]:
+    """alias_upper -> canonical table (longest tables registered first)."""
+    alias_map: dict[str, str] = {}
+    for table in sorted(known_tables, key=lambda s: (-len(s), s.upper())):
+        for alias in table_name_aliases(table):
+            key = alias.upper()
+            if key not in alias_map:
+                alias_map[key] = table
+    return alias_map
+
+
+def match_stem_to_rule_table(stem: str, alias_map: dict[str, str]) -> str | None:
+    """Сопоставляет имя файла (без расширения) с таблицей из правил.
+
+    Поддерживает: KNA1, KNA1_1, KNA1-2, KNA1 (3), AUSP_143, AUSP_143_1.
+    Сначала точное совпадение (чтобы DFKKBPTAXNUM1 / AUSP_143 не срезались).
+    """
+    raw = str(stem or '').strip()
+    if not raw:
+        return None
+    # иногда имена с путём SAP: _LOT_GC_ADR
+    candidates = [raw, raw.replace(' ', '_')]
+    for cand in candidates:
+        hit = alias_map.get(cand.upper())
+        if hit:
+            return hit
+    # пронумерованные выгрузки: strip trailing dump index
+    for cand in candidates:
+        m = _DUMP_NUM_SUFFIX_RE.match(cand)
+        if not m:
+            continue
+        base = m.group('base').rstrip(' ._-\t')
+        if not base or base.upper() == cand.upper():
+            continue
+        hit = alias_map.get(base.upper())
+        if hit:
+            return hit
+        # ещё один уровень: AUSP_143_1 → после первого strip уже AUSP_143
+        m2 = _DUMP_NUM_SUFFIX_RE.match(base)
+        if m2:
+            base2 = m2.group('base').rstrip(' ._-\t')
+            hit2 = alias_map.get(base2.upper()) if base2 else None
+            if hit2:
+                return hit2
+    return None
+
+
+def list_flat_data_files(folder: str) -> list[str]:
+    folder_abs = os.path.abspath(folder)
+    if not os.path.isdir(folder_abs):
+        return []
+    return _list_data_files(folder_abs)
+
+
+def _infer_table_from_stem_fallback(stem: str) -> str | None:
+    """Если rules нет/не совпало: KNA1_1 → KNA1, AUSP_143 → AUSP (+ atinn отдельно)."""
+    raw = str(stem or '').strip()
+    if not raw:
+        return None
+    m_ausp = _AUSP_ATINN_STEM_RE.match(raw)
+    if m_ausp:
+        return 'AUSP'
+    m = _DUMP_NUM_SUFFIX_RE.match(raw)
+    if m:
+        base = m.group('base').rstrip(' ._-\t')
+        if base and base.upper() != raw.upper():
+            return base
+    return raw
+
+
+def _atinn_from_stem(stem: str) -> str | None:
+    s = str(stem or '').strip()
+    if not s:
+        return None
+    if s.upper() in _AUSP_DERIVED_TO_ATINN:
+        return _AUSP_DERIVED_TO_ATINN[s.upper()]
+    # AUSP_143 / AUSP-143
+    m = _AUSP_ATINN_STEM_RE.match(s)
+    if m:
+        return str(int(m.group('atinn')))
+    # AUSP_143_1 → strip dump index once
+    m2 = _DUMP_NUM_SUFFIX_RE.match(s)
+    if m2:
+        base = m2.group('base').rstrip(' ._-\t')
+        if base and base.upper() != s.upper():
+            if base.upper() in _AUSP_DERIVED_TO_ATINN:
+                return _AUSP_DERIVED_TO_ATINN[base.upper()]
+            m3 = _AUSP_ATINN_STEM_RE.match(base)
+            if m3:
+                return str(int(m3.group('atinn')))
+    return None
+
+
+def collect_db_load_groups(base_folder=None, rules_path=None) -> dict:
+    """Источники загрузки в обычной папке db/: подпапки + плоские Excel.
+
+    Возвращает:
+      { table_name: { 'mode': 'files'|'ausp_atinn_folders', 'files': [...], 'file_atinn': {path: atinn}, 'folder': optional } }
+    """
     base_abs = _resolve_data_path(base_folder)
-    names = []
-    if os.path.isdir(base_abs):
-        for name in os.listdir(base_abs):
-            path = os.path.join(base_abs, name)
-            if os.path.isdir(path) and (not name.startswith('.')) and (name != '__pycache__'):
-                names.append(name)
-    ausp_path = resolve_ausp_data_folder()
-    if ausp_path and AUSP_TABLE_NAME not in names:
-        if _ausp_has_nested_atinn_folders(ausp_path) or _list_data_files(ausp_path):
-            names.append(AUSP_TABLE_NAME)
-    return sorted(set(names))
+    groups: dict = {}
+    if not os.path.isdir(base_abs):
+        return groups
+
+    known: list[str] = []
+    alias_map: dict[str, str] = {}
+    try:
+        rules_file = rules_path or default_rules_path()
+        if os.path.isfile(rules_file):
+            known = load_rule_table_names(rules_file)
+            alias_map = _build_alias_to_table(known)
+    except Exception as e:
+        print(f'  [WARN] rules.json не прочитан ({e}) — плоские файлы по имени stem')
+
+    def _ensure_files_group(table: str) -> dict:
+        g = groups.get(table)
+        if g is None:
+            g = {'mode': 'files', 'files': [], 'file_atinn': {}}
+            groups[table] = g
+        elif g.get('mode') == 'ausp_atinn_folders':
+            # уже режим папок ATINN — доп. файлы копятся в files/file_atinn
+            g.setdefault('files', [])
+            g.setdefault('file_atinn', {})
+        else:
+            g.setdefault('files', [])
+            g.setdefault('file_atinn', {})
+        return g
+
+    def _resolve_table_name(stem_or_folder: str) -> str | None:
+        if alias_map:
+            hit = match_stem_to_rule_table(stem_or_folder, alias_map)
+            if hit:
+                return hit
+        return _infer_table_from_stem_fallback(stem_or_folder)
+
+    def _add_file(table: str, path: str, atinn: str | None = None):
+        # AUSP_* → физическая AUSP
+        if table in _AUSP_DERIVED_TO_ATINN:
+            atinn = atinn or _AUSP_DERIVED_TO_ATINN[table]
+            table = AUSP_TABLE_NAME
+        if str(table).strip().upper() == AUSP_TABLE_NAME:
+            table = AUSP_TABLE_NAME
+        g = _ensure_files_group(table)
+        if path not in g['files']:
+            g['files'].append(path)
+        if atinn:
+            g['file_atinn'][path] = str(atinn)
+
+    # 1) Подпапки db/ИМЯ_ТАБЛИЦЫ (как раньше)
+    for name in sorted(os.listdir(base_abs)):
+        path = os.path.join(base_abs, name)
+        if not os.path.isdir(path) or name.startswith('.') or name == '__pycache__':
+            continue
+        table = _resolve_table_name(name) or name
+        if str(name).strip().upper() == AUSP_TABLE_NAME or str(table).strip().upper() == AUSP_TABLE_NAME:
+            atinn_groups = _collect_ausp_atinn_file_groups(path)
+            if atinn_groups:
+                g = groups.get(AUSP_TABLE_NAME) or {'mode': 'ausp_atinn_folders', 'files': [], 'file_atinn': {}, 'folder': path}
+                g['mode'] = 'ausp_atinn_folders'
+                g['folder'] = path
+                for atinn, paths in atinn_groups.items():
+                    for p in paths:
+                        if p not in g['files']:
+                            g['files'].append(p)
+                        g['file_atinn'][p] = str(atinn)
+                groups[AUSP_TABLE_NAME] = g
+                continue
+            # плоские файлы прямо в db/AUSP/
+            for p in _list_data_files(path):
+                _add_file(AUSP_TABLE_NAME, p, None)
+            continue
+        files = _list_data_files(path)
+        if not files:
+            continue
+        for p in files:
+            _add_file(table, p, None)
+
+    # AUSP вне db/ (корень проекта) — если ещё не нашли
+    if AUSP_TABLE_NAME not in groups:
+        ausp_path = resolve_ausp_data_folder()
+        if ausp_path and os.path.abspath(ausp_path) != os.path.abspath(os.path.join(base_abs, 'AUSP')):
+            atinn_groups = _collect_ausp_atinn_file_groups(ausp_path)
+            if atinn_groups:
+                g = {'mode': 'ausp_atinn_folders', 'files': [], 'file_atinn': {}, 'folder': ausp_path}
+                for atinn, paths in atinn_groups.items():
+                    for p in paths:
+                        g['files'].append(p)
+                        g['file_atinn'][p] = str(atinn)
+                groups[AUSP_TABLE_NAME] = g
+            else:
+                for p in _list_data_files(ausp_path):
+                    _add_file(AUSP_TABLE_NAME, p, None)
+
+    # 2) Плоские файлы прямо в db/ (KNA1.xlsx, KNA1_1.xlsx, V_EQUI.xlsx, ...)
+    for path in list_flat_data_files(base_abs):
+        stem = os.path.splitext(os.path.basename(path))[0]
+        table = _resolve_table_name(stem)
+        if not table:
+            print(f'  [SKIP] не удалось определить таблицу: {os.path.basename(path)}')
+            continue
+        atinn = None
+        if table in _AUSP_DERIVED_TO_ATINN or str(table).upper() == 'AUSP' or _AUSP_ATINN_STEM_RE.match(stem):
+            atinn = _atinn_from_stem(stem)
+        _add_file(table, path, atinn)
+
+    # нормализация списков
+    for g in groups.values():
+        g['files'] = sorted(set(g.get('files') or []))
+    return groups
+
+
+def discover_excel_by_rules(folder: str, rules_path=None) -> dict:
+    """Сканирует плоскую папку Excel/CSV и группирует по таблицам из rules.json."""
+    known = load_rule_table_names(rules_path)
+    alias_map = _build_alias_to_table(known)
+    files = list_flat_data_files(folder)
+    matched: dict[str, list[str]] = {}
+    unmatched: list[str] = []
+    for path in files:
+        stem = os.path.splitext(os.path.basename(path))[0]
+        table = match_stem_to_rule_table(stem, alias_map)
+        if table:
+            matched.setdefault(table, []).append(path)
+        else:
+            unmatched.append(path)
+    matched_keys = set(matched.keys())
+    # AUSP_* считаем покрытыми, если есть AUSP или любой derived
+    covered = set(matched_keys)
+    if any(k == 'AUSP' or k in _AUSP_DERIVED_TO_ATINN for k in matched_keys):
+        covered.add('AUSP')
+        covered.update(_AUSP_DERIVED_TO_ATINN.keys())
+    missing_in_folder = [t for t in known if t not in covered]
+    return {
+        'rules_path': rules_path or default_rules_path(),
+        'folder': os.path.abspath(folder),
+        'known_tables': known,
+        'matched': {k: sorted(v) for k, v in sorted(matched.items())},
+        'unmatched': unmatched,
+        'missing_in_folder': missing_in_folder,
+    }
+
+
+def print_excel_rules_discovery(report: dict) -> None:
+    print('\n' + '=' * 70)
+    print('СОПОСТАВЛЕНИЕ EXCEL ↔ rules.json')
+    print('=' * 70)
+    print(f"Папка: {report['folder']}")
+    print(f"Правила: {report['rules_path']}")
+    print(f"Таблиц в rules: {len(report['known_tables'])}")
+    print(f"Сопоставлено групп: {len(report['matched'])}")
+    print(f"Файлов без совпадения: {len(report['unmatched'])}")
+    print('-' * 70)
+    for table, paths in report['matched'].items():
+        names = ', '.join(os.path.basename(p) for p in paths)
+        print(f'  {table}: {len(paths)} файл(ов) → {names}')
+    if report['unmatched']:
+        print('\nНе сопоставлены (не из rules или другое имя):')
+        for p in report['unmatched'][:30]:
+            print(f'  - {os.path.basename(p)}')
+        if len(report['unmatched']) > 30:
+            print(f'  ... и ещё {len(report["unmatched"]) - 30}')
+    if report['missing_in_folder']:
+        preview = ', '.join(report['missing_in_folder'][:20])
+        more = '' if len(report['missing_in_folder']) <= 20 else f' ... (+{len(report["missing_in_folder"]) - 20})'
+        print(f'\nВ rules есть, файлов нет: {preview}{more}')
+    print('=' * 70)
+
+
+def merge_and_load_ausp_from_file_list(db_path=None, file_atinn_pairs=None, skip_header_after_first=True, chunksize=100000, skip_final_dedup=False):
+    """Загрузка AUSP из списка файлов; file_atinn_pairs: [(path, atinn_or_None), ...]."""
+    if db_path is None:
+        db_path = _resolve_db_path()
+    else:
+        db_path = _resolve_db_path(db_path)
+    if not file_atinn_pairs:
+        print('ОШИБКА: пустой список файлов AUSP')
+        return None
+    data_files = []
+    file_atinn = {}
+    for path, atinn in file_atinn_pairs:
+        if not os.path.isfile(path):
+            continue
+        data_files.append(path)
+        if atinn:
+            file_atinn[path] = str(atinn)
+    if not data_files:
+        print('ОШИБКА: нет существующих файлов AUSP')
+        return None
+    target_table = AUSP_TABLE_NAME
+    total_files = len(data_files)
+    print('\n' + '=' * 80)
+    print('ЗАГРУЗКА AUSP ИЗ EXCEL (по rules / ATINN из имени)')
+    print('=' * 80)
+    print(f'Файлов: {total_files}')
+    print(f'Таблица в БД: {target_table}')
+    print(f'База данных: {db_path}')
+    print('=' * 80 + '\n')
+    try:
+        conn = connect_sqlite(db_path)
+        cursor = conn.cursor()
+        conn.execute('PRAGMA journal_mode = OFF')
+        conn.execute('PRAGMA synchronous = OFF')
+        conn.execute('PRAGMA cache_size = -20000')
+        conn.execute('PRAGMA foreign_keys = OFF')
+        conn.execute('PRAGMA temp_store = MEMORY')
+        print(f"Удаление старой таблицы '{target_table}'...")
+        cursor.execute(f"DROP TABLE IF EXISTS '{target_table}'")
+        conn.commit()
+    except Exception as e:
+        print(f'ОШИБКА при подготовке БД: {e}')
+        return None
+    first_file_columns = None
+    table_created = False
+    total_rows_loaded = 0
+    start_time = time.time()
+    for file_idx, file_path in enumerate(data_files, 1):
+        atinn_value = file_atinn.get(file_path)
+        file_name = os.path.basename(file_path)
+        atinn_note = f' (ATINN={atinn_value})' if atinn_value else ''
+        print(f'\nФайл {file_idx}/{total_files}: {file_name}{atinn_note}')
+        try:
+            if file_idx == 1:
+                df = _normalize_df_columns(_read_data_file(file_path, header=0))
+                first_file_columns = list(df.columns)
+            elif skip_header_after_first and first_file_columns:
+                df = _read_data_file(file_path, header=None)
+                if len(df) > 0:
+                    df = df.iloc[1:].reset_index(drop=True)
+                if len(df.columns) == len(first_file_columns):
+                    df.columns = first_file_columns
+                elif len(df.columns) > len(first_file_columns):
+                    df.columns = first_file_columns + [f'extra_col_{j}' for j in range(len(first_file_columns), len(df.columns))]
+                else:
+                    df.columns = first_file_columns[:len(df.columns)]
+            else:
+                df = _normalize_df_columns(_read_data_file(file_path, header=0))
+            df = _normalize_df_columns(df)
+            if atinn_value:
+                df = _inject_atinn_column(df, atinn_value)
+            if first_file_columns is None:
+                first_file_columns = list(df.columns)
+            if len(df) > 0:
+                df = df.drop_duplicates()
+            if not table_created and len(df) > 0:
+                sample_df = df.head(min(10000, len(df)))
+                sample_df.to_sql(target_table, conn, if_exists='fail', index=False, chunksize=chunksize)
+                table_created = True
+                if len(df) > len(sample_df):
+                    df.iloc[len(sample_df):].to_sql(target_table, conn, if_exists='append', index=False, chunksize=chunksize)
+            elif table_created and len(df) > 0:
+                df.to_sql(target_table, conn, if_exists='append', index=False, chunksize=chunksize)
+            total_rows_loaded += len(df)
+            del df
+            gc.collect()
+        except Exception as e:
+            print(f'  ОШИБКА: {e} — файл пропущен')
+            continue
+    conn.commit()
+    if table_created and (not skip_final_dedup):
+        try:
+            before, after, removed = _dedup_table_in_db(conn, target_table)
+            if removed:
+                print(f'\nДедупликация AUSP: {before:,} → {after:,} (−{removed:,})')
+            conn.commit()
+        except Exception as e:
+            print(f'WARN дедуп AUSP: {e}')
+    try:
+        cursor.execute(f"SELECT COUNT(*) FROM '{target_table}'")
+        count = cursor.fetchone()[0]
+    except Exception:
+        count = total_rows_loaded
+    conn.close()
+    total_time = time.time() - start_time
+    print('\n' + '=' * 80)
+    print(f'AUSP загружена: {count:,} строк за {total_time:.1f} сек')
+    print('=' * 80)
+    if count == 0:
+        return None
+    return {'table_name': target_table, 'source_files': total_files, 'db_rows': count, 'total_time': total_time}
+
+
+def load_excel_matched_to_rules(folder, db_path=None, rules_path=None, method='fast', skip_final_dedup=False, dry_run=False, only_tables=None):
+    """Загрузка Excel из плоской папки: имена файлов ↔ таблицы rules.json → SQLite."""
+    report = discover_excel_by_rules(folder, rules_path=rules_path)
+    print_excel_rules_discovery(report)
+    if dry_run:
+        print('\n[dry-run] Загрузка в БД не выполнялась.')
+        return report
+    matched = report['matched']
+    if only_tables:
+        only_set = {str(t).strip() for t in only_tables}
+        matched = {k: v for k, v in matched.items() if k in only_set}
+    if not matched:
+        print('Нет файлов, сопоставленных с rules — нечего загружать.')
+        return report
+    if db_path is None:
+        db_path = _resolve_db_path()
+    else:
+        db_path = _resolve_db_path(db_path)
+    # AUSP / AUSP_* → одна физическая таблица AUSP
+    ausp_pairs = []
+    other = {}
+    for table, paths in matched.items():
+        if table == 'AUSP':
+            for p in paths:
+                ausp_pairs.append((p, None))
+        elif table in _AUSP_DERIVED_TO_ATINN:
+            atinn = _AUSP_DERIVED_TO_ATINN[table]
+            for p in paths:
+                ausp_pairs.append((p, atinn))
+        else:
+            other[table] = paths
+    results = []
+    tables_to_load = list(other.keys())
+    if ausp_pairs:
+        tables_to_load = ['AUSP'] + tables_to_load
+    print(f'\nК загрузке в БД: {len(tables_to_load)} таблиц(ы) → {db_path}')
+    done = 0
+    total = len(tables_to_load)
+    if ausp_pairs:
+        done += 1
+        print(f'\n[{done}/{total}] AUSP ({len(ausp_pairs)} файл(ов))')
+        r = merge_and_load_ausp_from_file_list(db_path=db_path, file_atinn_pairs=ausp_pairs, skip_final_dedup=skip_final_dedup)
+        if r:
+            results.append(r)
+    for table, paths in other.items():
+        done += 1
+        print(f'\n[{done}/{total}] {table} ({len(paths)} файл(ов))')
+        if method == 'ultra_fast':
+            r = merge_and_load_xlsx_files_ultra_fast(db_path=db_path, data_folder=folder, target_table=table, skip_final_dedup=skip_final_dedup, data_files=paths)
+        else:
+            r = merge_and_load_xlsx_files_fast(db_path=db_path, data_folder=folder, target_table=table, skip_final_dedup=skip_final_dedup, data_files=paths)
+        if r:
+            results.append(r)
+    report['load_results'] = results
+    print('\n' + '=' * 70)
+    print(f"ИТОГО загружено таблиц: {len(results)} из {total}")
+    print('=' * 70)
+    return report
+
 
 def _resolve_table_data_folder(table_name, base_abs):
     if str(table_name or '').strip().upper() == AUSP_TABLE_NAME:
@@ -871,6 +1386,29 @@ def _load_table_folder(db_path, table_name, data_folder, method, skip_final_dedu
         return merge_and_load_xlsx_files_ultra_fast(db_path=db_path, data_folder=data_folder, target_table=table_name, skip_header_after_first=True, batch_size=50000, skip_final_dedup=skip_final_dedup)
     return merge_and_load_xlsx_files_fast(db_path=db_path, data_folder=data_folder, target_table=table_name, skip_header_after_first=True, chunksize=100000, skip_final_dedup=skip_final_dedup)
 
+
+def _load_table_from_group(db_path, table_name, info, method, skip_final_dedup, base_folder):
+    """Загрузка одной таблицы из collect_db_load_groups."""
+    files = list(info.get('files') or [])
+    file_atinn = dict(info.get('file_atinn') or {})
+    mode = info.get('mode') or 'files'
+    if str(table_name).strip().upper() == AUSP_TABLE_NAME:
+        if mode == 'ausp_atinn_folders' and info.get('folder') and not files:
+            return merge_and_load_ausp_from_atinn_folders(db_path=db_path, ausp_folder=info['folder'], skip_final_dedup=skip_final_dedup)
+        if files:
+            pairs = [(p, file_atinn.get(p)) for p in files]
+            return merge_and_load_ausp_from_file_list(db_path=db_path, file_atinn_pairs=pairs, skip_final_dedup=skip_final_dedup)
+        if info.get('folder'):
+            return merge_and_load_ausp_from_atinn_folders(db_path=db_path, ausp_folder=info['folder'], skip_final_dedup=skip_final_dedup)
+        return None
+    if not files:
+        print(f'Пропуск {table_name}: нет файлов')
+        return None
+    if method == 'ultra_fast':
+        return merge_and_load_xlsx_files_ultra_fast(db_path=db_path, data_folder=base_folder, target_table=table_name, skip_final_dedup=skip_final_dedup, data_files=files)
+    return merge_and_load_xlsx_files_fast(db_path=db_path, data_folder=base_folder, target_table=table_name, skip_final_dedup=skip_final_dedup, data_files=files)
+
+
 def load_all_tables_from_db_folders(db_path=None, base_folder=None, method='fast', skip_final_dedup=False, only_tables=None):
     if db_path is None:
         db_path = _resolve_db_path()
@@ -880,29 +1418,29 @@ def load_all_tables_from_db_folders(db_path=None, base_folder=None, method='fast
     if not os.path.isdir(base_abs):
         print(f'ОШИБКА: Папка не найдена: {base_abs}')
         return []
-    tables = get_table_folders(base_folder) if only_tables is None else only_tables
+    groups = collect_db_load_groups(base_folder)
     if only_tables is not None:
-        existing = set(get_table_folders(base_folder))
-        tables = [t for t in only_tables if t in existing]
+        only_set = {str(t).strip() for t in only_tables}
+        groups = {k: v for k, v in groups.items() if k in only_set}
+    tables = sorted(groups.keys(), key=lambda s: str(s).upper())
     if not tables:
-        print(f'В папке {base_abs} нет подпапок с именами таблиц.')
+        print(f'В папке {base_abs} нет подпапок/Excel с таблицами.')
         return []
     print('\n' + '=' * 70)
-    print('ЗАГРУЗКА ВСЕХ ТАБЛИЦ ИЗ ПОДПАПОК')
+    print('ЗАГРУЗКА ТАБЛИЦ ИЗ db/ (подпапки + плоские Excel)')
     print('=' * 70)
     print(f'Базовая папка: {base_abs}')
     print(f'БД: {db_path}')
     print(f'Таблиц к загрузке: {len(tables)}')
-    print(f'Список: {', '.join(tables)}')
+    for t in tables:
+        n = len(groups[t].get('files') or [])
+        print(f'  - {t}: {n} файл(ов)')
     print('=' * 70 + '\n')
     results = []
     for i, table_name in enumerate(tables, 1):
-        data_folder = _resolve_table_data_folder(table_name, base_abs)
-        if not os.path.isdir(data_folder):
-            print(f'[{i}/{len(tables)}] Пропуск {table_name}: папка не найдена ({data_folder})')
-            continue
-        print(f'\n[{i}/{len(tables)}] Таблица: {table_name} (папка: {data_folder})')
-        r = _load_table_folder(db_path, table_name, data_folder, method, skip_final_dedup)
+        info = groups[table_name]
+        print(f'\n[{i}/{len(tables)}] Таблица: {table_name}')
+        r = _load_table_from_group(db_path, table_name, info, method, skip_final_dedup, base_abs)
         if r:
             results.append(r)
     print('\n' + '=' * 70)
@@ -917,7 +1455,7 @@ def _interactive_pick_table_name(exclude_ausp=True):
     else:
         pick_list = list(all_tables)
     if not pick_list:
-        print('Нет доступных подпапок с таблицами.')
+        print('Нет доступных таблиц (подпапки или Excel в db/).')
         return None
     print('\nДоступные таблицы:')
     for i, name in enumerate(pick_list, 1):
@@ -936,7 +1474,7 @@ def _interactive_pick_table_name(exclude_ausp=True):
     matched = next((t for t in pick_list if str(t).strip().upper() == raw.upper()), None)
     if matched:
         return matched
-    print(f"Таблица '{raw}' не найдена среди подпапок.")
+    print(f"Таблица '{raw}' не найдена.")
     return None
 
 def _interactive_load_one_table(method='fast'):
@@ -946,15 +1484,46 @@ def _interactive_load_one_table(method='fast'):
     if str(table_name).strip().upper() == AUSP_TABLE_NAME:
         print('Для AUSP выберите пункт 4 меню (загрузка из подпапок ATINN).')
         return None
-    base_abs = _resolve_data_path()
-    data_folder = _resolve_table_data_folder(table_name, base_abs)
-    if not os.path.isdir(data_folder):
-        print(f"ОШИБКА: Папка не найдена: {data_folder}")
+    groups = collect_db_load_groups()
+    info = groups.get(table_name)
+    if not info or not (info.get('files') or info.get('folder')):
+        print(f"ОШИБКА: нет файлов для таблицы '{table_name}'")
         return None
     print(f"\nЗагрузка одной таблицы: {table_name}")
-    print(f"Папка: {data_folder}")
+    files = info.get('files') or []
+    for fp in files[:10]:
+        print(f'  - {os.path.basename(fp)}')
+    if len(files) > 10:
+        print(f'  ... и ещё {len(files) - 10}')
     skip_dedup = input('Пропустить финальную дедупликацию? (y/n) [n]: ').strip().lower() == 'y'
-    return _load_table_folder(_resolve_db_path(), table_name, data_folder, method, skip_dedup)
+    return _load_table_from_group(_resolve_db_path(), table_name, info, method, skip_dedup, _resolve_data_path())
+
+
+def _interactive_load_excel_by_rules():
+    default_folder = _resolve_data_path()
+    print('\nРежим: что найдено в обычной папке db/ (подпапки + Excel)')
+    print('Кладите файлы прямо в db/: KNA1.xlsx, KNA1_1.xlsx, V_EQUI.xlsx — или в db/KNA1/')
+    print(f'Папка по умолчанию: {default_folder}')
+    raw = input('Папка (Enter = db/): ').strip().strip('"')
+    folder = raw or default_folder
+    if not os.path.isdir(folder):
+        print(f'ОШИБКА: папка не найдена: {folder}')
+        return None
+    groups = collect_db_load_groups(folder)
+    print('\n' + '=' * 70)
+    print('ИСТОЧНИКИ ЗАГРУЗКИ (как увидит пункт 3)')
+    print('=' * 70)
+    if not groups:
+        print('(пусто)')
+    for table, info in sorted(groups.items(), key=lambda x: str(x[0]).upper()):
+        files = info.get('files') or []
+        names = ', '.join(os.path.basename(f) for f in files[:8])
+        more = '' if len(files) <= 8 else f' ... (+{len(files) - 8})'
+        print(f'  {table}: {len(files)} файл(ов) → {names}{more}')
+    # дополнительно: только плоские файлы ↔ rules
+    load_excel_matched_to_rules(folder, dry_run=True)
+    return {'matched': groups}
+
 
 if __name__ == '__main__':
     print('\n' + '=' * 80)
@@ -968,17 +1537,24 @@ if __name__ == '__main__':
     if ausp_path:
         print(f'Папка AUSP (по ATINN): {ausp_path}')
     tables_in_db = get_table_folders()
-    print(f"\nВ папке '{_resolve_data_path()}' найдено подпапок (таблиц): {len(tables_in_db)}")
+    print(f"\nВ папке '{_resolve_data_path()}' найдено таблиц (подпапки + Excel): {len(tables_in_db)}")
     if tables_in_db:
         print('   ', ', '.join(tables_in_db[:15]), '...' if len(tables_in_db) > 15 else '')
     print(f'\nВыберите режим:')
-    print('1. Залить одну таблицу (быстрый метод) — выбор подпапки db/ИМЯ_ТАБЛИЦЫ')
+    print('1. Залить одну таблицу (быстрый метод) — подпапка или Excel в db/')
     print('2. Залить одну таблицу (ультра-быстрый метод)')
-    print('3. Залить ВСЕ таблицы из подпапок db (включая AUSP, если есть папка AUSP/)')
+    print('3. Залить ВСЕ таблицы из db/ (подпапки + плоские Excel)')
     print('4. Залить только AUSP из подпапок ATINN (143, 604, 148, 151, ...)')
+    print('5. Показать сопоставление файлов в db/ с rules.json (без загрузки)')
     try:
-        choice = input('\nВведите номер (1, 2, 3 или 4): ').strip()
-        if choice == '4':
+        choice = input('\nВведите номер (1–5): ').strip()
+        if choice == '5':
+            result = _interactive_load_excel_by_rules()
+            if result:
+                print('\nСопоставление готово.')
+            else:
+                print('\nОперация завершена с ошибками или отменена.')
+        elif choice == '4':
             print('\nРежим: загрузка AUSP из вложенных папок ATINN.')
             skip_dedup = input('Пропустить финальную дедупликацию? (y/n) [n]: ').strip().lower() == 'y'
             result = merge_and_load_ausp_from_atinn_folders(skip_final_dedup=skip_dedup)
@@ -987,8 +1563,8 @@ if __name__ == '__main__':
             else:
                 print('\nAUSP не загружена — проверьте структуру папок и файлы.')
         elif choice == '3':
-            print('\nРежим: загрузка всех таблиц из подпапок db.')
-            print('ВНИМАНИЕ: если есть папка AUSP/143,604,... — таблица AUSP будет пересоздана.')
+            print('\nРежим: загрузка всех таблиц из db/ (подпапки + Excel в корне db/).')
+            print('ВНИМАНИЕ: если есть AUSP — таблица AUSP будет пересоздана.')
             skip_ausp = input('Не трогать AUSP (пропустить в пакете)? (y/n) [n]: ').strip().lower() == 'y'
             m = input('Метод: 1=быстрый, 2=ультра-быстрый [1]: ').strip() or '1'
             skip_dedup = input('Пропустить финальную дедупликацию по таблице (ускоряет загрузку)? (y/n) [n]: ').strip().lower() == 'y'
