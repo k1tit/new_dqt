@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-08-26-knvv-exclude-sorg-3600-3900'
+    CHECKER_BUILD_ID = '2026-08-27-ausp-equipment-separate-no-9038'
     # dm_customer_general hard scope: no central order block S (AUFSD)
     DM_CUSTOMER_GENERAL_AUFSD_EXCLUDE = frozenset({'S'})
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
@@ -282,20 +282,29 @@ class FastDataQualityChecker:
         normalized = series.apply(lambda x: self._normalize_atinn_for_filter(x))
         return normalized == target
 
+    AUSP_CUSTOMER_ATINN = frozenset({'143', '604', '148', '151'})
+    AUSP_EQUIPMENT_ATINN = frozenset({'24', '27', '30', '52'})
+    AUSP_EQUIPMENT_TABLE = 'AUSP_EQUIPMENT'
+
     def _resolve_ausp_atinn_value(self, rule):
         column_to_check = (rule.get('column_name_checked') or '').strip()
         biz = (rule.get('business_attribute_name') or '').strip()
         atinn_value = None
         if column_to_check:
-            cu = column_to_check.upper()
-            if '143' in cu or 'ATINN(143)' in cu or 'ATINN=143' in cu or ('ATINN =143' in cu):
-                atinn_value = '143'
-            elif '604' in cu or 'ATINN=604' in cu or 'ATINN = 604' in cu:
-                atinn_value = '604'
-            elif '148' in cu or 'ATINN=148' in cu:
-                atinn_value = '148'
-            elif '151' in cu or 'ATINN=151' in cu:
-                atinn_value = '151'
+            # ATINN_52 / ATINN-27 / ATINN(24) / ATINN=30
+            m_us = re.search(r'ATINN[_\s\-]*[=\(]?\s*(\d+)\s*\)?', column_to_check, re.IGNORECASE)
+            if m_us:
+                atinn_value = str(int(m_us.group(1)))
+            else:
+                cu = column_to_check.upper()
+                if '143' in cu or 'ATINN(143)' in cu or 'ATINN=143' in cu or ('ATINN =143' in cu):
+                    atinn_value = '143'
+                elif '604' in cu or 'ATINN=604' in cu or 'ATINN = 604' in cu:
+                    atinn_value = '604'
+                elif '148' in cu or 'ATINN=148' in cu:
+                    atinn_value = '148'
+                elif '151' in cu or 'ATINN=151' in cu:
+                    atinn_value = '151'
         if atinn_value:
             return atinn_value
         if biz:
@@ -331,8 +340,13 @@ class FastDataQualityChecker:
                 atinn_value = atinn_match.group(1).strip()
         return atinn_value
 
+    def _is_ausp_like_table(self, table_name) -> bool:
+        tu = str(table_name or '').strip().upper()
+        return tu in ('AUSP', self.AUSP_EQUIPMENT_TABLE) or tu.startswith('AUSP_')
+
     def _build_ausp_split(self, df, table_name):
-        if df is None or df.empty or (table_name or '').strip().upper() != 'AUSP':
+        tu = (table_name or '').strip().upper()
+        if df is None or df.empty or tu not in ('AUSP', self.AUSP_EQUIPMENT_TABLE):
             return None
         atinn_col, atwrt_col = self._find_ausp_columns(df.columns, table_name)
         if not atinn_col or not atwrt_col:
@@ -349,34 +363,41 @@ class FastDataQualityChecker:
         if df is None or df.empty:
             return (None, None, None)
         t = (table_name or '').strip().upper()
-        if t != 'AUSP':
+        if t not in ('AUSP', self.AUSP_EQUIPMENT_TABLE) and not t.startswith('AUSP_'):
             return (None, None, None)
-        candidates = [(column_to_check or '').strip()]
-        if rule:
-            biz = (rule.get('business_attribute_name') or '').strip()
-            if biz and biz not in candidates:
-                candidates.append(biz)
-        atinn_value = None
-        if self.ausp_atinn_mapping:
-            for key, val in self.ausp_atinn_mapping.items():
-                key_norm = self._normalize_ausp_name(key)
-                key_upper = (key or '').strip().upper()
-                for cand in candidates:
-                    if not cand:
-                        continue
-                    cand_norm = self._normalize_ausp_name(cand)
-                    cand_upper = cand.strip().upper()
-                    if key_upper == cand_upper or key_norm == cand_norm:
-                        atinn_value = str(val).strip()
+        atinn_value = self._resolve_ausp_atinn_value(rule) if rule else None
+        if not atinn_value:
+            candidates = [(column_to_check or '').strip()]
+            if rule:
+                biz = (rule.get('business_attribute_name') or '').strip()
+                if biz and biz not in candidates:
+                    candidates.append(biz)
+            if self.ausp_atinn_mapping:
+                for key, val in self.ausp_atinn_mapping.items():
+                    key_norm = self._normalize_ausp_name(key)
+                    key_upper = (key or '').strip().upper()
+                    for cand in candidates:
+                        if not cand:
+                            continue
+                        cand_norm = self._normalize_ausp_name(cand)
+                        cand_upper = cand.strip().upper()
+                        if key_upper == cand_upper or key_norm == cand_norm:
+                            atinn_value = str(val).strip()
+                            break
+                    if atinn_value:
                         break
-                if atinn_value:
-                    break
-        if not atinn_value and column_to_check:
-            atinn_match = re.search('ATINN\\s*[=\\(]\\s*(\\d+)', column_to_check or '', re.IGNORECASE)
-            if atinn_match:
-                atinn_value = atinn_match.group(1).strip()
+            if not atinn_value and column_to_check:
+                atinn_match = re.search(r'ATINN[_\s\-]*[=\(]?\s*(\d+)', column_to_check or '', re.IGNORECASE)
+                if atinn_match:
+                    atinn_value = atinn_match.group(1).strip()
         if not atinn_value:
             return (None, None, None)
+        # Equipment vs customer AUSP: не смешивать чужие ATINN
+        atinn_norm = self._normalize_atinn_for_filter(atinn_value)
+        if t == self.AUSP_EQUIPMENT_TABLE and atinn_norm not in self.AUSP_EQUIPMENT_ATINN:
+            print(f'      [WARN] AUSP_EQUIPMENT: ATINN={atinn_norm} не из {{24,27,30,52}}')
+        if t == 'AUSP' and atinn_norm in self.AUSP_EQUIPMENT_ATINN:
+            print(f'      [WARN] AUSP (customer): ATINN={atinn_norm} относится к AUSP_EQUIPMENT')
         atinn_col, atwrt_col = self._find_ausp_columns(df.columns, table_name)
         if not atinn_col or not atwrt_col:
             return (None, None, None)
@@ -930,6 +951,8 @@ class FastDataQualityChecker:
                 suffix = '...' if len(names) > 15 else ''
                 print(f'   [AUSP] Не удалось разбить по имени: колонки ATINN/ATWRT не найдены. Заголовки ({len(names)}): {names[:15]}{suffix}')
                 self._debug_ausp_columns(df.columns, table_name)
+        elif (table_name or '').strip().upper() == self.AUSP_EQUIPMENT_TABLE:
+            print(f'   [AUSP_EQUIPMENT] ATINN {{24,27,30,52}} — отдельная таблица оборудования (не customer AUSP)')
         if table_name in self.table_handlers:
             is_taxnum_table = str(table_name or '').strip().upper().startswith('DFKKBPTAXNUM')
             rule_codes_in_table = {str(r.get('rule_code') or '').strip() for r in table_rules or [] if r}
@@ -1201,12 +1224,12 @@ class FastDataQualityChecker:
                     df = df.rename(columns={ausp_atwrt_col: ausp_temporary_name})
                 matched_column = ausp_temporary_name
                 print(f"      [AUSP] ATINN отфильтрован, колонка ATWRT временно переименована в '{ausp_temporary_name}', строк: {len(df):,}")
-            if (table_name or '').strip().upper() == 'AUSP' and (not matched_column):
+            if (table_name or '').strip().upper() in ('AUSP', self.AUSP_EQUIPMENT_TABLE) and (not matched_column):
                 atinn_col, atwrt_col = self._find_ausp_columns(df.columns, table_name)
                 if not atinn_col or not atwrt_col:
-                    self._log_skipped_rule(rule, table_name, 'В таблице AUSP не найдены колонки ATINN или ATWRT', timestamp)
+                    self._log_skipped_rule(rule, table_name, f'В таблице {table_name} не найдены колонки ATINN или ATWRT', timestamp)
                     return (0, 0)
-                self._log_skipped_rule(rule, table_name, f"Для правила не определено значение ATINN (column_name_checked='{column_to_check}'). Добавьте запись в conf_ausp_atinn_mapping.json", timestamp)
+                self._log_skipped_rule(rule, table_name, f"Для правила не определено значение ATINN (column_name_checked='{column_to_check}'). Ожидается ATINN_24/27/30/52 или conf_ausp_atinn_mapping.json", timestamp)
                 return (0, 0)
             if not matched_column:
                 matched_column = self._resolve_column_for_rule(df, actual_column_to_check, table_name)
@@ -3256,16 +3279,22 @@ class FastDataQualityChecker:
         ausp_derived = set(self.AUSP_TABLE_GROUP)
         out = []
         needs_ausp = False
+        needs_ausp_equipment = False
         for t in table_names:
             tu = str(t or '').strip().upper()
             if tu == 'AUSP' or tu in ausp_derived:
                 needs_ausp = True
                 if tu in ausp_derived:
                     out.append(t)
+            elif tu == self.AUSP_EQUIPMENT_TABLE:
+                needs_ausp_equipment = True
+                out.append(t)
             else:
                 out.append(t)
         if needs_ausp and 'AUSP' not in out:
             out.append('AUSP')
+        if needs_ausp_equipment and self.AUSP_EQUIPMENT_TABLE not in [str(x).strip().upper() for x in out]:
+            out.append(self.AUSP_EQUIPMENT_TABLE)
         kna1_dependent = {'BUT0BK', 'BUT051', 'KNB1', 'KNVV', 'KNVP', 'KNVH', 'ADR2', 'ADRC', 'BUT050', 'LOTGC_ADR', '/LOT/GC_ADR', 'LOT_GC_ADR'}
         if any((str(t).strip().upper() in kna1_dependent or str(t).strip().upper().replace('/', '').replace('_', '') == 'LOTGCADR' for t in out)) and 'KNA1' not in out:
             out.append('KNA1')
@@ -3407,13 +3436,29 @@ class FastDataQualityChecker:
         return best_col
 
     def _rule_uses_dm_customer_general(self, rule) -> bool:
-        """True if rule is tied to dm_customer_general datamart (hard KTOKD=9038 scope)."""
-        dm = rule.get('datamart_or_reference_table_used') if rule else None
+        """True if rule is tied to dm_customer_general datamart (hard KTOKD=9038 scope).
+
+        Equipment rules (domain/sub_domain Equipment or dm_customer_equipment population)
+        must NOT inherit the customer-general 9038 hard scope.
+        """
+        if not rule:
+            return False
+        domain = str(rule.get('domain') or '').strip().lower()
+        sub_domain = str(rule.get('sub_domain') or '').strip().lower()
+        if domain == 'equipment' or sub_domain == 'equipment':
+            return False
+        dm = rule.get('datamart_or_reference_table_used')
         if dm is None:
             return False
         if isinstance(dm, list):
             dm = ' '.join((str(x) for x in dm))
-        return 'dm_customer_general' in str(dm).lower()
+        dm_l = str(dm).lower()
+        # Primary population is equipment mart → not customer-general 9038 scope
+        if 'dm_customer_equipment' in dm_l:
+            # Only treat as general if equipment is absent and general is present —
+            # when both appear, equipment rules still must skip 9038 hard filter.
+            return False
+        return 'dm_customer_general' in dm_l
 
     def _table_rules_need_kna1_enrich(self, table_name, table_rules) -> bool:
         tn = str(table_name or '').strip().upper()
