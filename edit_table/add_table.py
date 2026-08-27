@@ -261,8 +261,99 @@ def _list_data_files(data_folder: str) -> list[str]:
     files = [f for f in files if not os.path.basename(f).startswith('~$')]
     return sorted(files)
 
+def _normalize_atinn_value_simple(value) -> str:
+    if value is None:
+        return ''
+    s = str(value).strip()
+    if not s or s.lower() in ('none', 'nan', 'null'):
+        return ''
+    try:
+        return str(int(float(s)))
+    except (TypeError, ValueError):
+        return re.sub(r'\.0+$', '', s)
+
+
+def _peek_file_atinn_values(file_path, max_rows=8000) -> set[str]:
+    """Уникальные ATINN из файла (для классификации единого дампа)."""
+    try:
+        df = _read_data_file(file_path, header=0, max_rows=max_rows)
+    except Exception as e:
+        print(f'  [WARN] не прочитать ATINN из {os.path.basename(file_path)}: {e}')
+        return set()
+    if df is None or df.empty:
+        return set()
+    col = _find_atinn_column(df.columns)
+    if not col:
+        return set()
+    vals = set()
+    for v in df[col].tolist():
+        n = _normalize_atinn_value_simple(v)
+        if n:
+            vals.add(n)
+    return vals
+
+
+def _classify_flat_ausp_target(files: list[str]) -> str:
+    """Единый дамп без папок ATINN: куда грузить — AUSP или AUSP_EQUIPMENT."""
+    found: set[str] = set()
+    for p in files[:5]:
+        found |= _peek_file_atinn_values(p)
+    if not found:
+        return AUSP_TABLE_NAME
+    eq = found & set(AUSP_EQUIPMENT_ATINN)
+    cust = found & set(AUSP_KNOWN_ATINN)
+    if eq and not cust:
+        return AUSP_EQUIPMENT_TABLE_NAME
+    if cust and not eq:
+        return AUSP_TABLE_NAME
+    if eq and cust:
+        print(f'  [WARN] в дампе смешаны customer {sorted(cust)} и equipment {sorted(eq)} ATINN — грузим в AUSP_EQUIPMENT только если папка AUSP_EQUIPMENT; иначе AUSP')
+    # по умолчанию: если есть equipment-only majority
+    if len(eq) >= len(cust):
+        return AUSP_EQUIPMENT_TABLE_NAME
+    return AUSP_TABLE_NAME
+
+
+def merge_and_load_ausp_equipment_flat(db_path=None, data_folder=None, data_files=None, skip_final_dedup=False, method='fast'):
+    """Equipment AUSP: один дамп (без папок 24/27/30/52) → таблица AUSP_EQUIPMENT как есть."""
+    if db_path is None:
+        db_path = _resolve_db_path()
+    else:
+        db_path = _resolve_db_path(db_path)
+    if data_files is None:
+        folder = data_folder or resolve_ausp_equipment_data_folder() or os.path.join(_resolve_data_path(), AUSP_EQUIPMENT_TABLE_NAME)
+        data_files = _list_data_files(folder) if folder and os.path.isdir(folder) else []
+    data_files = [f for f in (data_files or []) if os.path.isfile(f)]
+    if not data_files:
+        print(f'ОШИБКА: нет файлов для {AUSP_EQUIPMENT_TABLE_NAME} (ожидается db/AUSP_EQUIPMENT/*.xlsx или AUSP_EQUIPMENT.xlsx)')
+        return None
+    print('\n' + '=' * 80)
+    print(f'ЗАГРУЗКА {AUSP_EQUIPMENT_TABLE_NAME}: единый дамп (ATINN 24/27/30/52 внутри файла)')
+    print('=' * 80)
+    print(f'Файлов: {len(data_files)}')
+    for f in data_files[:10]:
+        print(f'  - {os.path.basename(f)}')
+    if method == 'ultra_fast':
+        return merge_and_load_xlsx_files_ultra_fast(
+            db_path=db_path,
+            data_folder=os.path.dirname(data_files[0]),
+            target_table=AUSP_EQUIPMENT_TABLE_NAME,
+            skip_final_dedup=skip_final_dedup,
+            data_files=data_files,
+        )
+    return merge_and_load_xlsx_files_fast(
+        db_path=db_path,
+        data_folder=os.path.dirname(data_files[0]),
+        target_table=AUSP_EQUIPMENT_TABLE_NAME,
+        skip_final_dedup=skip_final_dedup,
+        data_files=data_files,
+    )
+
+
 def merge_and_load_ausp_from_atinn_folders(db_path=None, ausp_folder=None, skip_header_after_first=True, chunksize=100000, skip_final_dedup=False):
-    """Загрузка из подпапок ATINN: 143/604/148/151 → AUSP; 24/27/30/52 → AUSP_EQUIPMENT."""
+    """Customer: подпапки ATINN 143/604/148/151 → AUSP.
+    Equipment: единый дамп (папка/файлы без split) → AUSP_EQUIPMENT.
+    """
     if db_path is None:
         db_path = _resolve_db_path()
     else:
@@ -276,33 +367,59 @@ def merge_and_load_ausp_from_atinn_folders(db_path=None, ausp_folder=None, skip_
             if p and p not in folders:
                 folders.append(p)
     if not folders:
+        # плоский AUSP_EQUIPMENT.xlsx в db/
+        flat_eq = [
+            f for f in list_flat_data_files(_resolve_data_path())
+            if _infer_table_from_stem_fallback(os.path.splitext(os.path.basename(f))[0]) == AUSP_EQUIPMENT_TABLE_NAME
+            or os.path.splitext(os.path.basename(f))[0].upper().startswith('AUSP_EQUIPMENT')
+        ]
+        if flat_eq:
+            return merge_and_load_ausp_equipment_flat(db_path=db_path, data_files=flat_eq, skip_final_dedup=skip_final_dedup)
         print('ОШИБКА: Папка AUSP / AUSP_EQUIPMENT не найдена')
         return None
     customer_pairs = []
-    equipment_pairs = []
+    equipment_flat_files = []
     for folder in folders:
+        name_u = os.path.basename(folder).strip().upper()
         groups = _collect_ausp_atinn_file_groups(folder)
         if not groups:
             direct = _list_data_files(folder)
-            if direct and os.path.basename(folder).upper() == AUSP_EQUIPMENT_TABLE_NAME:
-                for p in direct:
-                    equipment_pairs.append((p, None))
+            if not direct:
+                continue
+            # единый дамп без подпапок ATINN
+            if name_u == AUSP_EQUIPMENT_TABLE_NAME:
+                equipment_flat_files.extend(direct)
+            else:
+                target = _classify_flat_ausp_target(direct)
+                if target == AUSP_EQUIPMENT_TABLE_NAME:
+                    equipment_flat_files.extend(direct)
+                else:
+                    for p in direct:
+                        customer_pairs.append((p, None))
             continue
         for atinn, paths in groups.items():
             target = _ausp_target_table_for_atinn(atinn)
             for p in paths:
                 if target == AUSP_EQUIPMENT_TABLE_NAME:
-                    equipment_pairs.append((p, atinn))
+                    # даже если лежат в 24/27 — для equipment можно грузить как flat list без inject
+                    equipment_flat_files.append(p)
                 else:
                     customer_pairs.append((p, atinn))
-    if not customer_pairs and not equipment_pairs:
-        print('ОШИБКА: нет файлов ATINN для AUSP / AUSP_EQUIPMENT')
+    # дедуп путей equipment
+    seen = set()
+    eq_files = []
+    for p in equipment_flat_files:
+        if p not in seen:
+            seen.add(p)
+            eq_files.append(p)
+    if not customer_pairs and not eq_files:
+        print('ОШИБКА: нет файлов для AUSP / AUSP_EQUIPMENT')
         return None
     print('\n' + '=' * 80)
-    print('ЗАГРУЗКА AUSP: customer отдельно от equipment')
+    print('ЗАГРУЗКА AUSP: customer (по ATINN-папкам) + equipment (единый дамп)')
     print('=' * 80)
-    print(f'Customer ATINN {{143,604,148,151}} → {AUSP_TABLE_NAME}: {len(customer_pairs)} файл(ов)')
-    print(f'Equipment ATINN {{24,27,30,52}} → {AUSP_EQUIPMENT_TABLE_NAME}: {len(equipment_pairs)} файл(ов)')
+    print(f'Customer → {AUSP_TABLE_NAME}: {len(customer_pairs)} файл(ов)')
+    print(f'Equipment → {AUSP_EQUIPMENT_TABLE_NAME}: {len(eq_files)} файл(ов) (без split по папкам)')
     results = []
     if customer_pairs:
         r = merge_and_load_ausp_from_file_list(
@@ -315,14 +432,11 @@ def merge_and_load_ausp_from_atinn_folders(db_path=None, ausp_folder=None, skip_
         )
         if r:
             results.append(r)
-    if equipment_pairs:
-        r = merge_and_load_ausp_from_file_list(
+    if eq_files:
+        r = merge_and_load_ausp_equipment_flat(
             db_path=db_path,
-            file_atinn_pairs=equipment_pairs,
-            skip_header_after_first=skip_header_after_first,
-            chunksize=chunksize,
+            data_files=eq_files,
             skip_final_dedup=skip_final_dedup,
-            target_table=AUSP_EQUIPMENT_TABLE_NAME,
         )
         if r:
             results.append(r)
@@ -1149,16 +1263,30 @@ def collect_db_load_groups(base_folder=None, rules_path=None) -> dict:
         name_u = str(name).strip().upper()
         table = _resolve_table_name(name) or name
         if name_u in (AUSP_TABLE_NAME, AUSP_EQUIPMENT_TABLE_NAME) or str(table).strip().upper() in (AUSP_TABLE_NAME, AUSP_EQUIPMENT_TABLE_NAME):
+            # Equipment: единый дамп без папок ATINN → сразу AUSP_EQUIPMENT
+            if name_u == AUSP_EQUIPMENT_TABLE_NAME:
+                direct = _list_data_files(path)
+                atinn_groups = _collect_ausp_atinn_file_groups(path)
+                if atinn_groups:
+                    # если вдруг есть подпапки — всё равно всё в AUSP_EQUIPMENT одним дампом
+                    for _a, paths in atinn_groups.items():
+                        direct.extend(paths)
+                for p in sorted(set(direct)):
+                    _add_file(AUSP_EQUIPMENT_TABLE_NAME, p, None)
+                if direct:
+                    print(f'  [{AUSP_EQUIPMENT_TABLE_NAME}] единый дамп: {len(set(direct))} файл(ов) (ATINN внутри файла)')
+                continue
             atinn_groups = _collect_ausp_atinn_file_groups(path)
             if atinn_groups:
                 _register_ausp_atinn_folder_groups(groups, path, atinn_groups)
                 continue
-            # плоские файлы прямо в db/AUSP или db/AUSP_EQUIPMENT
-            default_target = AUSP_EQUIPMENT_TABLE_NAME if name_u == AUSP_EQUIPMENT_TABLE_NAME else AUSP_TABLE_NAME
-            for p in _list_data_files(path):
-                stem = os.path.splitext(os.path.basename(p))[0]
-                atinn = _atinn_from_stem(stem)
-                _add_file(default_target, p, atinn)
+            # плоские файлы в db/AUSP/ — классифицируем по ATINN в данных
+            direct = _list_data_files(path)
+            if direct:
+                target = _classify_flat_ausp_target(direct)
+                print(f'  [AUSP flat] классификация дампа → {target}')
+                for p in direct:
+                    _add_file(target, p, None)
             continue
         files = _list_data_files(path)
         if not files:
@@ -1484,21 +1612,41 @@ def _load_table_from_group(db_path, table_name, info, method, skip_final_dedup, 
     files = list(info.get('files') or [])
     file_atinn = dict(info.get('file_atinn') or {})
     tu = str(table_name).strip().upper()
-    if tu in (AUSP_TABLE_NAME, AUSP_EQUIPMENT_TABLE_NAME):
+    if tu == AUSP_EQUIPMENT_TABLE_NAME:
+        if not files and info.get('folder'):
+            files = _list_data_files(info['folder'])
+            atinn_groups = _collect_ausp_atinn_file_groups(info['folder']) or {}
+            for _a, paths in atinn_groups.items():
+                files.extend(paths)
+            files = sorted(set(files))
+        if not files:
+            print(f'Пропуск {table_name}: нет файлов единого дампа')
+            return None
+        print(f'   [{tu}] единый дамп {len(files)} файл(ов); customer AUSP не трогаем')
+        return merge_and_load_ausp_equipment_flat(
+            db_path=db_path,
+            data_files=files,
+            skip_final_dedup=skip_final_dedup,
+            method=method,
+        )
+    if tu == AUSP_TABLE_NAME:
         pairs = [(p, file_atinn.get(p)) for p in files]
         if not pairs and info.get('folder'):
             atinn_groups = _collect_ausp_atinn_file_groups(info['folder']) or {}
             for atinn, paths in atinn_groups.items():
-                if _ausp_target_table_for_atinn(atinn) != tu:
+                if _ausp_target_table_for_atinn(atinn) != AUSP_TABLE_NAME:
                     continue
                 for p in paths:
                     pairs.append((p, atinn))
+            if not pairs and not atinn_groups:
+                # flat customer dump in AUSP/
+                for p in _list_data_files(info['folder']):
+                    pairs.append((p, None))
         if not pairs:
-            print(f'Пропуск {table_name}: нет файлов для этой таблицы (чужие ATINN не загружаем)')
+            print(f'Пропуск {table_name}: нет файлов customer AUSP')
             return None
-        # only_target: DROP только AUSP или только AUSP_EQUIPMENT — вторую не перезаписываем
-        print(f'   [{tu}] загрузка {len(pairs)} файл(ов); другая AUSP-таблица не трогается')
-        return _load_ausp_pairs_split(db_path, pairs, skip_final_dedup=skip_final_dedup, only_target=tu)
+        print(f'   [{tu}] загрузка {len(pairs)} файл(ов); AUSP_EQUIPMENT не трогаем')
+        return _load_ausp_pairs_split(db_path, pairs, skip_final_dedup=skip_final_dedup, only_target=AUSP_TABLE_NAME)
     if not files:
         print(f'Пропуск {table_name}: нет файлов')
         return None
@@ -1643,7 +1791,7 @@ if __name__ == '__main__':
     print('1. Залить одну таблицу (быстрый метод) — подпапка или Excel в db/')
     print('2. Залить одну таблицу (ультра-быстрый метод)')
     print('3. Залить ВСЕ таблицы из db/ (подпапки + плоские Excel)')
-    print('4. Залить AUSP из подпапок ATINN: 143/604/148/151 → AUSP; 24/27/30/52 → AUSP_EQUIPMENT (раздельно)')
+    print('4. AUSP: customer из папок ATINN (143/604/…) → AUSP; equipment единым дампом → AUSP_EQUIPMENT')
     print('5. Показать сопоставление файлов в db/ с rules.json (без загрузки)')
     try:
         choice = input('\nВведите номер (1–5): ').strip()
@@ -1654,7 +1802,8 @@ if __name__ == '__main__':
             else:
                 print('\nОперация завершена с ошибками или отменена.')
         elif choice == '4':
-            print('\nРежим: AUSP customer и AUSP_EQUIPMENT отдельно (одна не затирает другую).')
+            print('\nРежим: customer AUSP (папки ATINN) + equipment единым дампом (db/AUSP_EQUIPMENT/).')
+            print('Equipment не делится на 24/27/30/52 — ATINN уже в колонке файла.')
             skip_dedup = input('Пропустить финальную дедупликацию? (y/n) [n]: ').strip().lower() == 'y'
             result = merge_and_load_ausp_from_atinn_folders(skip_final_dedup=skip_dedup)
             if result:
@@ -1663,7 +1812,7 @@ if __name__ == '__main__':
                 print('\nAUSP не загружена — проверьте структуру папок и файлы.')
         elif choice == '3':
             print('\nРежим: загрузка всех таблиц из db/ (подпапки + Excel в корне db/).')
-            print('AUSP (143/604/148/151) и AUSP_EQUIPMENT (24/27/30/52) грузятся в разные таблицы.')
+            print('AUSP_EQUIPMENT = единый дамп (без папок ATINN); customer AUSP — отдельно.')
             skip_ausp = input('Не трогать AUSP + AUSP_EQUIPMENT? (y/n) [n]: ').strip().lower() == 'y'
             m = input('Метод: 1=быстрый, 2=ультра-быстрый [1]: ').strip() or '1'
             skip_dedup = input('Пропустить финальную дедупликацию по таблице (ускоряет загрузку)? (y/n) [n]: ').strip().lower() == 'y'
