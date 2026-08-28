@@ -104,6 +104,10 @@ class MemoryManager:
         t0 = datetime.now()
         try:
             df = pd.read_parquet(path, engine=self._parquet_engine)
+            # пустой parquet не блокируем SQLite (часто после пустой первичной загрузки)
+            if df is None or len(df) == 0:
+                print(f'   {_term("INFO")} {table_name}: parquet cache пуст — читаем SQLite')
+                return None
             dt = (datetime.now() - t0).total_seconds()
             print(f'   {_term("INFO")} {table_name}: parquet cache hit ({len(df):,} строк, {dt:.1f}с) → {os.path.basename(path)}')
             return df
@@ -289,15 +293,14 @@ class MemoryManager:
                 found = self._find_table_in_db(derived, all_in_db)
                 if found:
                     to_load.add(found)
-        # AUSP_EQUIPMENT: отдельная таблица; иначе fallback — slice из AUSP (ATINN 24/27/30/52)
+        # AUSP_EQUIPMENT: отдельная таблица; AUSP тоже грузим (fallback если equipment пуста)
         if self._needs_ausp_equipment_load(table_names):
             eq = self._find_table_in_db(self.AUSP_EQUIPMENT_TABLE, all_in_db)
             if eq:
                 to_load.add(eq)
-            else:
-                ausp = self._find_table_in_db(self.AUSP_LOAD_NAME, all_in_db)
-                if ausp:
-                    to_load.add(ausp)
+            ausp = self._find_table_in_db(self.AUSP_LOAD_NAME, all_in_db)
+            if ausp:
+                to_load.add(ausp)
         for logical in table_names:
             found = self._find_table_in_db(logical, all_in_db)
             if found:
@@ -418,48 +421,68 @@ class MemoryManager:
             else:
                 print(f'   {_term("WARNING")} AUSP: таблица {derived_name} пуста (нет строк с ATINN={atinn_val}); ожидаемые ATINN: 143, 604, 148, 151')
 
-    def _ensure_ausp_equipment_table(self):
-        """Гарантировать AUSP_EQUIPMENT в cache: приоритет — физическая таблица SQLite AUSP_EQUIPMENT."""
-        # уже в RAM (любой регистр имени)
-        for k in list(self.data_cache.keys()):
-            if str(k).strip().upper() == self.AUSP_EQUIPMENT_TABLE:
-                df_eq = self.data_cache[k]
-                if df_eq is not None:
-                    self.data_cache[self.AUSP_EQUIPMENT_TABLE] = df_eq
-                    return
-        # в SQLite есть AUSP_EQUIPMENT — догрузить, без slice из customer AUSP
-        if self.db_has_table(self.AUSP_EQUIPMENT_TABLE):
-            if self.ensure_table_loaded(self.AUSP_EQUIPMENT_TABLE):
-                n = len(self.data_cache.get(self.AUSP_EQUIPMENT_TABLE) or [])
-                print(f'   {_term("INFO")} AUSP_EQUIPMENT: загружена физическая таблица из БД ({n:,} строк)')
-                return
-            print(f'   {_term("WARNING")} AUSP_EQUIPMENT есть в SQLite, но не удалось загрузить в RAM')
-            return
-        # только если физической таблицы нет — fallback из AUSP по ATINN
+    def _slice_ausp_equipment_from_customer_ausp(self):
+        """Срез ATINN ∈ {24,27,30,52} из customer AUSP → DataFrame или None."""
         ausp_key = self._get_ausp_cache_key()
         if not ausp_key:
-            return
-        df = self.data_cache[ausp_key]
+            return None
+        df = self.data_cache.get(ausp_key)
         if df is None or df.empty:
-            return
+            return None
         atinn_col, _atwrt = self._find_ausp_columns(df.columns)
         if not atinn_col:
-            print(f'   {_term("WARNING")} AUSP_EQUIPMENT: нет в БД и в AUSP нет колонки ATINN')
-            return
+            return None
         atinn_normalized = df[atinn_col].apply(self._normalize_atinn_value)
         mask = atinn_normalized.isin(self.AUSP_EQUIPMENT_ATINN)
-        slice_df = df.loc[mask].copy()
-        self.data_cache[self.AUSP_EQUIPMENT_TABLE] = slice_df
-        n = len(slice_df)
-        if n > 0:
+        return df.loc[mask].copy()
+
+    def _ensure_ausp_equipment_table(self):
+        """Гарантировать AUSP_EQUIPMENT в cache: SQLite → (если пусто) slice из AUSP."""
+        def _cached_eq():
+            for k in list(self.data_cache.keys()):
+                if str(k).strip().upper() == self.AUSP_EQUIPMENT_TABLE:
+                    return self.data_cache[k]
+            return None
+
+        df_eq = _cached_eq()
+        if df_eq is not None and not df_eq.empty:
+            self.data_cache[self.AUSP_EQUIPMENT_TABLE] = df_eq
+            print(f'   {_term("INFO")} AUSP_EQUIPMENT: в RAM {len(df_eq):,} строк')
+            return
+
+        sqlite_n = self._sqlite_table_row_count(self.AUSP_EQUIPMENT_TABLE)
+        if sqlite_n is not None:
+            self.ensure_table_loaded(self.AUSP_EQUIPMENT_TABLE, reload_if_empty=True)
+            df_eq = _cached_eq()
+            if df_eq is not None and not df_eq.empty:
+                self.data_cache[self.AUSP_EQUIPMENT_TABLE] = df_eq
+                print(f'   {_term("INFO")} AUSP_EQUIPMENT: из SQLite {len(df_eq):,} строк (COUNT(*)={sqlite_n:,})')
+                return
             print(
-                f'   {_term("INFO")} AUSP_EQUIPMENT: нет в SQLite — fallback из AUSP '
-                f'(ATINN in {{24,27,30,52}}): {n:,} строк'
+                f'   {_term("WARNING")} AUSP_EQUIPMENT в SQLite пуста (COUNT(*)={sqlite_n}) — '
+                f'пробуем ATINN 24/27/30/52 из customer AUSP'
             )
         else:
+            print(f'   {_term("WARNING")} AUSP_EQUIPMENT нет в SQLite — пробуем fallback из AUSP')
+
+        if self._get_ausp_cache_key() is None and self.db_has_table(self.AUSP_LOAD_NAME):
+            self.ensure_table_loaded(self.AUSP_LOAD_NAME)
+
+        slice_df = self._slice_ausp_equipment_from_customer_ausp()
+        if slice_df is not None and not slice_df.empty:
+            self.data_cache[self.AUSP_EQUIPMENT_TABLE] = slice_df
             print(
-                f'   {_term("WARNING")} AUSP_EQUIPMENT отсутствует в SQLite и в AUSP нет ATINN 24/27/30/52'
+                f'   {_term("INFO")} AUSP_EQUIPMENT: fallback из AUSP '
+                f'(ATINN in {{24,27,30,52}}): {len(slice_df):,} строк'
             )
+            return
+
+        if self.AUSP_EQUIPMENT_TABLE not in self.data_cache:
+            self.data_cache[self.AUSP_EQUIPMENT_TABLE] = slice_df if slice_df is not None else pd.DataFrame()
+        print(
+            f'   {_term("WARNING")} AUSP_EQUIPMENT пуста: в SQLite 0 строк и в AUSP нет ATINN 24/27/30/52. '
+            f'Перезагрузите дамп в таблицу AUSP_EQUIPMENT (меню загрузки).'
+        )
 
     def _get_dfkkbptaxnum_taxtype_column(self, df):
         if df is None or df.empty or (not hasattr(df, 'columns')):
@@ -639,10 +662,15 @@ class MemoryManager:
         """True if physical table exists in SQLite (not RAM cache)."""
         return self._find_table_in_db(table_name) is not None
 
-    def ensure_table_loaded(self, table_name) -> bool:
-        """Load table into RAM if missing from cache but present in SQLite. Returns True if available in cache after."""
+    def ensure_table_loaded(self, table_name, *, reload_if_empty: bool=False) -> bool:
+        """Load table into RAM if missing from cache but present in SQLite. Returns True if in cache after."""
         if self.table_exists(table_name):
-            return True
+            df = self.get_table(table_name)
+            if df is not None and not df.empty:
+                return True
+            if not reload_if_empty:
+                return True
+            print(f'   {_term("INFO")} {table_name}: в RAM пусто — перечитываем из SQLite')
         found = self._find_table_in_db(table_name)
         if not found:
             return False
@@ -654,6 +682,20 @@ class MemoryManager:
         if str(found).strip().upper() != str(table_name or '').strip().upper():
             self.data_cache[table_name] = df
         return self.table_exists(table_name)
+
+    def _sqlite_table_row_count(self, table_name) -> int | None:
+        found = self._find_table_in_db(table_name)
+        if not found:
+            return None
+        try:
+            conn = connect_sqlite(self.db_path)
+            try:
+                row = conn.execute(f'SELECT COUNT(*) FROM "{found}"').fetchone()
+                return int(row[0]) if row else 0
+            finally:
+                conn.close()
+        except Exception:
+            return None
 
     def load_selected_tables_to_ram(self, table_names: list, add_reference_tables: bool=True):
         if not table_names:

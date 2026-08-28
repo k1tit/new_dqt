@@ -39,7 +39,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-08-28-ausp-equipment-sqlite-lazyload'
+    CHECKER_BUILD_ID = '2026-08-28-ausp-equipment-empty-fallback'
     # dm_customer_general hard scope: no central order block S (AUFSD)
     DM_CUSTOMER_GENERAL_AUFSD_EXCLUDE = frozenset({'S'})
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
@@ -872,11 +872,27 @@ class FastDataQualityChecker:
                     self._log_skipped_rule(rule, table_name, skip_msg, timestamp)
             return
         df_raw = self.memory_manager.get_table(table_name)
+        if (df_raw is None or df_raw.empty) and str(table_name or '').strip().upper() == self.AUSP_EQUIPMENT_TABLE:
+            # ещё раз: пустая физическая → fallback из AUSP
+            if hasattr(self.memory_manager, '_ensure_ausp_equipment_table'):
+                self.memory_manager._ensure_ausp_equipment_table()
+                df_raw = self.memory_manager.get_table(table_name)
         if df_raw is None or df_raw.empty:
             skip_reason = 'Таблица пуста'
+            tn_u = str(table_name or '').strip().upper()
             if table_name in self.AUSP_TABLE_GROUP:
                 atinn_val = table_name.replace('AUSP_', '')
                 skip_reason = f'Таблица пуста (нет строк с ATINN={atinn_val} в AUSP)'
+            elif tn_u == self.AUSP_EQUIPMENT_TABLE:
+                sqlite_n = None
+                try:
+                    sqlite_n = self.memory_manager._sqlite_table_row_count(self.AUSP_EQUIPMENT_TABLE)
+                except Exception:
+                    pass
+                skip_reason = (
+                    f'AUSP_EQUIPMENT пуста (SQLite COUNT={sqlite_n}); '
+                    f'нет ATINN 24/27/30/52 в AUSP — перезагрузите дамп оборудования'
+                )
             print(f'   \x1b[93m[WARN]\x1b[0m Таблица {table_name} пуста! Пропускаем...')
             if self._parallel_lock:
                 with self._parallel_lock:
