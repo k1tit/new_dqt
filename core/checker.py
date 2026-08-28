@@ -39,13 +39,15 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-08-27-ausp-equipment-separate-no-9038'
+    CHECKER_BUILD_ID = '2026-08-28-ausp-equipment-sqlite-lazyload'
     # dm_customer_general hard scope: no central order block S (AUFSD)
     DM_CUSTOMER_GENERAL_AUFSD_EXCLUDE = frozenset({'S'})
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
     LOT_GC_ADR_TABLE_ALIASES = frozenset({'/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
     # LOT_GC_ADR / ADRC / ADR2 / ADR6: клиент только через BUT020 (не CLIENT)
     KNA1_JOIN_VIA_BUT020_TABLES = frozenset({'ADRC', 'ADR2', 'ADR6', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
+    # AUSP customer: PARTNER_GUID → BUT000 → PARTNER → KNA1 (не AUSP_EQUIPMENT)
+    AUSP_KNA1_VIA_BUT000_TABLES = frozenset({'AUSP_143', 'AUSP_604', 'AUSP_148', 'AUSP_151', 'AUSP'})
     # Гео-правила: LOT_GC_ADR.ADRNR → BUT020.Addr.No. → PARTNER → KNA1
     RULES_LOT_GC_ADR_BUT020 = frozenset({
         'RCCONF_383.1', 'RCCONF_383.2', 'RCCONF_383.3', 'RCCONF_383.4',
@@ -836,12 +838,25 @@ class FastDataQualityChecker:
                 return True
             if str(tname or '').strip().upper() == 'ADRC':
                 return any((str(t).strip().upper() == 'ADRC' for t in avail))
+            # есть в SQLite, но ещё не в RAM — догрузить (типичный кейс AUSP_EQUIPMENT)
+            if hasattr(self.memory_manager, 'ensure_table_loaded') and self.memory_manager.ensure_table_loaded(tname):
+                return True
             return False
         if not _table_available(table_name, available_tables):
-            print(f"   \x1b[91m[ERROR]\x1b[0m Таблица '{table_name}' НЕ НАЙДЕНА в БД!")
+            in_sqlite = False
+            try:
+                in_sqlite = bool(hasattr(self.memory_manager, 'db_has_table') and self.memory_manager.db_has_table(table_name))
+            except Exception:
+                in_sqlite = False
+            if in_sqlite:
+                print(f"   \x1b[91m[ERROR]\x1b[0m Таблица '{table_name}' есть в SQLite, но не загружена в RAM")
+                skip_msg = 'Таблица есть в БД, но не загружена в память'
+            else:
+                print(f"   \x1b[91m[ERROR]\x1b[0m Таблица '{table_name}' НЕ НАЙДЕНА в SQLite и не в RAM")
+                skip_msg = 'Таблица не найдена в БД'
             suffix = '...' if len(available_tables) > 10 else ''
-            print(f'   [DEBUG] Доступные таблицы в БД: {sorted(available_tables)[:10]}{suffix}')
-            print(f'   [DEBUG] Всего таблиц в БД: {len(available_tables)}')
+            print(f'   [DEBUG] Таблицы в RAM: {sorted(available_tables)[:10]}{suffix}')
+            print(f'   [DEBUG] Всего в RAM: {len(available_tables)}')
             similar_tables = [t for t in available_tables if table_name.replace('/', '_') in t or t.replace('/', '_') == table_name.replace('/', '_')]
             if similar_tables:
                 print(f'   [DEBUG] Найдены похожие таблицы: {similar_tables}')
@@ -850,11 +865,11 @@ class FastDataQualityChecker:
                     for _ in table_rules:
                         self.skipped_rules += 1
                     for rule in table_rules:
-                        self._log_skipped_rule(rule, table_name, 'Таблица не найдена в БД', timestamp)
+                        self._log_skipped_rule(rule, table_name, skip_msg, timestamp)
             else:
                 for rule in table_rules:
                     self.skipped_rules += 1
-                    self._log_skipped_rule(rule, table_name, 'Таблица не найдена в БД', timestamp)
+                    self._log_skipped_rule(rule, table_name, skip_msg, timestamp)
             return
         df_raw = self.memory_manager.get_table(table_name)
         if df_raw is None or df_raw.empty:
@@ -3295,6 +3310,14 @@ class FastDataQualityChecker:
             out.append('AUSP')
         if needs_ausp_equipment and self.AUSP_EQUIPMENT_TABLE not in [str(x).strip().upper() for x in out]:
             out.append(self.AUSP_EQUIPMENT_TABLE)
+            # fallback: если AUSP_EQUIPMENT нет в БД — slice из AUSP по ATINN 24/27/30/52
+            if 'AUSP' not in [str(x).strip().upper() for x in out]:
+                out.append('AUSP')
+        if needs_ausp:
+            if 'BUT000' not in [str(x).strip().upper() for x in out]:
+                out.append('BUT000')
+            if 'KNA1' not in [str(x).strip().upper() for x in out]:
+                out.append('KNA1')
         kna1_dependent = {'BUT0BK', 'BUT051', 'KNB1', 'KNVV', 'KNVP', 'KNVH', 'ADR2', 'ADRC', 'BUT050', 'LOTGC_ADR', '/LOT/GC_ADR', 'LOT_GC_ADR'}
         if any((str(t).strip().upper() in kna1_dependent or str(t).strip().upper().replace('/', '').replace('_', '') == 'LOTGCADR' for t in out)) and 'KNA1' not in out:
             out.append('KNA1')
@@ -3464,6 +3487,8 @@ class FastDataQualityChecker:
         tn = str(table_name or '').strip().upper()
         if tn in self.KNA1_JOIN_VIA_BUT020_TABLES or self._is_lot_gc_adr_table(table_name):
             return True
+        if self._is_ausp_customer_table(table_name):
+            return True
         for rule in table_rules or []:
             if self._rule_uses_dm_customer_general(rule):
                 return True
@@ -3475,8 +3500,17 @@ class FastDataQualityChecker:
                 return True
         return False
 
+    def _is_ausp_customer_table(self, table_name) -> bool:
+        """Customer AUSP / AUSP_* (143/604/148/151). Not AUSP_EQUIPMENT."""
+        tn = str(table_name or '').strip().upper()
+        if tn == self.AUSP_EQUIPMENT_TABLE:
+            return False
+        if tn in self.AUSP_KNA1_VIA_BUT000_TABLES or tn in getattr(self, 'AUSP_TABLE_GROUP', ()):
+            return True
+        return tn.startswith('AUSP_') and tn != self.AUSP_EQUIPMENT_TABLE
+
     def _preenrich_table_for_kna1_joins(self, df, table_name, table_rules):
-        """Один раз на таблицу: PARTNER (BUT020) + KTOKD + AUFSD — дальше правила только фильтруют."""
+        """Один раз на таблицу: PARTNER (BUT020/BUT000) + KTOKD + AUFSD — дальше правила только фильтруют."""
         if df is None or df.empty:
             return df
         if not self._table_rules_need_kna1_enrich(table_name, table_rules):
@@ -3485,11 +3519,11 @@ class FastDataQualityChecker:
         if cache_key in getattr(self, '_table_kna1_preenrich_done', set()):
             # Уже обогащали в этом прогоне; attrs могут быть на df
             if self._find_account_group_column(df) and self._find_order_block_column(df):
-                print(f'   [CACHE] {table_name}: KNA1/BUT020 attrs уже на df — skip pre-enrich')
+                print(f'   [CACHE] {table_name}: KNA1/BUT attrs уже на df — skip pre-enrich')
                 return df
         t0 = time.time()
         n_rules = len(table_rules or [])
-        print(f'   [CACHE] Pre-enrich {table_name}: BUT020/KNA1 attrs once for {n_rules} rule(s)...')
+        print(f'   [CACHE] Pre-enrich {table_name}: BUT020/BUT000/KNA1 attrs once for {n_rules} rule(s)...')
         out = self._attach_kna1_scope_attrs(df, table_name, rule_code=f'PREENRICH:{cache_key}')
         if not hasattr(self, '_table_kna1_preenrich_done') or self._table_kna1_preenrich_done is None:
             self._table_kna1_preenrich_done = set()
@@ -3504,12 +3538,13 @@ class FastDataQualityChecker:
         return out
 
     def _attach_kna1_scope_attrs(self, df, table_name, rule_code='PREENRICH'):
-        """Attach PARTNER (via BUT020 if needed) + account_group_code + order_block_code."""
+        """Attach PARTNER (via BUT020/BUT000 if needed) + account_group_code + order_block_code."""
         if df is None or df.empty:
             return df
         out = df
         tn = str(table_name or '').strip().upper()
         need_but020 = tn in self.KNA1_JOIN_VIA_BUT020_TABLES or self._is_lot_gc_adr_table(table_name)
+        need_but000 = self._is_ausp_customer_table(table_name)
         partner_col = next((c for c in out.columns if str(c).strip().upper() == 'PARTNER'), None)
         partner_filled = self._non_empty_key_count(out[partner_col]) if partner_col else 0
         if need_but020 and partner_filled == 0:
@@ -3517,6 +3552,10 @@ class FastDataQualityChecker:
                 out, _jc = self._merge_lot_gc_adr_partner_from_but020(out, table_name, rule_code)
             else:
                 out, _jc = self._merge_adrc_partner_from_but020(out, table_name, rule_code)
+            partner_col = next((c for c in out.columns if str(c).strip().upper() == 'PARTNER'), None)
+            partner_filled = self._non_empty_key_count(out[partner_col]) if partner_col else 0
+        if need_but000 and partner_filled == 0:
+            out, _jc = self._merge_ausp_partner_from_but000(out, table_name, rule_code)
         if not self._find_account_group_column(out):
             out = self._ensure_account_group_for_dm_customer_general(out, table_name, rule_code)
         if not self._find_order_block_column(out):
@@ -3524,13 +3563,15 @@ class FastDataQualityChecker:
         return out
 
     def _ensure_account_group_for_dm_customer_general(self, df, table_name, rule_code):
-        """Подтянуть KTOKD/account_group_code из KNA1 (через BUT020 для ADRC/ADR2/ADR6/LOT_GC_ADR)."""
+        """Подтянуть KTOKD/account_group_code из KNA1 (BUT020 для ADR*; BUT000 для AUSP)."""
         if df is None or df.empty:
             return df
         if self._find_account_group_column(df):
             return df
         tn = str(table_name or '').strip().upper()
         try:
+            if self._is_ausp_customer_table(table_name):
+                return self._join_kna1_ktokd_ausp_via_but000(df, table_name, rule_code)
             if self._is_lot_gc_adr_table(table_name):
                 return self._join_kna1_ktokd_lot_gc_adr_via_but020(df, table_name, rule_code)
             if tn in self.KNA1_JOIN_VIA_BUT020_TABLES or (self._is_adrc_table(table_name) and not self._is_lot_gc_adr_table(table_name)):
@@ -3550,19 +3591,22 @@ class FastDataQualityChecker:
             return df
         if self._find_order_block_column(df):
             return df
+        out = df
         join_col = None
-        # после BUT020/KTOKD join обычно есть PARTNER
+        # после BUT020/BUT000/KTOKD join обычно есть PARTNER
         for name in ('PARTNER', 'KUNNR', 'CUSTOMER', 'Customer'):
-            hit = next((c for c in df.columns if str(c).strip().upper() == name.upper()), None)
-            if hit and self._non_empty_key_count(df[hit]) > 0:
+            hit = next((c for c in out.columns if str(c).strip().upper() == name.upper()), None)
+            if hit and self._non_empty_key_count(out[hit]) > 0:
                 join_col = hit
                 break
+        if not join_col and self._is_ausp_customer_table(table_name):
+            out, join_col = self._merge_ausp_partner_from_but000(out, table_name, rule_code)
         if not join_col:
-            join_col = self._pick_best_kunnr_column(df, table_name)
+            join_col = self._pick_best_kunnr_column(out, table_name)
         if not join_col:
             print(f'      [WARN] {rule_code}: нет ключа клиента для JOIN KNA1.AUFSD (dm_customer_general)')
-            return df
-        return self._add_order_block_code_from_kna1_customer(df, table_name, rule_code, join_col)
+            return out
+        return self._add_order_block_code_from_kna1_customer(out, table_name, rule_code, join_col)
 
     def _filter_rows_exclude_aufsd_blocked_dm_general(self, df, rule_code):
         """dm_customer_general: исключить AUFSD=S (и др. из DM_CUSTOMER_GENERAL_AUFSD_EXCLUDE)."""
@@ -4570,6 +4614,152 @@ class FastDataQualityChecker:
             except Exception as e:
                 print(f'      [WARN] Не удалось загрузить KNA1: {e}')
         return self._merge_kna1_account_group_from_lookup(out, table_name or '/LOT/GC_ADR', rule_code, join_col)
+
+    def _norm_partner_guid_key(self, v) -> str:
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return ''
+        s = str(v).strip().upper()
+        if s.endswith('.0') and s[:-2].isdigit():
+            s = s[:-2]
+        if s in ('', 'NONE', 'NULL', 'NAN', 'NA', '<NA>'):
+            return ''
+        # GUID compare: ignore hyphens/braces
+        return s.replace('-', '').replace('{', '').replace('}', '')
+
+    def _resolve_ausp_partner_guid_column(self, df):
+        if df is None or df.empty:
+            return None
+        for c in df.columns:
+            cu = str(c).strip().upper().replace(' ', '').replace('_', '')
+            if cu in ('PARTNERGUID',) or cu.endswith('PARTNERGUID'):
+                return c
+        hit = next((c for c in df.columns if 'PARTNER_GUID' in str(c).upper() or str(c).upper() == 'PARTNERGUID'), None)
+        if hit:
+            return hit
+        # fallback: OBJEK sometimes holds partner GUID in classification dumps
+        return next((c for c in df.columns if str(c).strip().upper() == 'OBJEK'), None)
+
+    def _get_but000_table_for_join(self):
+        but000 = self.memory_manager.get_table('BUT000')
+        if (but000 is None or but000.empty) and getattr(self, 'db_path', None):
+            try:
+                conn = connect_sqlite(self.db_path)
+                tables = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table'", conn)
+                but_name = next((r[0] for r in tables.values if str(r[0]).strip().upper() == 'BUT000'), None)
+                if but_name:
+                    but000 = pd.read_sql_query(f'SELECT * FROM "{but_name}"', conn)
+                conn.close()
+            except Exception:
+                but000 = None
+        if but000 is None or but000.empty:
+            try:
+                self.memory_manager.load_selected_tables_to_ram(['BUT000'], add_reference_tables=False)
+                but000 = self.memory_manager.get_table('BUT000')
+            except Exception:
+                but000 = None
+        if but000 is None or but000.empty:
+            return None
+        cached = getattr(self, '_but000_mapped_df', None)
+        if cached is not None and not cached.empty:
+            return cached
+        mapped = self._apply_rule_time_column_map(but000.copy(), 'BUT000')
+        self._but000_mapped_df = mapped
+        return mapped
+
+    def _get_cached_but000_partner_guid_lookup(self) -> dict:
+        """PARTNER_GUID (normalized) -> PARTNER, once per process."""
+        cached = getattr(self, '_but000_partner_guid_lookup', None)
+        if cached is not None:
+            return cached
+        but000_df = self._get_but000_table_for_join()
+        if but000_df is None or but000_df.empty:
+            self._but000_partner_guid_lookup = {}
+            return {}
+        pg_col = self._resolve_ausp_partner_guid_column(but000_df)
+        if not pg_col:
+            pg_col = next((c for c in but000_df.columns if 'PARTNER_GUID' in str(c).upper() or str(c).upper() == 'PARTNERGUID'), None)
+        partner_col = next((c for c in but000_df.columns if str(c).strip().upper() == 'PARTNER'), None)
+        if not partner_col:
+            partner_col = self._resolve_column_for_rule(but000_df, 'PARTNER', 'BUT000')
+        if not pg_col or not partner_col:
+            print(f'      [WARN] BUT000: нет PARTNER_GUID/PARTNER (колонки: {list(but000_df.columns)[:12]})')
+            self._but000_partner_guid_lookup = {}
+            return {}
+        lookup = {}
+        keys = but000_df[pg_col].apply(self._norm_partner_guid_key)
+        partners = but000_df[partner_col]
+        for k, p in zip(keys.tolist(), partners.tolist()):
+            if not k or k in lookup:
+                continue
+            if p is None or (isinstance(p, float) and pd.isna(p)):
+                continue
+            ps = str(p).strip()
+            if not ps or ps.lower() in {'nan', 'none', 'null', 'na'}:
+                continue
+            lookup[k] = p
+        self._but000_partner_guid_lookup = lookup
+        print(f'      [CACHE] BUT000 PARTNER_GUID->PARTNER lookup: {len(lookup):,} keys (via [{pg_col}]->[{partner_col}])')
+        return lookup
+
+    def _merge_ausp_partner_from_but000(self, df, table_name, rule_code=None):
+        """AUSP.PARTNER_GUID = BUT000.PARTNER_GUID -> PARTNER (для JOIN с KNA1)."""
+        if df is None or df.empty:
+            return (df, None)
+        existing = next((c for c in df.columns if str(c).strip().upper() == 'PARTNER'), None)
+        if existing and self._non_empty_key_count(df[existing]) > 0:
+            print(f'      [CACHE] {rule_code or table_name}: PARTNER уже есть — BUT000 skip')
+            return (df, existing)
+        out = self._apply_rule_time_column_map(df.copy(), table_name or 'AUSP')
+        pg_col = self._resolve_ausp_partner_guid_column(out)
+        if not pg_col:
+            print(
+                f'      [WARN] {rule_code or table_name}: PARTNER_GUID/OBJEK не найден в {table_name} '
+                f'(колонки: {[c for c in out.columns if "PARTNER" in str(c).upper() or "OBJEK" in str(c).upper()][:8]})'
+            )
+            return (out, None)
+        lookup = self._get_cached_but000_partner_guid_lookup()
+        if not lookup:
+            print(f'      [WARN] {rule_code or table_name}: BUT000 lookup пуст — PARTNER не подтянут')
+            return (out, None)
+        keys = out[pg_col].apply(self._norm_partner_guid_key)
+        out['PARTNER'] = keys.map(lookup)
+        join_col = 'PARTNER'
+        pf = self._non_empty_key_count(out[join_col])
+        print(
+            f'      [JOIN] {rule_code or table_name}: {table_name}.[{pg_col}] = BUT000.PARTNER_GUID '
+            f'-> PARTNER: заполнено {pf:,}/{len(out):,}'
+        )
+        return (out, join_col)
+
+    def _join_kna1_ktokd_ausp_via_but000(self, df, table_name='AUSP', rule_code='AUSP'):
+        """AUSP.PARTNER_GUID -> BUT000.PARTNER -> KNA1.KTOKD (dm_customer_general scope)."""
+        if df is None or df.empty:
+            return df
+        if self._find_account_group_column(df):
+            print(f'      [CACHE] {rule_code}: account_group_code уже есть — AUSP->BUT000->KNA1 skip')
+            return df
+        print(f'      [JOIN] [{self.CHECKER_BUILD_ID}] {rule_code}: AUSP.[PARTNER_GUID] -> BUT000.[PARTNER] -> KNA1.[KTOKD]')
+        out = self._drop_kna1_account_group_columns(df)
+        out, join_col = self._merge_ausp_partner_from_but000(out, table_name, rule_code)
+        if not join_col or join_col not in out.columns:
+            print(f'      [WARN] {rule_code}: не удалось получить PARTNER через BUT000')
+            return out
+        if self._is_blocked_kna1_join_column(join_col):
+            print(f'      [ERROR] {rule_code}: колонка {join_col} не может использоваться для JOIN с KNA1')
+            return out
+        partner_filled = self._non_empty_key_count(out[join_col])
+        if partner_filled == 0:
+            print(f'      [WARN] {rule_code}: PARTNER пустой после AUSP->BUT000 (колонка {join_col})')
+            return out
+        kna1 = self._get_table_for_rules('KNA1')
+        if kna1 is None or kna1.empty:
+            print(f'      [INFO] KNA1 отсутствует в RAM для {rule_code} — загружаем...')
+            try:
+                self.memory_manager.load_selected_tables_to_ram(['KNA1'], add_reference_tables=False)
+                setattr(self, '_kna1_ktokd_lookup_df', None)
+            except Exception as e:
+                print(f'      [WARN] Не удалось загрузить KNA1: {e}')
+        return self._merge_kna1_account_group_from_lookup(out, table_name or 'AUSP', rule_code, join_col)
 
     def _attach_partner_from_but020_by_addr(self, df, addr_col, log_prefix=''):
         """Подтянуть PARTNER из BUT020 по ADDRNUMBER (с маппингом Addr__No_/Business_Partner)."""

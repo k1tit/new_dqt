@@ -26,6 +26,8 @@ def _term(symbol_name: str) -> str:
 class MemoryManager:
     AUSP_DERIVED_NAMES = ('AUSP_143', 'AUSP_604', 'AUSP_148', 'AUSP_151')
     AUSP_ATINN_TO_COLUMN = {'143': 'CCAF', '604': 'RED_OUTLET', '148': 'ZGLOBAL_CUSTOMER', '151': 'ZTRADE_NAME'}
+    AUSP_EQUIPMENT_TABLE = 'AUSP_EQUIPMENT'
+    AUSP_EQUIPMENT_ATINN = frozenset({'24', '27', '30', '52'})
     DFKKBPTAXNUM_TABLES = ('DFKKBPTAXNUM1', 'DFKKBPTAXNUM2', 'DFKKBPTAXNUM3', 'DFKKBPTAXNUM4', 'DFKKBPTAXNUM5', 'DFKKBPTAXNUM6')
     TABLES_UNIQUE_PARTNER = ('ZBUT0000P3VVI9', 'ZBUT0000P', 'ZBUT0000P3VV19')
     TABLE_NAME_ALIASES = {'/LOT/GC_ADR': 'LOTGC_ADR', 'ZBUT0000P3VVI9': 'ZBUT0000P3VVI9_CRM'}
@@ -287,6 +289,15 @@ class MemoryManager:
                 found = self._find_table_in_db(derived, all_in_db)
                 if found:
                     to_load.add(found)
+        # AUSP_EQUIPMENT: отдельная таблица; иначе fallback — slice из AUSP (ATINN 24/27/30/52)
+        if self._needs_ausp_equipment_load(table_names):
+            eq = self._find_table_in_db(self.AUSP_EQUIPMENT_TABLE, all_in_db)
+            if eq:
+                to_load.add(eq)
+            else:
+                ausp = self._find_table_in_db(self.AUSP_LOAD_NAME, all_in_db)
+                if ausp:
+                    to_load.add(ausp)
         for logical in table_names:
             found = self._find_table_in_db(logical, all_in_db)
             if found:
@@ -300,7 +311,10 @@ class MemoryManager:
                 match = self._find_table_in_db(ref, all_in_db)
                 if match:
                     to_load.add(match)
-        kna1_dependent = {'BUT0BK', 'BUT051', 'KNB1', 'KNVV', 'KNVP', 'KNVH', 'ADR2', 'ADR6', 'ADRC', 'BUT050', 'KNA1'}
+        kna1_dependent = {
+            'BUT0BK', 'BUT051', 'KNB1', 'KNVV', 'KNVP', 'KNVH', 'ADR2', 'ADR6', 'ADRC', 'BUT050', 'KNA1',
+            'AUSP', 'AUSP_143', 'AUSP_604', 'AUSP_148', 'AUSP_151',
+        }
         kna1_requested = any((str(t).strip().upper() == 'KNA1' for t in table_names))
         if kna1_dependent.intersection({str(t).strip().upper() for t in table_names}) or kna1_requested:
             match = self._find_table_in_db('KNA1', all_in_db)
@@ -332,6 +346,12 @@ class MemoryManager:
                 match = self._find_table_in_db(ref, all_in_db)
                 if match:
                     to_load.add(match)
+        # Customer AUSP → BUT000 + KNA1 (PARTNER_GUID → PARTNER → KTOKD/AUFSD)
+        if self._needs_ausp_load(table_names):
+            for ref in ('BUT000', 'KNA1'):
+                match = self._find_table_in_db(ref, all_in_db)
+                if match:
+                    to_load.add(match)
         return sorted(to_load)
 
     def _needs_ausp_load(self, table_names):
@@ -344,10 +364,19 @@ class MemoryManager:
                 return True
         return False
 
+    def _needs_ausp_equipment_load(self, table_names):
+        if not table_names:
+            return False
+        for t in table_names:
+            if str(t or '').strip().upper() == self.AUSP_EQUIPMENT_TABLE:
+                return True
+        return False
+
     def _finalize_load_postprocess(self):
         if self._get_dfkkbptaxnum_cache_key():
             self._build_dfkkbptaxnum_alias_tables()
         self._build_ausp_derived_tables()
+        self._ensure_ausp_equipment_table()
         self._register_logical_table_aliases()
         for t in self.TABLES_UNIQUE_PARTNER:
             if t in self.data_cache:
@@ -388,6 +417,49 @@ class MemoryManager:
                 print(f'   {_term("INFO")} AUSP: создана таблица {derived_name} (ATINN={atinn_val}, колонка {col_name}): {n:,} строк')
             else:
                 print(f'   {_term("WARNING")} AUSP: таблица {derived_name} пуста (нет строк с ATINN={atinn_val}); ожидаемые ATINN: 143, 604, 148, 151')
+
+    def _ensure_ausp_equipment_table(self):
+        """Гарантировать AUSP_EQUIPMENT в cache: приоритет — физическая таблица SQLite AUSP_EQUIPMENT."""
+        # уже в RAM (любой регистр имени)
+        for k in list(self.data_cache.keys()):
+            if str(k).strip().upper() == self.AUSP_EQUIPMENT_TABLE:
+                df_eq = self.data_cache[k]
+                if df_eq is not None:
+                    self.data_cache[self.AUSP_EQUIPMENT_TABLE] = df_eq
+                    return
+        # в SQLite есть AUSP_EQUIPMENT — догрузить, без slice из customer AUSP
+        if self.db_has_table(self.AUSP_EQUIPMENT_TABLE):
+            if self.ensure_table_loaded(self.AUSP_EQUIPMENT_TABLE):
+                n = len(self.data_cache.get(self.AUSP_EQUIPMENT_TABLE) or [])
+                print(f'   {_term("INFO")} AUSP_EQUIPMENT: загружена физическая таблица из БД ({n:,} строк)')
+                return
+            print(f'   {_term("WARNING")} AUSP_EQUIPMENT есть в SQLite, но не удалось загрузить в RAM')
+            return
+        # только если физической таблицы нет — fallback из AUSP по ATINN
+        ausp_key = self._get_ausp_cache_key()
+        if not ausp_key:
+            return
+        df = self.data_cache[ausp_key]
+        if df is None or df.empty:
+            return
+        atinn_col, _atwrt = self._find_ausp_columns(df.columns)
+        if not atinn_col:
+            print(f'   {_term("WARNING")} AUSP_EQUIPMENT: нет в БД и в AUSP нет колонки ATINN')
+            return
+        atinn_normalized = df[atinn_col].apply(self._normalize_atinn_value)
+        mask = atinn_normalized.isin(self.AUSP_EQUIPMENT_ATINN)
+        slice_df = df.loc[mask].copy()
+        self.data_cache[self.AUSP_EQUIPMENT_TABLE] = slice_df
+        n = len(slice_df)
+        if n > 0:
+            print(
+                f'   {_term("INFO")} AUSP_EQUIPMENT: нет в SQLite — fallback из AUSP '
+                f'(ATINN in {{24,27,30,52}}): {n:,} строк'
+            )
+        else:
+            print(
+                f'   {_term("WARNING")} AUSP_EQUIPMENT отсутствует в SQLite и в AUSP нет ATINN 24/27/30/52'
+            )
 
     def _get_dfkkbptaxnum_taxtype_column(self, df):
         if df is None or df.empty or (not hasattr(df, 'columns')):
@@ -562,6 +634,26 @@ class MemoryManager:
         names = [row[0] for row in cursor.fetchall()]
         conn.close()
         return names
+
+    def db_has_table(self, table_name) -> bool:
+        """True if physical table exists in SQLite (not RAM cache)."""
+        return self._find_table_in_db(table_name) is not None
+
+    def ensure_table_loaded(self, table_name) -> bool:
+        """Load table into RAM if missing from cache but present in SQLite. Returns True if available in cache after."""
+        if self.table_exists(table_name):
+            return True
+        found = self._find_table_in_db(table_name)
+        if not found:
+            return False
+        print(f'   {_term("INFO")} Догрузка из SQLite: {found} (запрошено как {table_name})')
+        df = self._load_single_table(found)
+        if df is None:
+            return False
+        self._store_loaded_table(found, df)
+        if str(found).strip().upper() != str(table_name or '').strip().upper():
+            self.data_cache[table_name] = df
+        return self.table_exists(table_name)
 
     def load_selected_tables_to_ram(self, table_names: list, add_reference_tables: bool=True):
         if not table_names:
