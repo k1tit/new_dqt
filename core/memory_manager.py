@@ -355,6 +355,13 @@ class MemoryManager:
                 match = self._find_table_in_db(ref, all_in_db)
                 if match:
                     to_load.add(match)
+        # Equipment: V_EQUI + TJ30T + INOB + KNA1 (logical dm_customer_equipment joins)
+        eq_names = {'V_EQUI', 'JEST', 'AUSP_EQUIPMENT'}
+        if any(str(t).strip().upper() in eq_names for t in table_names) or self._needs_ausp_equipment_load(table_names):
+            for ref in ('V_EQUI', 'TJ30T', 'INOB', 'KNA1'):
+                match = self._find_table_in_db(ref, all_in_db)
+                if match:
+                    to_load.add(match)
         return sorted(to_load)
 
     def _needs_ausp_load(self, table_names):

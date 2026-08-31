@@ -1,0 +1,27 @@
+{
+  "description": "Matrix: cde_category_code × door_equivalent for equipment rule RCCONF_278.1 (conf_cde_category_door_equivalent).",
+  "notes": [
+    "One cde_category_code may have multiple door_equivalent values; at least one match passes RCCONF_278.1.",
+    "Compare door_equivalent to to_decimal(number_of_doors, 1, 1) from dm_customer_equipment / AUSP ATINN_52."
+  ],
+  "columns": [
+    "cde_category_code",
+    "door_equivalent"
+  ],
+  "mappings": [
+    {"cde_category_code": "1D", "door_equivalent": 1.0},
+    {"cde_category_code": "1D", "door_equivalent": 1.5},
+    {"cde_category_code": "1DS", "door_equivalent": 0.7},
+    {"cde_category_code": "2D", "door_equivalent": 2.0},
+    {"cde_category_code": "3D", "door_equivalent": 3.0},
+    {"cde_category_code": "CHEST", "door_equivalent": 0.7},
+    {"cde_category_code": "CTC", "door_equivalent": 0.3},
+    {"cde_category_code": "OFCL", "door_equivalent": 3.0},
+    {"cde_category_code": "OFCL", "door_equivalent": 4.0},
+    {"cde_category_code": "OFCM", "door_equivalent": 2.0},
+    {"cde_category_code": "OFCS", "door_equivalent": 0.7},
+    {"cde_category_code": "ORC", "door_equivalent": -1.0},
+    {"cde_category_code": "OTC", "door_equivalent": 0.5},
+    {"cde_category_code": "SPEC", "door_equivalent": 1.0}
+  ]
+}

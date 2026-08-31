@@ -1,0 +1,96 @@
+{
+  "description": "Logical dm_customer_equipment — encoded as checker filters/joins (no physical DM table).",
+  "source": "Confluence Customer Equipment / Jaroslaw Kochanski / Oct 24, 2024",
+  "note": "Cluster is also available in all conditions (same pattern as dm_customer_general).",
+  "sources": [
+    {
+      "type": "DM",
+      "place": "V_EQUI",
+      "alias": "eq",
+      "filtering": "DATBI = '9999-12-31...' AND (SPRAS = 'E' OR non-E only if no E row for EQUNR) AND KUNDE IS NOT NULL"
+    },
+    {
+      "type": "DM",
+      "place": "JEST",
+      "alias": "jest",
+      "filtering": "INACT != 'X'"
+    },
+    {
+      "type": "DM",
+      "place": "TJ30T",
+      "alias": "t30",
+      "filtering": "SPRAS = 'E' AND STSMA = 'CSEQ01'"
+    },
+    {
+      "type": "DM",
+      "place": "AUSP",
+      "alias": "at24",
+      "filtering": "ATINN = 24"
+    },
+    {
+      "type": "DM",
+      "place": "AUSP",
+      "alias": "at30",
+      "filtering": "ATINN = 30"
+    },
+    {
+      "type": "DM",
+      "place": "AUSP",
+      "alias": "at52",
+      "filtering": "ATINN = 52"
+    },
+    {
+      "type": "DM",
+      "place": "AUSP",
+      "alias": "at27",
+      "filtering": "ATINN = 27"
+    },
+    {
+      "type": "DM",
+      "place": "INOB",
+      "alias": "in",
+      "filtering": null
+    },
+    {
+      "type": "DM",
+      "place": "CAWNT_CRM",
+      "alias": "ct",
+      "filtering": "SPRAS = 'E'"
+    },
+    {
+      "type": "DM",
+      "place": "CAWN_CRM",
+      "alias": "cn",
+      "filtering": "ATINN = '1' SELECT DISTINCT ATINN, ATWRT, ATZHL"
+    },
+    {
+      "type": "DM",
+      "place": "MAKT",
+      "alias": "mk",
+      "filtering": "SPRAS = 'E'"
+    }
+  ],
+  "joins": [
+    "EQ LEFT JEST ON EQ.OBJNR = JEST.OBJNR",
+    "JEST LEFT JOIN TJ30T ON JEST.STAT = TJ30T.ESTAT",
+    "EQ LEFT JOIN INOB ON EQ.MATNR = INOB.OBJEK",
+    "INOB LEFT JOIN AT24 ON INOB.CUOBJ = LTRIM('0', AT24.OBJEK)",
+    "INOB LEFT JOIN AT30 ON INOB.CUOBJ = LTRIM('0', AT30.OBJEK)",
+    "INOB LEFT JOIN AT52 ON INOB.CUOBJ = LTRIM('0', AT52.OBJEK)",
+    "INOB LEFT JOIN AT27 ON INOB.CUOBJ = LTRIM('0', AT27.OBJEK)",
+    "AT30 LEFT JOIN CAWN_CRM ON AT30.ATWRT = CAWN_CRM.ATWRT",
+    "CAWN_CRM LEFT JOIN CAWNT_CRM ON CAWN_CRM.ATINN = CAWNT_CRM.ATINN AND CAWN_CRM.ATZHL = CAWNT_CRM.ATZHL",
+    "LEFT JOIN MAKT ON EQ.MATNR = MAKT.MATNR"
+  ],
+  "field_map": {
+    "equipment_model": "V_EQUI.TYPBZ",
+    "cde_type": "V_EQUI.EQART",
+    "customer_code": "V_EQUI.KUNDE",
+    "equipment_status_code": "TJ30T.TXT04 (via JEST.STAT = TJ30T.ESTAT, STSMA=CSEQ01)",
+    "cde_category_code": "AUSP ATINN=30 ATWRT (via INOB)",
+    "number_of_doors": "AUSP ATINN=52 ATWRT (via INOB)",
+    "cs_branding": "AUSP ATINN=27 ATWRT (via INOB)",
+    "target_coolers_doors_code": "AUSP ATINN=24 ATWRT (via INOB)",
+    "material_description": "MAKT.MAKTX"
+  }
+}

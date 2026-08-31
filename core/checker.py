@@ -34,12 +34,37 @@ try:
     from validators.text_validators import SpecialCharactersValidator, ConsecutiveSpacesValidator, UppercaseValidator
     from validators.advanced_special_characters import AdvancedSpecialCharactersValidator
     from validators.logical_validator import LogicalValidator
+    from utils.equipment_matrix_rules import (
+        COOLER_STATUS_CODES,
+        cooler_scope_skip,
+        eval_rcconf_278_1,
+        eval_rcconf_342_1,
+        eval_rcconf_342_2,
+        load_cooler_status_matrix,
+        load_door_equivalent_matrix,
+        norm_block_code,
+        norm_category_code,
+        norm_cde_type,
+        norm_equipment_status,
+        to_decimal_doors,
+    )
+    from utils.dm_customer_equipment import (
+        build_cuobj_to_matnr,
+        build_estat_to_txt04,
+        filter_jest_dm,
+        filter_tj30t_dm,
+        filter_vequi_dm,
+        ltrim_zeros,
+        norm_objnr,
+    )
 except ImportError as e:
     print(f'Ошибка импорта: {e}')
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-08-28-ausp-equipment-empty-fallback'
+    CHECKER_BUILD_ID = '2026-08-28-dm-customer-equipment-joins'
+    EQUIPMENT_COOLER_STATUS_MATRIX_RULES = frozenset({'RCCONF_342.1', 'RCCONF_342.2'})
+    EQUIPMENT_DOOR_EQUIVALENT_MATRIX_RULES = frozenset({'RCCONF_278.1'})
     # dm_customer_general hard scope: no central order block S (AUFSD)
     DM_CUSTOMER_GENERAL_AUFSD_EXCLUDE = frozenset({'S'})
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
@@ -48,6 +73,9 @@ class FastDataQualityChecker:
     KNA1_JOIN_VIA_BUT020_TABLES = frozenset({'ADRC', 'ADR2', 'ADR6', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
     # AUSP customer: PARTNER_GUID → BUT000 → PARTNER → KNA1 (не AUSP_EQUIPMENT)
     AUSP_KNA1_VIA_BUT000_TABLES = frozenset({'AUSP_143', 'AUSP_604', 'AUSP_148', 'AUSP_151', 'AUSP'})
+    # Equipment: только maintenance plant SWERK LIKE 36% / 38% / 39%
+    EQUIPMENT_SWERK_PREFIXES = ('36', '38', '39')
+    EQUIPMENT_TABLES = frozenset({'V_EQUI', 'JEST', 'AUSP_EQUIPMENT'})
     # Гео-правила: LOT_GC_ADR.ADRNR → BUT020.Addr.No. → PARTNER → KNA1
     RULES_LOT_GC_ADR_BUT020 = frozenset({
         'RCCONF_383.1', 'RCCONF_383.2', 'RCCONF_383.3', 'RCCONF_383.4',
@@ -637,6 +665,9 @@ class FastDataQualityChecker:
         self._but020_partner_lookup_cache = {}
         self._kna1_aufsd_lookup_df = None
         self._table_kna1_preenrich_done = set()
+        self._vequi_swerk_lookup = None
+        self._but000_mapped_df = None
+        self._but000_partner_guid_lookup = None
         rules_config = self.load_configuration()
         if not rules_config:
             self.logger.error('[ERROR] Не удалось загрузить конфигурацию правил')
@@ -1024,6 +1055,19 @@ class FastDataQualityChecker:
         try:
             # Один JOIN KNA1/BUT020 на таблицу; _process_single_rule сам делает dm_customer_general scope
             df = self._preenrich_table_for_kna1_joins(df, table_name, table_rules)
+            if any(self._rule_is_equipment(r) for r in (table_rules or [])):
+                before_eq = len(df) if df is not None else 0
+                df = self._scope_df_equipment_swerk(df, table_name, f'PREFILTER:{table_name}')
+                if df is None or df.empty:
+                    print(f'   [WARN] {table_name}: нет строк после SWERK 36*/38*/39* ({before_eq:,} было) — equipment rules skip')
+                    for rule in table_rules or []:
+                        self.skipped_rules += 1
+                        self._log_skipped_rule(
+                            rule, table_name,
+                            f'{rule.get("rule_code")}: нет строк с SWERK LIKE 36%/38%/39%',
+                            timestamp,
+                        )
+                    return (0, 0, 0)
             handler = handler_class(table_name, df, self.memory_manager, self)
             handler_base_df = handler.df.copy() if getattr(handler, 'df', None) is not None else df
             total_rules = len(table_rules)
@@ -1126,6 +1170,19 @@ class FastDataQualityChecker:
         suspicious_count = 0
         total_rules = len(table_rules)
         df = self._preenrich_table_for_kna1_joins(df, table_name, table_rules)
+        if any(self._rule_is_equipment(r) for r in (table_rules or [])):
+            before_eq = len(df) if df is not None else 0
+            df = self._scope_df_equipment_swerk(df, table_name, f'PREFILTER:{table_name}')
+            if df is None or df.empty:
+                print(f'   [WARN] {table_name}: нет строк после SWERK 36*/38*/39* ({before_eq:,} было) — equipment rules skip')
+                for rule in table_rules or []:
+                    self.skipped_rules += 1
+                    self._log_skipped_rule(
+                        rule, table_name,
+                        f'{rule.get("rule_code")}: нет строк с SWERK LIKE 36%/38%/39%',
+                        timestamp,
+                    )
+                return (0, 0, 0)
         for i, rule in enumerate(table_rules, 1):
             if self._parallel_lock:
                 with self._parallel_lock:
@@ -1172,6 +1229,10 @@ class FastDataQualityChecker:
         if rule_code in self.RCCOMP_149_RULES and tn == 'KNVP':
             validator = self._get_validator_for_rule(rule_description, quality_category, {'rule_code': rule_code, 'rule_description': rule_description, 'quality_category': quality_category, 'table_name': table_name, 'matched_column': column_to_check, 'original_column': column_to_check})
             return self._process_rcccomp_149_knvp(rule_code, df, table_name, rule, validator, rule.get('column_name_checked', 'PARVW'), column_to_check, save_result, timestamp)
+        if rule_code in self.EQUIPMENT_COOLER_STATUS_MATRIX_RULES and tn == 'JEST':
+            return self._process_equipment_cooler_status_matrix(rule_code, df, table_name, rule, save_result, timestamp)
+        if rule_code in self.EQUIPMENT_DOOR_EQUIVALENT_MATRIX_RULES and tn == self.AUSP_EQUIPMENT_TABLE:
+            return self._process_equipment_door_equivalent_matrix(rule_code, df, table_name, rule, save_result, timestamp)
         if tn.startswith('DFKKBPTAXNUM'):
             handler_cls = self.table_handlers.get(table_name) or self.table_handlers.get(tn)
             if rule_code in self.TAXNUM_FORMAT_RULES and handler_cls is not None:
@@ -3334,6 +3395,10 @@ class FastDataQualityChecker:
                 out.append('BUT000')
             if 'KNA1' not in [str(x).strip().upper() for x in out]:
                 out.append('KNA1')
+        # Equipment tables need V_EQUI.SWERK for plant scope 36*/38*/39*
+        if any(str(t).strip().upper() in self.EQUIPMENT_TABLES or str(t).strip().upper() == 'V_EQUI' for t in out):
+            if 'V_EQUI' not in [str(x).strip().upper() for x in out]:
+                out.append('V_EQUI')
         kna1_dependent = {'BUT0BK', 'BUT051', 'KNB1', 'KNVV', 'KNVP', 'KNVH', 'ADR2', 'ADRC', 'BUT050', 'LOTGC_ADR', '/LOT/GC_ADR', 'LOT_GC_ADR'}
         if any((str(t).strip().upper() in kna1_dependent or str(t).strip().upper().replace('/', '').replace('_', '') == 'LOTGCADR' for t in out)) and 'KNA1' not in out:
             out.append('KNA1')
@@ -3498,6 +3563,718 @@ class FastDataQualityChecker:
             # when both appear, equipment rules still must skip 9038 hard filter.
             return False
         return 'dm_customer_general' in dm_l
+
+    def _rule_is_equipment(self, rule) -> bool:
+        """Equipment domain / dm_customer_equipment — scope SWERK 36*/38*/39*."""
+        if not rule:
+            return False
+        domain = str(rule.get('domain') or '').strip().lower()
+        sub_domain = str(rule.get('sub_domain') or '').strip().lower()
+        if domain == 'equipment' or sub_domain == 'equipment':
+            return True
+        dm = rule.get('datamart_or_reference_table_used')
+        if dm is None:
+            return False
+        if isinstance(dm, list):
+            dm = ' '.join((str(x) for x in dm))
+        return 'dm_customer_equipment' in str(dm).lower()
+
+    def _norm_swerk_value(self, v) -> str:
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return ''
+        s = str(v).strip().upper().replace(' ', '')
+        if s.endswith('.0') and s[:-2].isdigit():
+            s = s[:-2]
+        if s.lower() in ('nan', 'none', 'null', 'na', '<na>', ''):
+            return ''
+        return s
+
+    def _swerk_in_equipment_scope(self, v) -> bool:
+        s = self._norm_swerk_value(v)
+        if not s:
+            return False
+        return any(s.startswith(p) for p in self.EQUIPMENT_SWERK_PREFIXES)
+
+    def _find_swerk_column(self, df):
+        if df is None or df.empty:
+            return None
+        preferred = []
+        for c in df.columns:
+            cu = str(c).strip().upper().replace(' ', '').replace('_', '')
+            if cu == 'SWERK':
+                return c
+            if cu in ('MAINTENANCEPLANT', 'MAINTPLANT', 'IWERK'):
+                preferred.append(c)
+        return preferred[0] if preferred else None
+
+    def _norm_equipment_join_key(self, v) -> str:
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return ''
+        s = str(v).strip().upper()
+        if s.endswith('.0') and s[:-2].replace('.', '', 1).isdigit():
+            s = s.split('.')[0]
+        if s.lower() in ('nan', 'none', 'null', 'na', '<na>', ''):
+            return ''
+        # JEST.OBJNR for equipment is often IE + EQUNR
+        if s.startswith('IE') and len(s) > 2:
+            s = s[2:]
+        s = s.lstrip('0')
+        return s or '0'
+
+    def _get_vequi_swerk_lookup(self) -> dict:
+        cached = getattr(self, '_vequi_swerk_lookup', None)
+        if cached is not None:
+            return cached
+        vequi = None
+        if hasattr(self, 'memory_manager'):
+            vequi = self.memory_manager.get_table('V_EQUI')
+        if (vequi is None or vequi.empty) and hasattr(self, 'memory_manager'):
+            try:
+                self.memory_manager.load_selected_tables_to_ram(['V_EQUI'], add_reference_tables=False)
+                vequi = self.memory_manager.get_table('V_EQUI')
+            except Exception:
+                vequi = None
+        lookup = {}
+        if vequi is None or vequi.empty:
+            self._vequi_swerk_lookup = lookup
+            return lookup
+        mapped = self._apply_rule_time_column_map(vequi.copy(), 'V_EQUI')
+        swerk_col = self._find_swerk_column(mapped)
+        equnr_col = None
+        for name in ('EQUNR', 'EQUIPMENT', 'Equipment', 'EQUNR_V_EQUI'):
+            hit = next((c for c in mapped.columns if str(c).strip().upper() == name.upper()), None)
+            if hit and self._non_empty_key_count(mapped[hit]) > 0:
+                equnr_col = hit
+                break
+        if not equnr_col:
+            for c in mapped.columns:
+                if 'EQUNR' in str(c).upper():
+                    equnr_col = c
+                    break
+        if not swerk_col or not equnr_col:
+            print(f'      [WARN] V_EQUI: нет EQUNR/SWERK для equipment plant scope (cols sample: {list(mapped.columns)[:12]})')
+            self._vequi_swerk_lookup = lookup
+            return lookup
+        keys = mapped[equnr_col].apply(self._norm_equipment_join_key)
+        swerks = mapped[swerk_col]
+        for k, s in zip(keys.tolist(), swerks.tolist()):
+            if not k or k in lookup:
+                continue
+            lookup[k] = s
+        self._vequi_swerk_lookup = lookup
+        print(f'      [CACHE] V_EQUI EQUNR->SWERK lookup: {len(lookup):,} keys (via [{equnr_col}]->[{swerk_col}])')
+        return lookup
+
+    def _attach_swerk_from_vequi(self, df, table_name, rule_code):
+        """Если SWERK нет на df — подтянуть из V_EQUI по EQUNR/OBJEK/OBJNR."""
+        if df is None or df.empty:
+            return df
+        if self._find_swerk_column(df):
+            return df
+        tn = str(table_name or '').strip().upper()
+        key_col = None
+        for name in ('EQUNR', 'OBJEK', 'OBJNR', 'Equipment', 'EQUIPMENT'):
+            hit = next((c for c in df.columns if str(c).strip().upper() == name.upper()), None)
+            if hit and self._non_empty_key_count(df[hit]) > 0:
+                key_col = hit
+                break
+        if not key_col:
+            for c in df.columns:
+                cu = str(c).strip().upper()
+                if cu in ('OBJEK', 'OBJNR', 'EQUNR') or 'EQUNR' in cu:
+                    key_col = c
+                    break
+        if not key_col:
+            print(f'      [WARN] {rule_code}: {tn}: нет EQUNR/OBJEK/OBJNR для JOIN V_EQUI.SWERK')
+            return df
+        lookup = self._get_vequi_swerk_lookup()
+        if not lookup:
+            print(f'      [WARN] {rule_code}: V_EQUI SWERK lookup пуст — plant scope не применён')
+            return df
+        out = df.copy()
+        keys = out[key_col].apply(self._norm_equipment_join_key)
+        out['SWERK'] = keys.map(lookup)
+        filled = self._non_empty_key_count(out['SWERK'])
+        print(
+            f'      [JOIN] {rule_code}: {tn}.[{key_col}] -> V_EQUI.EQUNR -> SWERK: '
+            f'заполнено {filled:,}/{len(out):,}'
+        )
+        return out
+
+    def _scope_df_equipment_swerk(self, df, table_name, rule_code):
+        """Оставить только SWERK LIKE 36% OR 38% OR 39%; остальное отбросить."""
+        if df is None or df.empty:
+            return df
+        out = self._attach_swerk_from_vequi(df, table_name, rule_code)
+        swerk_col = self._find_swerk_column(out)
+        if not swerk_col:
+            print(
+                f'      [WARN] {rule_code}: колонка SWERK не найдена в {table_name} '
+                f'и не подтянута из V_EQUI — equipment plant scope не применён'
+            )
+            return out
+        before = len(out)
+        mask = out[swerk_col].apply(self._swerk_in_equipment_scope)
+        kept = out.loc[mask].copy()
+        print(
+            f'      [FILTER] {rule_code}: equipment SWERK LIKE 36%/38%/39% '
+            f'-> {len(kept):,} из {before:,} (отброшено {before - len(kept):,})'
+        )
+        return kept
+
+    def _find_col_by_names(self, df, names):
+        if df is None or getattr(df, 'empty', True):
+            return None
+        upper_map = {str(c).strip().upper(): c for c in df.columns}
+        for name in names:
+            hit = upper_map.get(str(name).strip().upper())
+            if hit is not None:
+                return hit
+        for name in names:
+            nu = str(name).strip().upper().replace(' ', '').replace('_', '').replace('.', '')
+            for c in df.columns:
+                cu = str(c).strip().upper().replace(' ', '').replace('_', '').replace('.', '')
+                if cu == nu or nu in cu:
+                    return c
+        return None
+
+    def _load_table_for_equipment(self, table_name):
+        tn = str(table_name or '').strip().upper()
+        df = None
+        if hasattr(self, 'memory_manager'):
+            df = self.memory_manager.get_table(tn)
+            if (df is None or df.empty) and hasattr(self.memory_manager, 'ensure_table_loaded'):
+                try:
+                    self.memory_manager.ensure_table_loaded(tn, reload_if_empty=True)
+                    df = self.memory_manager.get_table(tn)
+                except Exception:
+                    pass
+            if (df is None or df.empty) and hasattr(self.memory_manager, 'load_selected_tables_to_ram'):
+                try:
+                    self.memory_manager.load_selected_tables_to_ram([tn], add_reference_tables=False)
+                    df = self.memory_manager.get_table(tn)
+                except Exception:
+                    df = None
+        if df is None or df.empty:
+            return pd.DataFrame()
+        return self._apply_rule_time_column_map(df.copy(), tn)
+
+    def _get_tj30t_estat_txt04_map(self) -> dict:
+        """TJ30T: SPRAS=E STSMA=CSEQ01 → ESTAT→TXT04 (equipment_status_code)."""
+        cached = getattr(self, '_tj30t_estat_txt04_map', None)
+        if cached is not None:
+            return cached
+        tj = self._load_table_for_equipment('TJ30T')
+        if tj is None or tj.empty:
+            self._tj30t_estat_txt04_map = {}
+            print('      [WARN] TJ30T пуста — status останется как JEST.STAT (ожидается TXT04 через CSEQ01)')
+            return self._tj30t_estat_txt04_map
+        spras_col = self._find_col_by_names(tj, ('SPRAS', 'LANGU', 'LANGUAGE'))
+        stsma_col = self._find_col_by_names(tj, ('STSMA', 'STATUS_PROFILE'))
+        estat_col = self._find_col_by_names(tj, ('ESTAT', 'STAT', 'STATUS'))
+        txt_col = self._find_col_by_names(tj, ('TXT04', 'TXT30', 'equipment_status_code', 'STATUS_TEXT'))
+        filtered = filter_tj30t_dm(tj, spras_col=spras_col, stsma_col=stsma_col)
+        mapping = build_estat_to_txt04(filtered, estat_col=estat_col, txt_col=txt_col)
+        self._tj30t_estat_txt04_map = mapping
+        print(f'      [CACHE] TJ30T CSEQ01 ESTAT→TXT04: {len(mapping):,} (SPRAS=E)')
+        return mapping
+
+    def _map_jest_stat_to_status_code(self, series) -> pd.Series:
+        """JEST.STAT → TJ30T.TXT04; fallback raw if already PLCD-like."""
+        mp = self._get_tj30t_estat_txt04_map()
+
+        def _one(v):
+            k = norm_objnr(v)
+            if k and k in mp:
+                return mp[k]
+            return norm_equipment_status(v)
+
+        return series.apply(_one)
+
+    def _get_vequi_dm_frame(self) -> pd.DataFrame:
+        """Filtered V_EQUI per dm_customer_equipment (DATBI/KUNDE/SPRAS)."""
+        cached = getattr(self, '_vequi_dm_frame', None)
+        if cached is not None:
+            return cached
+        vequi = self._load_table_for_equipment('V_EQUI')
+        if vequi is None or vequi.empty:
+            self._vequi_dm_frame = pd.DataFrame()
+            return self._vequi_dm_frame
+        equnr_col = self._find_col_by_names(vequi, ('EQUNR', 'Equipment', 'EQUIPMENT'))
+        datbi_col = self._find_col_by_names(vequi, ('DATBI', 'VALID_TO', 'valid_to'))
+        spras_col = self._find_col_by_names(vequi, ('SPRAS', 'LANGU', 'LANGUAGE'))
+        kunde_col = self._find_col_by_names(vequi, ('KUNDE', 'KUNNR', 'Customer', 'CUSTOMER'))
+        filtered = filter_vequi_dm(
+            vequi,
+            equnr_col=equnr_col,
+            datbi_col=datbi_col,
+            spras_col=spras_col,
+            kunde_col=kunde_col,
+        )
+        self._vequi_dm_frame = filtered
+        print(
+            f'      [FILTER] V_EQUI dm_customer_equipment: {len(filtered):,}/{len(vequi):,} '
+            f'(DATBI open, KUNDE NOT NULL, prefer SPRAS=E)'
+        )
+        return filtered
+
+    def _get_vequi_equipment_attrs_lookup(self) -> dict:
+        """OBJNR/EQUNR -> {model, cde_type, kunde, matnr, objnr, equnr} after DM filters."""
+        cached = getattr(self, '_vequi_equipment_attrs_lookup', None)
+        if cached is not None:
+            return cached
+        vequi = self._get_vequi_dm_frame()
+        lookup = {}
+        if vequi is None or vequi.empty:
+            self._vequi_equipment_attrs_lookup = lookup
+            return lookup
+        equnr_col = self._find_col_by_names(vequi, ('EQUNR', 'Equipment', 'EQUIPMENT'))
+        objnr_col = self._find_col_by_names(vequi, ('OBJNR',))
+        model_col = self._find_col_by_names(vequi, ('TYPBZ', 'equipment_model', 'equimpment_model', 'MODEL'))
+        cde_col = self._find_col_by_names(vequi, ('EQART', 'cde_type', 'CDE_TYPE', 'OBJECTTYPE', 'EQTYP'))
+        kunde_col = self._find_col_by_names(vequi, ('KUNDE', 'KUNNR', 'Customer', 'CUSTOMER'))
+        matnr_col = self._find_col_by_names(vequi, ('MATNR', 'MATERIAL'))
+        if not equnr_col and not objnr_col:
+            print(f'      [WARN] V_EQUI: нет EQUNR/OBJNR (cols: {list(vequi.columns)[:12]})')
+            self._vequi_equipment_attrs_lookup = lookup
+            return lookup
+
+        def _put(key, row_attrs):
+            if key and key not in lookup:
+                lookup[key] = row_attrs
+
+        for idx in vequi.index:
+            equnr = self._norm_equipment_join_key(vequi.at[idx, equnr_col]) if equnr_col else ''
+            objnr = norm_objnr(vequi.at[idx, objnr_col]) if objnr_col else ''
+            attrs = {
+                'equipment_model': vequi.at[idx, model_col] if model_col else '',
+                'cde_type': vequi.at[idx, cde_col] if cde_col else '',
+                'kunde': vequi.at[idx, kunde_col] if kunde_col else '',
+                'matnr': vequi.at[idx, matnr_col] if matnr_col else '',
+                'objnr': objnr,
+                'equnr': equnr,
+            }
+            _put(objnr, attrs)
+            _put(equnr, attrs)
+            if objnr.startswith('IE') and len(objnr) > 2:
+                _put(self._norm_equipment_join_key(objnr), attrs)
+        self._vequi_equipment_attrs_lookup = lookup
+        print(
+            f'      [CACHE] V_EQUI equipment attrs: {len(lookup):,} keys '
+            f'(model={model_col}, cde_type={cde_col}, kunde={kunde_col}, matnr={matnr_col})'
+        )
+        return lookup
+
+    def _get_vequi_by_matnr_lookup(self) -> dict:
+        """MATNR -> attrs (for INOB.OBJEK = EQ.MATNR)."""
+        cached = getattr(self, '_vequi_by_matnr_lookup', None)
+        if cached is not None:
+            return cached
+        by_key = self._get_vequi_equipment_attrs_lookup()
+        out = {}
+        for attrs in by_key.values():
+            mat = str(attrs.get('matnr') or '').strip()
+            if not mat or mat in out:
+                continue
+            out[mat] = attrs
+            out[ltrim_zeros(mat)] = attrs
+        self._vequi_by_matnr_lookup = out
+        print(f'      [CACHE] V_EQUI by MATNR: {len(out):,} keys')
+        return out
+
+    def _get_inob_cuobj_to_matnr(self) -> dict:
+        cached = getattr(self, '_inob_cuobj_to_matnr', None)
+        if cached is not None:
+            return cached
+        inob = self._load_table_for_equipment('INOB')
+        if inob is None or inob.empty:
+            self._inob_cuobj_to_matnr = {}
+            print('      [WARN] INOB пуста — AUSP characteristics не сджойнятся на V_EQUI.MATNR')
+            return self._inob_cuobj_to_matnr
+        cuobj_col = self._find_col_by_names(inob, ('CUOBJ', 'CUOBJ_IN', 'INSTANCE'))
+        objek_col = self._find_col_by_names(inob, ('OBJEK', 'MATNR', 'OBJECT'))
+        mapping = build_cuobj_to_matnr(inob, cuobj_col=cuobj_col, objek_col=objek_col)
+        self._inob_cuobj_to_matnr = mapping
+        print(f'      [CACHE] INOB CUOBJ→MATNR: {len(mapping):,} (LTRIM zeros)')
+        return mapping
+
+    def _get_jest_status_lookup(self) -> dict:
+        """OBJNR/EQUNR -> TXT04 status (JEST INACT!=X + TJ30T CSEQ01)."""
+        cached = getattr(self, '_jest_cooler_status_lookup', None)
+        if cached is not None:
+            return cached
+        jest = self._load_table_for_equipment('JEST')
+        lookup = {}
+        if jest is None or jest.empty:
+            self._jest_cooler_status_lookup = lookup
+            return lookup
+        obj_col = self._find_col_by_names(jest, ('OBJNR', 'EQUNR', 'OBJEK', 'Equipment'))
+        stat_col = self._find_col_by_names(jest, ('STAT', 'STATUS', 'ESTAT'))
+        inact_col = self._find_col_by_names(jest, ('INACT', 'INACTIVE'))
+        if not obj_col or not stat_col:
+            self._jest_cooler_status_lookup = lookup
+            return lookup
+        jest_f = filter_jest_dm(jest, inact_col=inact_col)
+        status_s = self._map_jest_stat_to_status_code(jest_f[stat_col])
+        for obj, st in zip(jest_f[obj_col].tolist(), status_s.tolist()):
+            st_n = norm_equipment_status(st)
+            if st_n not in COOLER_STATUS_CODES:
+                continue
+            k_full = norm_objnr(obj)
+            k_eq = self._norm_equipment_join_key(obj)
+            for k in (k_full, k_eq):
+                if k and k not in lookup:
+                    lookup[k] = st_n
+        self._jest_cooler_status_lookup = lookup
+        print(f'      [CACHE] JEST+TJ30T cooler status: {len(lookup):,} keys (INACT!=X)')
+        return lookup
+
+    def _attach_equipment_vequi_kna1_attrs(self, df, table_name, rule_code, key_candidates=None, via_inob=False):
+        """
+        Attach model/cde_type/KUNDE/AUFSD/KTOKD.
+        Default: join V_EQUI by OBJNR/EQUNR (JEST path).
+        via_inob=True: AUSP.OBJEK --LTRIM--> INOB.CUOBJ --> MATNR --> V_EQUI.
+        """
+        if df is None or df.empty:
+            return df
+        out = df.copy()
+        attrs_by_eq = self._get_vequi_equipment_attrs_lookup()
+
+        if via_inob:
+            key_col = None
+            for name in (key_candidates or ('_eq_key', 'OBJEK', 'CUOBJ')):
+                hit = self._find_col_by_names(out, (name,))
+                if hit and self._non_empty_key_count(out[hit]) > 0:
+                    key_col = hit
+                    break
+            if not key_col:
+                print(f'      [WARN] {rule_code}: нет OBJEK для INOB join')
+                return out
+            cuobj_to_mat = self._get_inob_cuobj_to_matnr()
+            mat_to_attrs = self._get_vequi_by_matnr_lookup()
+            cu_keys = out[key_col].apply(ltrim_zeros)
+            out['_cuobj'] = cu_keys
+            out['_matnr'] = cu_keys.map(cuobj_to_mat)
+            def _attrs_from_mat(m):
+                if not m:
+                    return {}
+                return mat_to_attrs.get(str(m).strip()) or mat_to_attrs.get(ltrim_zeros(m)) or {}
+            mapped = out['_matnr'].apply(_attrs_from_mat)
+            out['equipment_model'] = mapped.map(lambda a: a.get('equipment_model'))
+            out['cde_type'] = mapped.map(lambda a: a.get('cde_type'))
+            out['KUNDE'] = mapped.map(lambda a: a.get('kunde'))
+            out['KUNNR'] = out['KUNDE']
+            out['_eq_objnr'] = mapped.map(lambda a: a.get('objnr') or a.get('equnr') or '')
+            filled = int(sum(1 for v in out['_matnr'].tolist() if str(v or '').strip() not in ('', 'nan', 'None')))
+            print(
+                f'      [JOIN] {rule_code}: AUSP.[{key_col}] -LTRIM-> INOB.CUOBJ -> MATNR -> V_EQUI: '
+                f'{filled:,}/{len(out):,}'
+            )
+        else:
+            key_col = None
+            names = key_candidates or ('OBJNR', 'EQUNR', 'OBJEK', 'Equipment', 'EQUIPMENT')
+            for name in names:
+                hit = self._find_col_by_names(out, (name,))
+                if hit and self._non_empty_key_count(out[hit]) > 0:
+                    key_col = hit
+                    break
+            if not key_col:
+                print(f'      [WARN] {rule_code}: нет OBJNR/EQUNR для V_EQUI attrs')
+                return out
+            keys_full = out[key_col].apply(norm_objnr)
+            keys_eq = out[key_col].apply(self._norm_equipment_join_key)
+
+            def _attrs(i):
+                return attrs_by_eq.get(keys_full.loc[i]) or attrs_by_eq.get(keys_eq.loc[i]) or {}
+
+            mapped = pd.Series({i: _attrs(i) for i in out.index})
+            out['_eq_key'] = keys_eq
+            out['equipment_model'] = mapped.map(lambda a: a.get('equipment_model'))
+            out['cde_type'] = mapped.map(lambda a: a.get('cde_type'))
+            out['KUNDE'] = mapped.map(lambda a: a.get('kunde'))
+            out['KUNNR'] = out['KUNDE']
+            filled_m = int(sum(
+                1 for v in out['equipment_model'].tolist()
+                if str(v or '').strip() not in ('', 'nan', 'None', 'NaN', '<NA>')
+            ))
+            print(
+                f'      [JOIN] {rule_code}: {table_name}.[{key_col}] -> V_EQUI.OBJNR '
+                f'(dm filter): model filled ~{filled_m:,}/{len(out):,}'
+            )
+
+        out = self._add_order_block_code_from_kna1_customer(out, table_name, rule_code, join_col='KUNNR')
+        if not self._find_account_group_column(out):
+            out = self._add_account_group_code_from_kna1(out, table_name, rule_code)
+        return out
+
+    def _process_equipment_cooler_status_matrix(self, rule_code, df, table_name, rule, save_result, timestamp):
+        """RCCONF_342.1 / 342.2: dm path JEST(INACT!=X)+TJ30T × V_EQUI.KUNDE → KNA1.AUFSD."""
+        allowed, no_cooler, matrix_path = load_cooler_status_matrix()
+        if not allowed and not no_cooler:
+            self._log_skipped_rule(rule, table_name, 'conf_order_block_cooler_status.json не найден или пуст', timestamp)
+            return (0, 0)
+
+        inact_col = self._find_col_by_names(df, ('INACT', 'INACTIVE'))
+        work = filter_jest_dm(df, inact_col=inact_col)
+        if work.empty:
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: нет активных JEST (INACT!=X)', timestamp)
+            return (0, 0)
+
+        work = self._attach_equipment_vequi_kna1_attrs(work, table_name, rule_code, key_candidates=('OBJNR', 'EQUNR'))
+        stat_col = self._find_col_by_names(work, ('STAT', 'STATUS', 'ESTAT', rule.get('column_name_checked') or 'STAT'))
+        if not stat_col:
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: не найдена колонка STAT', timestamp)
+            return (0, 0)
+        work['equipment_status_code'] = self._map_jest_stat_to_status_code(work[stat_col])
+        status_col = 'equipment_status_code'
+
+        ob_col = self._find_order_block_column(work) or 'central_order_block_code'
+        if ob_col not in work.columns:
+            work['central_order_block_code'] = ''
+            ob_col = 'central_order_block_code'
+        ag_col = self._find_account_group_column(work)
+        if 'equipment_model' not in work.columns or 'cde_type' not in work.columns:
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: не удалось присоединить V_EQUI.TYPBZ/EQART', timestamp)
+            return (0, 0)
+        if not ag_col:
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: не найден account_group_code (KNA1.KTOKD via V_EQUI.KUNDE)', timestamp)
+            return (0, 0)
+
+        print(f'      [DEBUG] {rule_code}: dm_customer_equipment joins; matrix={matrix_path}')
+        print(f'      [DEBUG] {rule_code}: status=TJ30T.TXT04 via JEST.[{stat_col}], block={ob_col}, ag={ag_col}')
+
+        results = []
+        for idx in work.index:
+            model = work.at[idx, 'equipment_model']
+            cde = work.at[idx, 'cde_type']
+            status = work.at[idx, status_col]
+            ag = work.at[idx, ag_col]
+            block = work.at[idx, ob_col]
+            if cooler_scope_skip(model=model, cde_type=cde, status=status, account_group=ag, require_model=True):
+                results.append(None)
+                continue
+            if rule_code == 'RCCONF_342.2':
+                results.append(eval_rcconf_342_2(block, no_cooler))
+            else:
+                results.append(eval_rcconf_342_1(block, status, allowed, no_cooler))
+
+        result_s = pd.Series(results, index=work.index, dtype=object)
+        evaluated_mask = result_s.notna()
+        total_rows = int(evaluated_mask.sum())
+        if total_rows == 0:
+            self._log_skipped_rule(rule, table_name, f'Нет записей для оценки {rule_code} после skip-условий cooler scope', timestamp)
+            return (0, 0)
+        error_mask = evaluated_mask & (result_s == '0')
+        error_count = int(error_mask.sum())
+
+        validator = self._get_validator_for_rule(
+            rule.get('rule_description', ''),
+            rule.get('quality_category', 'Conformity'),
+            {
+                'rule_code': rule_code,
+                'rule_description': rule.get('rule_description', ''),
+                'quality_category': rule.get('quality_category', 'Conformity'),
+                'table_name': table_name,
+                'matched_column': status_col,
+                'original_column': rule.get('column_name_checked', 'STAT'),
+            },
+        )
+        if rule_code == 'RCCONF_342.2':
+            err_desc = (
+                "Cooler linked to customer whose central_order_block_code forbids coolers "
+                "(allowed_cooler_status='No cooler must be linked to this customer' in conf_order_block_cooler_status)."
+            )
+        else:
+            err_desc = (
+                'Invalid combination central_order_block_code × equipment_status_code '
+                'vs conf_order_block_cooler_status (or block forbids cooler).'
+            )
+        error_df = validator._prepare_error_dataframe(work, error_mask, 'CONFORMITY', err_desc) if error_count > 0 else None
+        if error_df is not None and not error_df.empty:
+            error_df['LOOKUP_EQUIPMENT_STATUS'] = work.loc[error_df.index, status_col].map(norm_equipment_status).values
+            error_df['LOOKUP_JEST_STAT'] = work.loc[error_df.index, stat_col].astype(str).values
+            error_df['LOOKUP_ORDER_BLOCK'] = work.loc[error_df.index, ob_col].map(norm_block_code).values
+            error_df['LOOKUP_ACCOUNT_GROUP'] = work.loc[error_df.index, ag_col].map(norm_block_code).values
+            error_df['LOOKUP_CDE_TYPE'] = work.loc[error_df.index, 'cde_type'].map(norm_cde_type).values
+            error_df['LOOKUP_EQUIPMENT_MODEL'] = work.loc[error_df.index, 'equipment_model'].astype(str).values
+            error_df['LOOKUP_KUNDE'] = work.loc[error_df.index, 'KUNDE'].astype(str).values if 'KUNDE' in work.columns else ''
+            error_df['DQ_RULE_CHECK_COLUMNS'] = (
+                f'dm_customer_equipment: JEST.STAT→TJ30T.TXT04 × KNA1.AUFSD via V_EQUI.KUNDE; '
+                f'matrix={os.path.basename(matrix_path or "conf_order_block_cooler_status.json")}'
+            )
+
+        is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
+        if save_result:
+            rule_info = {
+                'rule_code': rule_code,
+                'rule_description': rule.get('rule_description', 'Unknown rule'),
+                'quality_category': rule.get('quality_category', 'Unknown'),
+                'table_name': table_name,
+                'original_column': rule.get('column_name_checked', 'STAT'),
+                'matched_column': status_col,
+            }
+            if self._parallel_lock:
+                with self._parallel_lock:
+                    self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                    if error_df is not None and not error_df.empty:
+                        self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+            else:
+                self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                if error_df is not None and not error_df.empty:
+                    self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        elif error_df is not None and not error_df.empty:
+            self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        print(f'      [RESULT] {rule_code}: evaluated={total_rows:,}, errors={error_count:,}')
+        return (error_count, total_rows)
+
+    def _pivot_ausp_equipment_by_objek(self, df):
+        """Long AUSP_EQUIPMENT -> one row per LTRIM(OBJEK)=CUOBJ with ATINN_30 / ATINN_52."""
+        if df is None or df.empty:
+            return pd.DataFrame()
+        atinn_col, atwrt_col = self._find_ausp_columns(df.columns, self.AUSP_EQUIPMENT_TABLE)
+        objek_col = self._find_col_by_names(df, ('OBJEK', 'CUOBJ', 'EQUNR', 'OBJNR', 'Equipment'))
+        if not atinn_col or not atwrt_col or not objek_col:
+            wide_keys = [c for c in df.columns if str(c).upper().startswith('ATINN_')]
+            if objek_col and wide_keys:
+                out = df.copy()
+                out['_eq_key'] = out[objek_col].apply(ltrim_zeros)
+                return out
+            return pd.DataFrame()
+        work = df[[objek_col, atinn_col, atwrt_col]].copy()
+        work['_atinn'] = work[atinn_col].apply(self._normalize_atinn_for_filter)
+        work = work[work['_atinn'].isin(self.AUSP_EQUIPMENT_ATINN)]
+        if work.empty:
+            return pd.DataFrame()
+        work['_col'] = work['_atinn'].map(lambda a: f'ATINN_{a}')
+        work['_eq_key'] = work[objek_col].apply(ltrim_zeros)
+        pivoted = (
+            work.dropna(subset=['_eq_key'])
+            .sort_values(['_eq_key', '_col'])
+            .drop_duplicates(subset=['_eq_key', '_col'], keep='last')
+            .pivot(index='_eq_key', columns='_col', values=atwrt_col)
+            .reset_index()
+        )
+        pivoted['OBJEK'] = pivoted['_eq_key']
+        return pivoted
+
+    def _process_equipment_door_equivalent_matrix(self, rule_code, df, table_name, rule, save_result, timestamp):
+        """RCCONF_278.1: AT30×AT52 via INOB→V_EQUI; status via JEST+TJ30T."""
+        matrix, matrix_path = load_door_equivalent_matrix()
+        if not matrix:
+            self._log_skipped_rule(rule, table_name, 'conf_cde_category_door_equivalent.json не найден или пуст', timestamp)
+            return (0, 0)
+
+        pivoted = self._pivot_ausp_equipment_by_objek(df)
+        if pivoted is None or pivoted.empty:
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: не удалось pivot AUSP_EQUIPMENT по OBJEK/ATINN', timestamp)
+            return (0, 0)
+
+        cat_col = self._find_col_by_names(pivoted, ('ATINN_30', 'cde_category_code'))
+        doors_col = self._find_col_by_names(pivoted, ('ATINN_52', 'number_of_doors'))
+        if not cat_col or not doors_col:
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: нет ATINN_30 (category) и/или ATINN_52 (doors) после pivot', timestamp)
+            return (0, 0)
+
+        work = self._attach_equipment_vequi_kna1_attrs(
+            pivoted, table_name, rule_code, key_candidates=('_eq_key', 'OBJEK'), via_inob=True
+        )
+        status_lookup = self._get_jest_status_lookup()
+        objnr_s = work['_eq_objnr'] if '_eq_objnr' in work.columns else work.get('_eq_key')
+        if objnr_s is None:
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: нет OBJNR после INOB→V_EQUI', timestamp)
+            return (0, 0)
+        work['equipment_status_code'] = objnr_s.map(
+            lambda k: status_lookup.get(norm_objnr(k)) or status_lookup.get(self._norm_equipment_join_key(k), '')
+        )
+        ag_col = self._find_account_group_column(work)
+        if not ag_col:
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: не найден account_group_code (KNA1 via V_EQUI.KUNDE)', timestamp)
+            return (0, 0)
+        if 'equipment_model' not in work.columns or 'cde_type' not in work.columns:
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: не удалось присоединить V_EQUI model/cde_type', timestamp)
+            return (0, 0)
+
+        print(f'      [DEBUG] {rule_code}: dm path INOB+V_EQUI+JEST+TJ30T; matrix={matrix_path}; rows={len(work):,}')
+
+        results = []
+        for idx in work.index:
+            if cooler_scope_skip(
+                model=work.at[idx, 'equipment_model'],
+                cde_type=work.at[idx, 'cde_type'],
+                status=work.at[idx, 'equipment_status_code'],
+                account_group=work.at[idx, ag_col],
+                require_model=True,
+                doors=work.at[idx, doors_col],
+                category=work.at[idx, cat_col],
+                require_doors=True,
+                require_category=True,
+            ):
+                results.append(None)
+                continue
+            results.append(eval_rcconf_278_1(work.at[idx, cat_col], work.at[idx, doors_col], matrix))
+
+        result_s = pd.Series(results, index=work.index, dtype=object)
+        evaluated_mask = result_s.notna()
+        total_rows = int(evaluated_mask.sum())
+        if total_rows == 0:
+            self._log_skipped_rule(rule, table_name, f'Нет записей для оценки {rule_code} после skip-условий cooler scope', timestamp)
+            return (0, 0)
+        error_mask = evaluated_mask & (result_s == '0')
+        error_count = int(error_mask.sum())
+
+        validator = self._get_validator_for_rule(
+            rule.get('rule_description', ''),
+            rule.get('quality_category', 'Conformity'),
+            {
+                'rule_code': rule_code,
+                'rule_description': rule.get('rule_description', ''),
+                'quality_category': rule.get('quality_category', 'Conformity'),
+                'table_name': table_name,
+                'matched_column': doors_col,
+                'original_column': rule.get('column_name_checked', 'ATINN_52'),
+            },
+        )
+        err_desc = (
+            'Door equivalent (to_decimal(number_of_doors,1,1)) does not match any '
+            'conf_cde_category_door_equivalent value for cde_category_code.'
+        )
+        error_df = validator._prepare_error_dataframe(work, error_mask, 'CONFORMITY', err_desc) if error_count > 0 else None
+        if error_df is not None and not error_df.empty:
+            error_df['LOOKUP_CDE_CATEGORY'] = work.loc[error_df.index, cat_col].map(norm_category_code).values
+            error_df['LOOKUP_NUMBER_OF_DOORS'] = [to_decimal_doors(v) for v in work.loc[error_df.index, doors_col].tolist()]
+            error_df['LOOKUP_ALLOWED_DOOR_EQ'] = error_df['LOOKUP_CDE_CATEGORY'].map(
+                lambda c: ', '.join(str(x) for x in sorted(matrix.get(c) or set()))
+            ).values
+            error_df['LOOKUP_EQUIPMENT_STATUS'] = work.loc[error_df.index, 'equipment_status_code'].map(norm_equipment_status).values
+            error_df['LOOKUP_ACCOUNT_GROUP'] = work.loc[error_df.index, ag_col].map(norm_block_code).values
+            error_df['DQ_RULE_CHECK_COLUMNS'] = (
+                f'dm_customer_equipment: AUSP ATINN_30/52 via INOB.CUOBJ vs '
+                f'{os.path.basename(matrix_path or "conf_cde_category_door_equivalent.json")}'
+            )
+
+        is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
+        if save_result:
+            rule_info = {
+                'rule_code': rule_code,
+                'rule_description': rule.get('rule_description', 'Unknown rule'),
+                'quality_category': rule.get('quality_category', 'Unknown'),
+                'table_name': table_name,
+                'original_column': rule.get('column_name_checked', 'ATINN_52'),
+                'matched_column': doors_col,
+            }
+            if self._parallel_lock:
+                with self._parallel_lock:
+                    self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                    if error_df is not None and not error_df.empty:
+                        self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+            else:
+                self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                if error_df is not None and not error_df.empty:
+                    self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        elif error_df is not None and not error_df.empty:
+            self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        print(f'      [RESULT] {rule_code}: evaluated={total_rows:,}, errors={error_count:,}')
+        return (error_count, total_rows)
 
     def _table_rules_need_kna1_enrich(self, table_name, table_rules) -> bool:
         tn = str(table_name or '').strip().upper()
