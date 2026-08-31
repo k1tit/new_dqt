@@ -36,7 +36,7 @@ try:
     from validators.logical_validator import LogicalValidator
     from utils.equipment_matrix_rules import (
         COOLER_STATUS_CODES,
-        cooler_scope_skip,
+        cooler_scope_skip_reason,
         eval_rcconf_278_1,
         eval_rcconf_342_1,
         eval_rcconf_342_2,
@@ -62,9 +62,16 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-08-28-dm-customer-equipment-joins'
+    CHECKER_BUILD_ID = '2026-08-28-equipment-completeness-fields'
     EQUIPMENT_COOLER_STATUS_MATRIX_RULES = frozenset({'RCCONF_342.1', 'RCCONF_342.2'})
     EQUIPMENT_DOOR_EQUIVALENT_MATRIX_RULES = frozenset({'RCCONF_278.1'})
+    # Completeness only: field empty → fail; scope cooler+status (not format/matrix rules)
+    EQUIPMENT_FIELD_COMPLETENESS_RULES = {
+        'RCCOMP_386.1': ('INBDT', 'installation_date'),
+        'RCCOMP_387.1': ('ANSDT', 'acquisition_date'),
+        'RCCOMP_389.1': ('TYPBZ', 'equipment_model'),
+        'RCCOMP_388.1': ('EQKTX', 'equipment_description'),
+    }
     # dm_customer_general hard scope: no central order block S (AUFSD)
     DM_CUSTOMER_GENERAL_AUFSD_EXCLUDE = frozenset({'S'})
     ADRC_TABLE_ALIASES = frozenset({'ADRC', 'DM_CUSTOMER_ADDRESS', '/LOT/GC_ADR', 'LOTGC_ADR', 'LOT_GC_ADR'})
@@ -915,15 +922,7 @@ class FastDataQualityChecker:
                 atinn_val = table_name.replace('AUSP_', '')
                 skip_reason = f'Таблица пуста (нет строк с ATINN={atinn_val} в AUSP)'
             elif tn_u == self.AUSP_EQUIPMENT_TABLE:
-                sqlite_n = None
-                try:
-                    sqlite_n = self.memory_manager._sqlite_table_row_count(self.AUSP_EQUIPMENT_TABLE)
-                except Exception:
-                    pass
-                skip_reason = (
-                    f'AUSP_EQUIPMENT пуста (SQLite COUNT={sqlite_n}); '
-                    f'нет ATINN 24/27/30/52 в AUSP — перезагрузите дамп оборудования'
-                )
+                skip_reason = self._ausp_equipment_empty_skip_reason()
             print(f'   \x1b[93m[WARN]\x1b[0m Таблица {table_name} пуста! Пропускаем...')
             if self._parallel_lock:
                 with self._parallel_lock:
@@ -1014,7 +1013,7 @@ class FastDataQualityChecker:
                 print(f'   [AUSP] Не удалось разбить по имени: колонки ATINN/ATWRT не найдены. Заголовки ({len(names)}): {names[:15]}{suffix}')
                 self._debug_ausp_columns(df.columns, table_name)
         elif (table_name or '').strip().upper() == self.AUSP_EQUIPMENT_TABLE:
-            print(f'   [AUSP_EQUIPMENT] ATINN {{24,27,30,52}} — отдельная таблица оборудования (не customer AUSP)')
+            print(f'   [AUSP_EQUIPMENT] обычная таблица оборудования (загрузка как JEST/V_EQUI, не customer AUSP)')
         if table_name in self.table_handlers:
             is_taxnum_table = str(table_name or '').strip().upper().startswith('DFKKBPTAXNUM')
             rule_codes_in_table = {str(r.get('rule_code') or '').strip() for r in table_rules or [] if r}
@@ -1233,6 +1232,8 @@ class FastDataQualityChecker:
             return self._process_equipment_cooler_status_matrix(rule_code, df, table_name, rule, save_result, timestamp)
         if rule_code in self.EQUIPMENT_DOOR_EQUIVALENT_MATRIX_RULES and tn == self.AUSP_EQUIPMENT_TABLE:
             return self._process_equipment_door_equivalent_matrix(rule_code, df, table_name, rule, save_result, timestamp)
+        if rule_code in self.EQUIPMENT_FIELD_COMPLETENESS_RULES and tn == 'V_EQUI':
+            return self._process_equipment_field_completeness(rule_code, df, table_name, rule, save_result, timestamp)
         if tn.startswith('DFKKBPTAXNUM'):
             handler_cls = self.table_handlers.get(table_name) or self.table_handlers.get(tn)
             if rule_code in self.TAXNUM_FORMAT_RULES and handler_cls is not None:
@@ -3387,9 +3388,6 @@ class FastDataQualityChecker:
             out.append('AUSP')
         if needs_ausp_equipment and self.AUSP_EQUIPMENT_TABLE not in [str(x).strip().upper() for x in out]:
             out.append(self.AUSP_EQUIPMENT_TABLE)
-            # fallback: если AUSP_EQUIPMENT нет в БД — slice из AUSP по ATINN 24/27/30/52
-            if 'AUSP' not in [str(x).strip().upper() for x in out]:
-                out.append('AUSP')
         if needs_ausp:
             if 'BUT000' not in [str(x).strip().upper() for x in out]:
                 out.append('BUT000')
@@ -3444,6 +3442,10 @@ class FastDataQualityChecker:
         rule_desc_lower = rule_description.lower()
         rule_code_raw = str(rule_info.get('rule_code', ''))
         rule_code = re.sub('[^A-Za-z0-9._-]', '', rule_code_raw).upper()
+        qc = str(quality_category or '').strip().lower()
+        # Explicit Completeness category → CompletenessValidator (field fill only)
+        if qc == 'completeness':
+            return CompletenessValidator(rule_info)
         if rule_code == 'RCCONF_24.1':
             return ConformityValidator(rule_info)
         if rule_code == 'RCCONF_119.2' or ('payment terms' in rule_desc_lower and 'knb1' in rule_desc_lower and ('knvv' in rule_desc_lower)):
@@ -3818,6 +3820,50 @@ class FastDataQualityChecker:
         )
         return filtered
 
+    def _ausp_equipment_empty_skip_reason(self) -> str:
+        """Подробная причина пустой AUSP_EQUIPMENT (обычная таблица, без AUSP-fallback)."""
+        in_sqlite = False
+        sqlite_n = None
+        try:
+            in_sqlite = bool(self.memory_manager.db_has_table(self.AUSP_EQUIPMENT_TABLE))
+        except Exception:
+            in_sqlite = False
+        try:
+            sqlite_n = self.memory_manager._sqlite_table_row_count(self.AUSP_EQUIPMENT_TABLE)
+        except Exception:
+            sqlite_n = None
+        ram_n = 0
+        try:
+            df = self.memory_manager.get_table(self.AUSP_EQUIPMENT_TABLE)
+            ram_n = 0 if df is None else len(df)
+        except Exception:
+            ram_n = 0
+        if not in_sqlite or sqlite_n is None:
+            return (
+                'AUSP_EQUIPMENT нет в SQLite (таблица не создана). '
+                'Загрузите как обычную таблицу: меню 1 или 3 — файл db/AUSP_EQUIPMENT.xlsx '
+                'или папка db/AUSP_EQUIPMENT/*.xlsx (не пункт 4 AUSP по ATINN).'
+            )
+        return (
+            f'AUSP_EQUIPMENT в SQLite пуста (COUNT(*)={sqlite_n}, RAM={ram_n}). '
+            f'Перезалейте дамп обычной загрузкой (меню 1/3): db/AUSP_EQUIPMENT.xlsx '
+            f'или db/AUSP_EQUIPMENT/*.xlsx. Customer AUSP (папки ATINN) сюда не подмешивается.'
+        )
+
+    def _summarize_cooler_scope_skips(self, reasons: list[str], *, n_input: int, rule_code: str, extras: str = '') -> str:
+        from collections import Counter
+        cnt = Counter([r for r in reasons if r])
+        parts = [f'{k}={v}' for k, v in cnt.most_common()]
+        breakdown = '; '.join(parts) if parts else 'нет детализации'
+        extra = f' {extras}' if extras else ''
+        return (
+            f'{rule_code}: нет строк в cooler scope после фильтров '
+            f'(вход={n_input:,}, все пропущены). Причины: {breakdown}.{extra} '
+            f'Нужны: V_EQUI (DATBI open, KUNDE NOT NULL, EQART=COOLER, TYPBZ), '
+            f'JEST INACT!=X + TJ30T STSMA=CSEQ01→TXT04 in {sorted(COOLER_STATUS_CODES)}, '
+            f'KNA1.KTOKD not LIKE 7%.'
+        )
+
     def _get_vequi_equipment_attrs_lookup(self) -> dict:
         """OBJNR/EQUNR -> {model, cde_type, kunde, matnr, objnr, equnr} after DM filters."""
         cached = getattr(self, '_vequi_equipment_attrs_lookup', None)
@@ -4007,6 +4053,170 @@ class FastDataQualityChecker:
             out = self._add_account_group_code_from_kna1(out, table_name, rule_code)
         return out
 
+    def _equipment_field_is_empty(self, v) -> bool:
+        """True if field is missing for Completeness (incl. SAP zero-dates 00000000)."""
+        if v is None:
+            return True
+        try:
+            if isinstance(v, float) and pd.isna(v):
+                return True
+        except Exception:
+            pass
+        s = str(v).replace('\ufeff', '').replace('\xa0', ' ').strip()
+        if not s or s.lower() in ('none', 'null', 'nan', '<na>', 'nat', 'n/a', 'na'):
+            return True
+        # SAP date / numeric empty
+        digits = re.sub(r'\D', '', s)
+        if digits and set(digits) <= {'0'}:
+            return True
+        if re.fullmatch(r'-?0+(?:[.,]0+)?', s.replace(' ', '')):
+            return True
+        return False
+
+    def _scope_vequi_cooler_population(self, df, rule_code):
+        """
+        Population for equipment Completeness: V_EQUI dm filter + EQART=COOLER + status in cooler set.
+        Returns (scoped_df, skip_reason_or_None). Does NOT check target field fill.
+        """
+        if df is None or df.empty:
+            return (df, f'{rule_code}: V_EQUI пуста')
+        work = df.copy()
+        # Prefer dm-filtered attrs already on frame; else enrich from lookup
+        cde_col = self._find_col_by_names(work, ('EQART', 'cde_type', 'CDE_TYPE'))
+        model_col = self._find_col_by_names(work, ('TYPBZ', 'equipment_model'))
+        objnr_col = self._find_col_by_names(work, ('OBJNR',))
+        equnr_col = self._find_col_by_names(work, ('EQUNR', 'Equipment'))
+
+        # Apply DATBI/KUNDE via dm frame keys if possible
+        dm = self._get_vequi_dm_frame()
+        if dm is not None and not dm.empty and equnr_col:
+            dm_eq = self._find_col_by_names(dm, ('EQUNR', 'Equipment'))
+            if dm_eq:
+                allowed = set(dm[dm_eq].apply(self._norm_equipment_join_key).tolist())
+                keys = work[equnr_col].apply(self._norm_equipment_join_key)
+                before = len(work)
+                work = work.loc[keys.isin(allowed)].copy()
+                print(f'      [FILTER] {rule_code}: V_EQUI dm (DATBI/KUNDE/SPRAS) -> {len(work):,}/{before:,}')
+                if work.empty:
+                    return (work, f'{rule_code}: нет строк V_EQUI после dm_customer_equipment (DATBI open, KUNDE NOT NULL)')
+
+        if not cde_col:
+            # attach from attrs lookup
+            attrs = self._get_vequi_equipment_attrs_lookup()
+            key_col = objnr_col or equnr_col
+            if key_col:
+                keys_full = work[key_col].apply(norm_objnr) if objnr_col and key_col == objnr_col else work[key_col].apply(self._norm_equipment_join_key)
+                keys_eq = work[key_col].apply(self._norm_equipment_join_key)
+                work['cde_type'] = [
+                    (attrs.get(keys_full.loc[i]) or attrs.get(keys_eq.loc[i]) or {}).get('cde_type')
+                    for i in work.index
+                ]
+                cde_col = 'cde_type'
+            else:
+                return (work, f'{rule_code}: нет EQART/cde_type и нет ключа EQUNR/OBJNR')
+        else:
+            work['cde_type'] = work[cde_col]
+
+        status_lookup = self._get_jest_status_lookup()
+        if objnr_col:
+            work['equipment_status_code'] = work[objnr_col].map(
+                lambda v: status_lookup.get(norm_objnr(v)) or status_lookup.get(self._norm_equipment_join_key(v), '')
+            )
+        elif equnr_col:
+            work['equipment_status_code'] = work[equnr_col].map(
+                lambda v: status_lookup.get(self._norm_equipment_join_key(v), '')
+            )
+        else:
+            return (work, f'{rule_code}: нет OBJNR/EQUNR для статуса JEST+TJ30T')
+
+        before = len(work)
+        cde_ok = work['cde_type'].map(norm_cde_type) == 'COOLER'
+        st_ok = work['equipment_status_code'].map(norm_equipment_status).isin(COOLER_STATUS_CODES)
+        scoped = work.loc[cde_ok & st_ok].copy()
+        print(
+            f'      [FILTER] {rule_code}: cooler scope EQART=COOLER + status in '
+            f'{sorted(COOLER_STATUS_CODES)} -> {len(scoped):,}/{before:,} '
+            f'(cde_ok={int(cde_ok.sum()):,}, status_ok={int(st_ok.sum()):,})'
+        )
+        if scoped.empty:
+            return (
+                scoped,
+                f'{rule_code}: нет cooler population (EQART=COOLER и status in '
+                f'{sorted(COOLER_STATUS_CODES)}; вход={before:,}, cde_ok={int(cde_ok.sum()):,}, '
+                f'status_ok={int(st_ok.sum()):,}, TJ30T map={len(self._get_tj30t_estat_txt04_map() or {}):,})',
+            )
+        return (scoped, None)
+
+    def _process_equipment_field_completeness(self, rule_code, df, table_name, rule, save_result, timestamp):
+        """
+        RCCOMP_386.1 / 387.1 / 389.1 / 388.1 — только заполненность поля.
+        Не Conformity/format/matrix: после cooler scope → empty(field) = error.
+        """
+        col_hint, logical = self.EQUIPMENT_FIELD_COMPLETENESS_RULES[rule_code]
+        work, skip = self._scope_vequi_cooler_population(df, rule_code)
+        if skip:
+            self._log_skipped_rule(rule, table_name, skip, timestamp)
+            return (0, 0)
+
+        field_col = self._find_col_by_names(work, (col_hint, logical, rule.get('column_name_checked') or col_hint))
+        if not field_col or field_col not in work.columns:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: колонка {col_hint} ({logical}) не найдена в V_EQUI (cols: {list(work.columns)[:12]})',
+                timestamp,
+            )
+            return (0, 0)
+
+        empty_mask = work[field_col].apply(self._equipment_field_is_empty)
+        total_rows = len(work)
+        error_count = int(empty_mask.sum())
+        print(
+            f'      [COMPLETENESS] {rule_code}: поле [{field_col}] ({logical}) — '
+            f'пусто={error_count:,} / оценено={total_rows:,} (только cooler scope)'
+        )
+
+        validator = CompletenessValidator({
+            'rule_code': rule_code,
+            'rule_description': rule.get('rule_description', ''),
+            'quality_category': 'Completeness',
+            'table_name': table_name,
+            'matched_column': field_col,
+            'original_column': col_hint,
+        })
+        err_desc = f'Missing value in column {field_col} ({logical})'
+        error_df = validator._prepare_error_dataframe(work, empty_mask, 'COMPLETENESS', err_desc) if error_count > 0 else None
+        if error_df is not None and not error_df.empty:
+            error_df['LOOKUP_CDE_TYPE'] = work.loc[error_df.index, 'cde_type'].map(norm_cde_type).values
+            error_df['LOOKUP_EQUIPMENT_STATUS'] = work.loc[error_df.index, 'equipment_status_code'].map(norm_equipment_status).values
+            error_df['DQ_RULE_CHECK_COLUMNS'] = (
+                f'Completeness only: V_EQUI.[{field_col}] IS NULL (after EQART=COOLER + JEST/TJ30T status scope). '
+                f'No format/matrix checks.'
+            )
+
+        is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
+        if save_result:
+            rule_info = {
+                'rule_code': rule_code,
+                'rule_description': rule.get('rule_description', 'Unknown rule'),
+                'quality_category': 'Completeness',
+                'table_name': table_name,
+                'original_column': col_hint,
+                'matched_column': field_col,
+            }
+            if self._parallel_lock:
+                with self._parallel_lock:
+                    self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                    if error_df is not None and not error_df.empty:
+                        self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+            else:
+                self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                if error_df is not None and not error_df.empty:
+                    self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        elif error_df is not None and not error_df.empty:
+            self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        print(f'      [RESULT] {rule_code}: evaluated={total_rows:,}, missing={error_count:,}')
+        return (error_count, total_rows)
+
     def _process_equipment_cooler_status_matrix(self, rule_code, df, table_name, rule, save_result, timestamp):
         """RCCONF_342.1 / 342.2: dm path JEST(INACT!=X)+TJ30T × V_EQUI.KUNDE → KNA1.AUFSD."""
         allowed, no_cooler, matrix_path = load_cooler_status_matrix()
@@ -4043,14 +4253,24 @@ class FastDataQualityChecker:
         print(f'      [DEBUG] {rule_code}: dm_customer_equipment joins; matrix={matrix_path}')
         print(f'      [DEBUG] {rule_code}: status=TJ30T.TXT04 via JEST.[{stat_col}], block={ob_col}, ag={ag_col}')
 
+        n_jest_in = len(df)
+        n_active = len(work)
+        vequi_hit = int(sum(
+            1 for v in work['equipment_model'].tolist()
+            if str(v or '').strip() not in ('', 'nan', 'None', 'NaN', '<NA>')
+        ))
+        tj_map_n = len(self._get_tj30t_estat_txt04_map() or {})
         results = []
+        skip_reasons = []
         for idx in work.index:
             model = work.at[idx, 'equipment_model']
             cde = work.at[idx, 'cde_type']
             status = work.at[idx, status_col]
             ag = work.at[idx, ag_col]
             block = work.at[idx, ob_col]
-            if cooler_scope_skip(model=model, cde_type=cde, status=status, account_group=ag, require_model=True):
+            why = cooler_scope_skip_reason(model=model, cde_type=cde, status=status, account_group=ag, require_model=True)
+            if why:
+                skip_reasons.append(why)
                 results.append(None)
                 continue
             if rule_code == 'RCCONF_342.2':
@@ -4062,7 +4282,13 @@ class FastDataQualityChecker:
         evaluated_mask = result_s.notna()
         total_rows = int(evaluated_mask.sum())
         if total_rows == 0:
-            self._log_skipped_rule(rule, table_name, f'Нет записей для оценки {rule_code} после skip-условий cooler scope', timestamp)
+            extras = (
+                f'JEST вход={n_jest_in:,}, после INACT!=X={n_active:,}, '
+                f'V_EQUI model заполнен={vequi_hit:,}, TJ30T CSEQ01 map={tj_map_n:,}.'
+            )
+            msg = self._summarize_cooler_scope_skips(skip_reasons, n_input=n_active, rule_code=rule_code, extras=extras)
+            print(f'      [SKIP] {msg}')
+            self._log_skipped_rule(rule, table_name, msg, timestamp)
             return (0, 0)
         error_mask = evaluated_mask & (result_s == '0')
         error_count = int(error_mask.sum())
@@ -4197,8 +4423,9 @@ class FastDataQualityChecker:
         print(f'      [DEBUG] {rule_code}: dm path INOB+V_EQUI+JEST+TJ30T; matrix={matrix_path}; rows={len(work):,}')
 
         results = []
+        skip_reasons = []
         for idx in work.index:
-            if cooler_scope_skip(
+            why = cooler_scope_skip_reason(
                 model=work.at[idx, 'equipment_model'],
                 cde_type=work.at[idx, 'cde_type'],
                 status=work.at[idx, 'equipment_status_code'],
@@ -4208,7 +4435,9 @@ class FastDataQualityChecker:
                 category=work.at[idx, cat_col],
                 require_doors=True,
                 require_category=True,
-            ):
+            )
+            if why:
+                skip_reasons.append(why)
                 results.append(None)
                 continue
             results.append(eval_rcconf_278_1(work.at[idx, cat_col], work.at[idx, doors_col], matrix))
@@ -4217,7 +4446,13 @@ class FastDataQualityChecker:
         evaluated_mask = result_s.notna()
         total_rows = int(evaluated_mask.sum())
         if total_rows == 0:
-            self._log_skipped_rule(rule, table_name, f'Нет записей для оценки {rule_code} после skip-условий cooler scope', timestamp)
+            extras = (
+                f'pivot rows={len(work):,}, INOB→V_EQUI model filled='
+                f'{int(sum(1 for v in work["equipment_model"].tolist() if str(v or "").strip() not in ("", "nan", "None", "NaN", "<NA>"))):,}.'
+            )
+            msg = self._summarize_cooler_scope_skips(skip_reasons, n_input=len(work), rule_code=rule_code, extras=extras)
+            print(f'      [SKIP] {msg}')
+            self._log_skipped_rule(rule, table_name, msg, timestamp)
             return (0, 0)
         error_mask = evaluated_mask & (result_s == '0')
         error_count = int(error_mask.sum())

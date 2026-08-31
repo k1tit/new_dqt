@@ -168,6 +168,38 @@ def norm_cde_type(v: Any) -> str:
     return norm_block_code(v)
 
 
+def cooler_scope_skip_reason(
+    *,
+    model: Any,
+    cde_type: Any,
+    status: Any,
+    account_group: Any,
+    require_model: bool = True,
+    doors: Any = None,
+    category: Any = None,
+    require_doors: bool = False,
+    require_category: bool = False,
+) -> str | None:
+    """None = in scope; otherwise human-readable skip reason."""
+    if require_model and _blank_text(model):
+        return 'equipment_model IS NULL'
+    ct = norm_cde_type(cde_type)
+    if ct != 'COOLER':
+        return f"cde_type!='COOLER' (got '{ct or 'NULL'}')"
+    st = norm_equipment_status(status)
+    if not st:
+        return 'equipment_status_code IS NULL'
+    if st not in COOLER_STATUS_CODES:
+        return f'equipment_status_code not in {sorted(COOLER_STATUS_CODES)} (got {st!r})'
+    if account_group_like_7pct(account_group):
+        return f"account_group_code LIKE '7%' (got '{norm_block_code(account_group)}')"
+    if require_doors and to_decimal_doors(doors) is None:
+        return 'number_of_doors IS NULL'
+    if require_category and not norm_category_code(category):
+        return 'cde_category_code IS NULL'
+    return None
+
+
 def cooler_scope_skip(
     *,
     model: Any,
@@ -181,20 +213,17 @@ def cooler_scope_skip(
     require_category: bool = False,
 ) -> bool:
     """True → rule returns '' (out of scope)."""
-    if require_model and _blank_text(model):
-        return True
-    if norm_cde_type(cde_type) != 'COOLER':
-        return True
-    st = norm_equipment_status(status)
-    if not st or st not in COOLER_STATUS_CODES:
-        return True
-    if account_group_like_7pct(account_group):
-        return True
-    if require_doors and to_decimal_doors(doors) is None:
-        return True
-    if require_category and not norm_category_code(category):
-        return True
-    return False
+    return cooler_scope_skip_reason(
+        model=model,
+        cde_type=cde_type,
+        status=status,
+        account_group=account_group,
+        require_model=require_model,
+        doors=doors,
+        category=category,
+        require_doors=require_doors,
+        require_category=require_category,
+    ) is not None
 
 
 def eval_rcconf_342_1(

@@ -444,7 +444,7 @@ class MemoryManager:
         return df.loc[mask].copy()
 
     def _ensure_ausp_equipment_table(self):
-        """Гарантировать AUSP_EQUIPMENT в cache: SQLite → (если пусто) slice из AUSP."""
+        """Загрузить AUSP_EQUIPMENT из SQLite как обычную таблицу (без fallback из customer AUSP)."""
         def _cached_eq():
             for k in list(self.data_cache.keys()):
                 if str(k).strip().upper() == self.AUSP_EQUIPMENT_TABLE:
@@ -458,37 +458,27 @@ class MemoryManager:
             return
 
         sqlite_n = self._sqlite_table_row_count(self.AUSP_EQUIPMENT_TABLE)
-        if sqlite_n is not None:
-            self.ensure_table_loaded(self.AUSP_EQUIPMENT_TABLE, reload_if_empty=True)
-            df_eq = _cached_eq()
-            if df_eq is not None and not df_eq.empty:
-                self.data_cache[self.AUSP_EQUIPMENT_TABLE] = df_eq
-                print(f'   {_term("INFO")} AUSP_EQUIPMENT: из SQLite {len(df_eq):,} строк (COUNT(*)={sqlite_n:,})')
-                return
+        if sqlite_n is None:
             print(
-                f'   {_term("WARNING")} AUSP_EQUIPMENT в SQLite пуста (COUNT(*)={sqlite_n}) — '
-                f'пробуем ATINN 24/27/30/52 из customer AUSP'
+                f'   {_term("WARNING")} AUSP_EQUIPMENT нет в SQLite. '
+                f'Загрузите обычной загрузкой (меню 1/3): db/AUSP_EQUIPMENT.xlsx или папка db/AUSP_EQUIPMENT/'
             )
-        else:
-            print(f'   {_term("WARNING")} AUSP_EQUIPMENT нет в SQLite — пробуем fallback из AUSP')
+            if self.AUSP_EQUIPMENT_TABLE not in self.data_cache:
+                self.data_cache[self.AUSP_EQUIPMENT_TABLE] = pd.DataFrame()
+            return
 
-        if self._get_ausp_cache_key() is None and self.db_has_table(self.AUSP_LOAD_NAME):
-            self.ensure_table_loaded(self.AUSP_LOAD_NAME)
-
-        slice_df = self._slice_ausp_equipment_from_customer_ausp()
-        if slice_df is not None and not slice_df.empty:
-            self.data_cache[self.AUSP_EQUIPMENT_TABLE] = slice_df
-            print(
-                f'   {_term("INFO")} AUSP_EQUIPMENT: fallback из AUSP '
-                f'(ATINN in {{24,27,30,52}}): {len(slice_df):,} строк'
-            )
+        self.ensure_table_loaded(self.AUSP_EQUIPMENT_TABLE, reload_if_empty=True)
+        df_eq = _cached_eq()
+        if df_eq is not None and not df_eq.empty:
+            self.data_cache[self.AUSP_EQUIPMENT_TABLE] = df_eq
+            print(f'   {_term("INFO")} AUSP_EQUIPMENT: из SQLite {len(df_eq):,} строк (COUNT(*)={sqlite_n:,})')
             return
 
         if self.AUSP_EQUIPMENT_TABLE not in self.data_cache:
-            self.data_cache[self.AUSP_EQUIPMENT_TABLE] = slice_df if slice_df is not None else pd.DataFrame()
+            self.data_cache[self.AUSP_EQUIPMENT_TABLE] = pd.DataFrame()
         print(
-            f'   {_term("WARNING")} AUSP_EQUIPMENT пуста: в SQLite 0 строк и в AUSP нет ATINN 24/27/30/52. '
-            f'Перезагрузите дамп в таблицу AUSP_EQUIPMENT (меню загрузки).'
+            f'   {_term("WARNING")} AUSP_EQUIPMENT в SQLite пуста (COUNT(*)={sqlite_n}). '
+            f'Перезалейте дамп меню 1/3 (обычная таблица, не пункт 4 AUSP).'
         )
 
     def _get_dfkkbptaxnum_taxtype_column(self, df):
