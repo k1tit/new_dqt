@@ -3667,15 +3667,90 @@ class FastDataQualityChecker:
         print(f'      [CACHE] V_EQUI EQUNR->SWERK lookup: {len(lookup):,} keys (via [{equnr_col}]->[{swerk_col}])')
         return lookup
 
+    def _get_vequi_matnr_swerk_lookup(self) -> dict:
+        """MATNR -> SWERK from V_EQUI (for AUSP/INOB plant scope)."""
+        cached = getattr(self, '_vequi_matnr_swerk_lookup', None)
+        if cached is not None:
+            return cached
+        vequi = None
+        if hasattr(self, 'memory_manager'):
+            vequi = self.memory_manager.get_table('V_EQUI')
+        if (vequi is None or vequi.empty) and hasattr(self, 'memory_manager'):
+            try:
+                self.memory_manager.ensure_table_loaded('V_EQUI', reload_if_empty=True)
+                vequi = self.memory_manager.get_table('V_EQUI')
+            except Exception:
+                vequi = None
+        lookup = {}
+        if vequi is None or vequi.empty:
+            self._vequi_matnr_swerk_lookup = lookup
+            return lookup
+        mapped = self._apply_rule_time_column_map(vequi.copy(), 'V_EQUI')
+        swerk_col = self._find_swerk_column(mapped)
+        matnr_col = self._find_col_by_names(mapped, ('MATNR', 'MZATNR', 'MATERIAL'))
+        if not swerk_col or not matnr_col:
+            print(f'      [WARN] V_EQUI: нет MATNR/SWERK для AUSP plant scope')
+            self._vequi_matnr_swerk_lookup = lookup
+            return lookup
+        for mat, sw in zip(mapped[matnr_col].tolist(), mapped[swerk_col].tolist()):
+            m = str(mat or '').strip()
+            if not m:
+                continue
+            for k in (m, ltrim_zeros(m)):
+                if k and k not in lookup:
+                    lookup[k] = sw
+        self._vequi_matnr_swerk_lookup = lookup
+        print(f'      [CACHE] V_EQUI MATNR->SWERK: {len(lookup):,} keys (via [{matnr_col}]->[{swerk_col}])')
+        return lookup
+
+    def _attach_swerk_from_vequi_via_inob(self, df, table_name, rule_code):
+        """AUSP.OBJEK (CUOBJ) -LTRIM-> INOB.CUOBJ -> MATNR -> V_EQUI.SWERK."""
+        if df is None or df.empty:
+            return df
+        if self._find_swerk_column(df):
+            return df
+        objek_col = self._find_col_by_names(df, ('OBJEK', 'CUOBJ', 'EQUNR', 'OBJNR'))
+        if not objek_col:
+            print(f'      [WARN] {rule_code}: {table_name}: нет OBJEK для INOB→V_EQUI.SWERK')
+            return df
+        cu_to_mat = self._get_inob_cuobj_to_matnr()
+        mat_to_sw = self._get_vequi_matnr_swerk_lookup()
+        if not cu_to_mat:
+            print(f'      [WARN] {rule_code}: INOB CUOBJ→MATNR пуст — SWERK для AUSP не подтянуть')
+            return df
+        if not mat_to_sw:
+            print(f'      [WARN] {rule_code}: V_EQUI MATNR→SWERK пуст — plant scope не применён')
+            return df
+        out = df.copy()
+        cu_keys = out[objek_col].apply(ltrim_zeros)
+        mats = cu_keys.map(lambda c: cu_to_mat.get(c) or cu_to_mat.get(str(c or '').strip()) or '')
+        def _sw(m):
+            if not m:
+                return ''
+            return mat_to_sw.get(str(m).strip()) or mat_to_sw.get(ltrim_zeros(m)) or ''
+        out['SWERK'] = mats.map(_sw)
+        filled = self._non_empty_key_count(out['SWERK'])
+        in_scope = int(out['SWERK'].apply(self._swerk_in_equipment_scope).sum())
+        print(
+            f'      [JOIN] {rule_code}: {table_name}.[{objek_col}] -LTRIM-> INOB -> MATNR -> V_EQUI.SWERK: '
+            f'заполнено {filled:,}/{len(out):,}, в scope 36/38/39={in_scope:,}'
+        )
+        return out
+
     def _attach_swerk_from_vequi(self, df, table_name, rule_code):
-        """Если SWERK нет на df — подтянуть из V_EQUI по EQUNR/OBJEK/OBJNR."""
+        """Если SWERK нет на df — подтянуть из V_EQUI.
+        AUSP_EQUIPMENT: OBJEK=CUOBJ → INOB → MATNR → SWERK.
+        JEST/прочее: EQUNR/OBJNR → SWERK.
+        """
         if df is None or df.empty:
             return df
         if self._find_swerk_column(df):
             return df
         tn = str(table_name or '').strip().upper()
+        if tn == self.AUSP_EQUIPMENT_TABLE or (tn.startswith('AUSP_') and tn != 'AUSP'):
+            return self._attach_swerk_from_vequi_via_inob(df, table_name, rule_code)
         key_col = None
-        for name in ('EQUNR', 'OBJEK', 'OBJNR', 'Equipment', 'EQUIPMENT'):
+        for name in ('EQUNR', 'OBJNR', 'OBJEK', 'Equipment', 'EQUIPMENT'):
             hit = next((c for c in df.columns if str(c).strip().upper() == name.upper()), None)
             if hit and self._non_empty_key_count(df[hit]) > 0:
                 key_col = hit
@@ -3722,6 +3797,13 @@ class FastDataQualityChecker:
             f'      [FILTER] {rule_code}: equipment SWERK LIKE 36%/38%/39% '
             f'-> {len(kept):,} из {before:,} (отброшено {before - len(kept):,})'
         )
+        if kept.empty and before > 0:
+            filled = self._non_empty_key_count(out[swerk_col])
+            print(
+                f'      [WARN] {rule_code}: после SWERK filter 0 строк '
+                f'(SWERK заполнен у {filled:,}/{before:,}; нужен V_EQUI.SWERK 36*/38*/39* '
+                f'через INOB для AUSP_EQUIPMENT)'
+            )
         return kept
 
     def _find_col_by_names(self, df, names):
