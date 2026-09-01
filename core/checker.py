@@ -7681,16 +7681,16 @@ class FastDataQualityChecker:
                         status_color = result.get('status_color', '')
                         if status_color == 'green':
                             cell.fill = self.colors['green']
-                            cell.font = Font(color='FFFFFF', bold=True)
+                            cell.font = Font(color='000000', bold=True)
                         elif status_color == 'red':
                             cell.fill = self.colors['red']
-                            cell.font = Font(color='FFFFFF', bold=True)
+                            cell.font = Font(color='000000', bold=True)
                         elif status_color == 'orange':
                             cell.fill = self.colors['orange']
-                            cell.font = Font(color='FFFFFF', bold=True)
+                            cell.font = Font(color='000000', bold=True)
                         elif status_color == 'dark_red':
                             cell.fill = self.colors['dark_red']
-                            cell.font = Font(color='FFFFFF', bold=True)
+                            cell.font = Font(color='000000', bold=True)
                     elif col_num == 9:
                         failed_count = result.get('failed', 0)
                         if failed_count == 0:
