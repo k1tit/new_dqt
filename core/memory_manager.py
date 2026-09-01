@@ -44,7 +44,16 @@ class MemoryManager:
         '/LOT/GC_ADR': 'LOTGC_ADR',
         'ZBUT0000P3VVI9': 'ZBUT0000P3VVI9_CRM',
         'AUSP_EQUIPMENT': 'AUSP_EQUIPMEN',
+        'TJ30T': 'TJ30J',
     }
+    TJ30T_TABLE = 'TJ30T'
+    TJ30T_PHYSICAL_ALIASES = (
+        'TJ30T',
+        'TJ30J',
+        'TJ30',
+        'T30T',
+        'TJ30_T',
+    )
     AUSP_LOAD_NAME = 'AUSP'
     # drop_duplicates на load для таблиц больше порога — дорого и редко нужно (есть спец. дедуп)
     DROP_DUPES_MAX_ROWS = 500_000
@@ -267,6 +276,24 @@ class MemoryManager:
                     best_len = len(tu)
         return best
 
+    def _is_tj30t_name(self, name) -> bool:
+        u = str(name or '').strip().upper()
+        return u in {a.upper() for a in self.TJ30T_PHYSICAL_ALIASES} or u == self.TJ30T_TABLE
+
+    def _find_tj30t_physical(self, all_in_db=None):
+        if all_in_db is None:
+            all_in_db = self._get_all_table_names()
+        by_upper = {str(t).strip().upper(): t for t in all_in_db}
+        for alias in self.TJ30T_PHYSICAL_ALIASES:
+            hit = by_upper.get(str(alias).strip().upper())
+            if hit:
+                return hit
+        for t in all_in_db:
+            tu = str(t).strip().upper()
+            if tu.startswith('TJ30') and 'T' in tu[4:]:
+                return t
+        return None
+
     def _find_table_in_db(self, logical_name, all_in_db=None):
         if all_in_db is None:
             all_in_db = self._get_all_table_names()
@@ -280,6 +307,10 @@ class MemoryManager:
             found_eq = self._find_ausp_equipment_physical(all_in_db)
             if found_eq:
                 return found_eq
+        if self._is_tj30t_name(logical_upper) or logical_upper == self.TJ30T_TABLE:
+            found_tj = self._find_tj30t_physical(all_in_db)
+            if found_tj:
+                return found_tj
         alias_physical = self.TABLE_NAME_ALIASES.get(logical_name) or self.TABLE_NAME_ALIASES.get(logical_upper)
         if alias_physical:
             want = str(alias_physical).strip().upper()
@@ -314,6 +345,12 @@ class MemoryManager:
                     self.data_cache[self.AUSP_EQUIPMENT_TABLE] = df
                     print(f'   {_term("INFO")} alias {key} → {self.AUSP_EQUIPMENT_TABLE} ({len(df):,} строк)')
                     break
+        if self.TJ30T_TABLE not in self.data_cache:
+            for key, df in list(self.data_cache.items()):
+                if df is not None and self._is_tj30t_name(key):
+                    self.data_cache[self.TJ30T_TABLE] = df
+                    print(f'   {_term("INFO")} alias {key} → {self.TJ30T_TABLE} ({len(df):,} строк)')
+                    break
         if 'ZBUT0000P3VVI9' not in self.data_cache:
             for key, df in self.data_cache.items():
                 ku = str(key).strip().upper()
@@ -334,6 +371,10 @@ class MemoryManager:
             self.data_cache[self.AUSP_EQUIPMENT_TABLE] = df
             if str(table_name).strip().upper() != self.AUSP_EQUIPMENT_TABLE:
                 print(f'   {_term("INFO")} {table_name} зарегистрирована как {self.AUSP_EQUIPMENT_TABLE}')
+        if self._is_tj30t_name(table_name):
+            self.data_cache[self.TJ30T_TABLE] = df
+            if str(table_name).strip().upper() != self.TJ30T_TABLE:
+                print(f'   {_term("INFO")} {table_name} зарегистрирована как {self.TJ30T_TABLE}')
 
     def _collect_tables_to_load(self, table_names: list, add_reference_tables: bool=True):
         if not table_names:
@@ -1031,6 +1072,12 @@ class MemoryManager:
                     df = self.data_cache[k]
                     cache_key = k
                     break
+        if df is None and self._is_tj30t_name(requested_upper):
+            for k in self.data_cache:
+                if self._is_tj30t_name(k):
+                    df = self.data_cache[k]
+                    cache_key = k
+                    break
         if df is None and requested_upper == 'ZBUT0000P3VVI9':
             for k in self.data_cache:
                 if str(k).strip().upper().startswith('ZBUT0000P3VVI9'):
@@ -1058,6 +1105,10 @@ class MemoryManager:
         if self._is_ausp_equipment_name(requested_upper):
             for k in self.data_cache:
                 if self._is_ausp_equipment_name(k):
+                    return True
+        if self._is_tj30t_name(requested_upper):
+            for k in self.data_cache:
+                if self._is_tj30t_name(k):
                     return True
         if requested_upper == 'ZBUT0000P3VVI9':
             for k in self.data_cache:

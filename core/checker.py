@@ -3762,23 +3762,72 @@ class FastDataQualityChecker:
         return self._apply_rule_time_column_map(df.copy(), tn)
 
     def _get_tj30t_estat_txt04_map(self) -> dict:
-        """TJ30T: SPRAS=E STSMA=CSEQ01 → ESTAT→TXT04 (equipment_status_code)."""
+        """TJ30T (или alias TJ30J): SPRAS=E STSMA=CSEQ01 → ESTAT→TXT04."""
         cached = getattr(self, '_tj30t_estat_txt04_map', None)
         if cached is not None:
             return cached
+        physical = None
+        try:
+            if hasattr(self.memory_manager, '_find_tj30t_physical'):
+                physical = self.memory_manager._find_tj30t_physical()
+        except Exception:
+            physical = None
         tj = self._load_table_for_equipment('TJ30T')
+        if (tj is None or tj.empty) and physical:
+            tj = self._load_table_for_equipment(physical)
         if tj is None or tj.empty:
             self._tj30t_estat_txt04_map = {}
-            print('      [WARN] TJ30T пуста — status останется как JEST.STAT (ожидается TXT04 через CSEQ01)')
+            hint = f' (в БД есть {physical})' if physical else ''
+            near = ''
+            try:
+                all_names = self.memory_manager._get_all_table_names()
+                near_list = [n for n in all_names if str(n).upper().startswith('TJ30')]
+                if near_list:
+                    near = f'; похожие таблицы: {near_list}'
+            except Exception:
+                pass
+            print(
+                f'      [WARN] TJ30T пуста/не найдена{hint}{near} — '
+                f'нужна TJ30T (ESTAT, TXT04, STSMA=CSEQ01, SPRAS=E), не путать с TJ30J если структура другая'
+            )
             return self._tj30t_estat_txt04_map
+
+        src = physical or 'TJ30T'
+        if physical and str(physical).upper() != 'TJ30T':
+            print(f'      [INFO] TJ30T: используем alias {physical} ({len(tj):,} строк)')
+
         spras_col = self._find_col_by_names(tj, ('SPRAS', 'LANGU', 'LANGUAGE'))
         stsma_col = self._find_col_by_names(tj, ('STSMA', 'STATUS_PROFILE'))
         estat_col = self._find_col_by_names(tj, ('ESTAT', 'STAT', 'STATUS'))
         txt_col = self._find_col_by_names(tj, ('TXT04', 'TXT30', 'equipment_status_code', 'STATUS_TEXT'))
+        print(
+            f'      [DEBUG] {src} cols: SPRAS={spras_col}, STSMA={stsma_col}, '
+            f'ESTAT={estat_col}, TXT={txt_col}; rows={len(tj):,}'
+        )
+        if not estat_col or not txt_col:
+            self._tj30t_estat_txt04_map = {}
+            print(f'      [WARN] {src}: нет ESTAT/TXT04 — map=0. Нужны колонки ESTAT + TXT04.')
+            return self._tj30t_estat_txt04_map
+
         filtered = filter_tj30t_dm(tj, spras_col=spras_col, stsma_col=stsma_col)
+        stage = 'SPRAS=E + STSMA=CSEQ01'
+        if filtered is None or filtered.empty:
+            # fallback: only STSMA
+            if stsma_col:
+                filtered = tj.loc[tj[stsma_col].astype(str).str.strip().str.upper() == 'CSEQ01'].copy()
+                stage = 'STSMA=CSEQ01 (без SPRAS)'
+            if filtered is None or filtered.empty:
+                filtered = tj.copy()
+                stage = 'без фильтра (весь dump)'
+                print(f'      [WARN] {src}: после CSEQ01/SPRAS пусто — пробуем все строки')
+
         mapping = build_estat_to_txt04(filtered, estat_col=estat_col, txt_col=txt_col)
         self._tj30t_estat_txt04_map = mapping
-        print(f'      [CACHE] TJ30T CSEQ01 ESTAT→TXT04: {len(mapping):,} (SPRAS=E)')
+        cooler_hits = sum(1 for v in mapping.values() if str(v).upper() in COOLER_STATUS_CODES)
+        print(
+            f'      [CACHE] TJ30T via {src} ({stage}) ESTAT→TXT04: {len(mapping):,} '
+            f'(cooler codes in map={cooler_hits})'
+        )
         return mapping
 
     def _map_jest_stat_to_status_code(self, series) -> pd.Series:
