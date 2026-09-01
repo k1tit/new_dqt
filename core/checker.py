@@ -62,7 +62,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-08-28-equipment-completeness-fields'
+    CHECKER_BUILD_ID = '2026-09-01-ausp-char-completeness'
     EQUIPMENT_COOLER_STATUS_MATRIX_RULES = frozenset({'RCCONF_342.1', 'RCCONF_342.2'})
     EQUIPMENT_DOOR_EQUIVALENT_MATRIX_RULES = frozenset({'RCCONF_278.1'})
     # Completeness only: field empty → fail; scope cooler+status (not format/matrix rules)
@@ -71,6 +71,37 @@ class FastDataQualityChecker:
         'RCCOMP_387.1': ('ANSDT', 'acquisition_date'),
         'RCCOMP_389.1': ('TYPBZ', 'equipment_model'),
         'RCCOMP_388.1': ('EQKTX', 'equipment_description'),
+    }
+    # AUSP_EQUIPMENT char completeness; ATINN 52 → ATLFV (number_of_doors)
+    EQUIPMENT_AUSP_CHAR_COMPLETENESS_RULES = {
+        'RCCOMP_278.1': {
+            'atinn': '24',
+            'value_cols': ('ATWRT',),
+            'pivot_col': 'ATINN_24',
+            'logical': 'target_coolers_doors_code',
+            'require_cooler_scope': False,
+        },
+        'RCCOMP_278.2': {
+            'atinn': '52',
+            'value_cols': ('ATLFV', 'ATFLV', 'ATWRT'),
+            'pivot_col': 'ATINN_52',
+            'logical': 'number_of_doors',
+            'require_cooler_scope': True,
+        },
+        'RCCOMP_340.1': {
+            'atinn': '30',
+            'value_cols': ('ATWRT',),
+            'pivot_col': 'ATINN_30',
+            'logical': 'cde_category_code',
+            'require_cooler_scope': True,
+        },
+        'RCCOMP_341.1': {
+            'atinn': '27',
+            'value_cols': ('ATWRT',),
+            'pivot_col': 'ATINN_27',
+            'logical': 'cs_branding',
+            'require_cooler_scope': True,
+        },
     }
     # dm_customer_general hard scope: no central order block S (AUFSD)
     DM_CUSTOMER_GENERAL_AUFSD_EXCLUDE = frozenset({'S'})
@@ -438,14 +469,21 @@ class FastDataQualityChecker:
         atinn_col, atwrt_col = self._find_ausp_columns(df.columns, table_name)
         if not atinn_col or not atwrt_col:
             return (None, None, None)
+        value_col = atwrt_col
+        # DM: number_of_doors = ATINN 52 ATLFV (not ATWRT)
+        if atinn_norm == '52':
+            atlfv = self._find_col_by_names(df, ('ATLFV', 'ATFLV'))
+            if atlfv:
+                value_col = atlfv
+                print(f'      [AUSP] ATINN=52: value column = {value_col} (number_of_doors)')
         mask = self._ausp_atinn_mask(df[atinn_col], atinn_value)
         filtered = df.loc[mask].copy()
         temporary_name = self._ausp_atinn_to_column_name(atinn_value)
         if not temporary_name and rule:
             temporary_name = (rule.get('business_attribute_name') or '').strip()
         if not temporary_name:
-            temporary_name = atwrt_col
-        return (filtered, atwrt_col, temporary_name)
+            temporary_name = value_col
+        return (filtered, value_col, temporary_name)
 
     def _print_progress_bar(self, iteration, total, prefix='', suffix='', length=50, fill='█', print_end='\r'):
         percent = '{0:.1f}'.format(100 * (iteration / float(total)))
@@ -1232,6 +1270,8 @@ class FastDataQualityChecker:
             return self._process_equipment_cooler_status_matrix(rule_code, df, table_name, rule, save_result, timestamp)
         if rule_code in self.EQUIPMENT_DOOR_EQUIVALENT_MATRIX_RULES and tn == self.AUSP_EQUIPMENT_TABLE:
             return self._process_equipment_door_equivalent_matrix(rule_code, df, table_name, rule, save_result, timestamp)
+        if rule_code in self.EQUIPMENT_AUSP_CHAR_COMPLETENESS_RULES and tn == self.AUSP_EQUIPMENT_TABLE:
+            return self._process_equipment_ausp_char_completeness(rule_code, df, table_name, rule, save_result, timestamp)
         if rule_code in self.EQUIPMENT_FIELD_COMPLETENESS_RULES and tn == 'V_EQUI':
             return self._process_equipment_field_completeness(rule_code, df, table_name, rule, save_result, timestamp)
         if tn.startswith('DFKKBPTAXNUM'):
@@ -4365,6 +4405,145 @@ class FastDataQualityChecker:
                 f'TJ30T map={len(self._get_tj30t_estat_txt04_map() or {}):,})',
             )
         return (scoped, None)
+
+    def _process_equipment_ausp_char_completeness(self, rule_code, df, table_name, rule, save_result, timestamp):
+        """
+        RCCOMP_278.1/278.2/340.1/341.1 — Completeness char values on AUSP_EQUIPMENT.
+        ATINN 52: value from ATLFV (DM number_of_doors), not ATWRT.
+        Cooler-scoped rules: only evaluate after model + cde_type=COOLER + status + !KTOKD 7%.
+        """
+        meta = self.EQUIPMENT_AUSP_CHAR_COMPLETENESS_RULES[rule_code]
+        atinn = meta['atinn']
+        logical = meta['logical']
+        pivot_name = meta['pivot_col']
+        require_scope = bool(meta.get('require_cooler_scope'))
+
+        pivoted = self._pivot_ausp_equipment_by_objek(df)
+        if pivoted is None or pivoted.empty:
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: не удалось pivot AUSP_EQUIPMENT', timestamp)
+            return (0, 0)
+
+        val_col = self._find_col_by_names(pivoted, (pivot_name, logical, f'ATINN_{atinn}'))
+        if not val_col:
+            # long format fallback: filter ATINN and pick ATLFV/ATWRT
+            atinn_col, atwrt_col = self._find_ausp_columns(df.columns, table_name)
+            atlfv_col = self._find_col_by_names(df, meta.get('value_cols') or ('ATWRT',))
+            objek_col = self._find_col_by_names(df, ('OBJEK', 'CUOBJ'))
+            if not atinn_col or not objek_col:
+                self._log_skipped_rule(rule, table_name, f'{rule_code}: нет ATINN_{atinn} после pivot и нет long ATINN/OBJEK', timestamp)
+                return (0, 0)
+            work = df.loc[df[atinn_col].apply(self._normalize_atinn_for_filter) == str(atinn)].copy()
+            if work.empty:
+                self._log_skipped_rule(rule, table_name, f'{rule_code}: нет строк ATINN={atinn}', timestamp)
+                return (0, 0)
+            use_col = atlfv_col or atwrt_col
+            work['_eq_key'] = work[objek_col].apply(ltrim_zeros)
+            work[pivot_name] = work[use_col]
+            pivoted = work.drop_duplicates(subset=['_eq_key'], keep='last')
+            val_col = pivot_name
+
+        work = pivoted.copy()
+        if require_scope:
+            work = self._attach_equipment_vequi_kna1_attrs(
+                work, table_name, rule_code, key_candidates=('_eq_key', 'OBJEK'), via_inob=True
+            )
+            cde24 = self._find_col_by_names(work, ('ATINN_24',))
+            if cde24:
+                work['cde_type'] = work[cde24]
+            elif 'cde_type' not in work.columns:
+                work['cde_type'] = ''
+            status_lookup = self._get_jest_status_lookup()
+            objnr_s = work['_eq_objnr'] if '_eq_objnr' in work.columns else work.get('_eq_key')
+            if objnr_s is not None:
+                work['equipment_status_code'] = objnr_s.map(
+                    lambda k: status_lookup.get(norm_objnr(k)) or status_lookup.get(self._norm_equipment_join_key(k), '')
+                )
+            else:
+                work['equipment_status_code'] = ''
+            ag_col = self._find_account_group_column(work)
+            if not ag_col:
+                self._log_skipped_rule(rule, table_name, f'{rule_code}: нет account_group (KNA1 via V_EQUI.KUNDE)', timestamp)
+                return (0, 0)
+            if 'equipment_model' not in work.columns:
+                self._log_skipped_rule(rule, table_name, f'{rule_code}: нет equipment_model после INOB→V_EQUI', timestamp)
+                return (0, 0)
+
+            keep_idx = []
+            skip_reasons = []
+            for idx in work.index:
+                why = cooler_scope_skip_reason(
+                    model=work.at[idx, 'equipment_model'],
+                    cde_type=work.at[idx, 'cde_type'],
+                    status=work.at[idx, 'equipment_status_code'],
+                    account_group=work.at[idx, ag_col],
+                    require_model=True,
+                    require_doors=False,
+                    require_category=False,
+                )
+                if why:
+                    skip_reasons.append(why)
+                    continue
+                keep_idx.append(idx)
+            if not keep_idx:
+                msg = self._summarize_cooler_scope_skips(skip_reasons, n_input=len(work), rule_code=rule_code)
+                self._log_skipped_rule(rule, table_name, msg, timestamp)
+                return (0, 0)
+            work = work.loc[keep_idx].copy()
+            print(f'      [FILTER] {rule_code}: cooler scope → {len(work):,} строк (char ATINN={atinn})')
+
+        empty_mask = work[val_col].apply(self._equipment_field_is_empty)
+        total_rows = len(work)
+        error_count = int(empty_mask.sum())
+        print(
+            f'      [COMPLETENESS] {rule_code}: {logical} [{val_col}] ATINN={atinn} — '
+            f'пусто={error_count:,} / оценено={total_rows:,}'
+            + (' (cooler scope)' if require_scope else '')
+        )
+
+        validator = CompletenessValidator({
+            'rule_code': rule_code,
+            'rule_description': rule.get('rule_description', ''),
+            'quality_category': 'Completeness',
+            'table_name': table_name,
+            'matched_column': val_col,
+            'original_column': rule.get('column_name_checked', pivot_name),
+        })
+        err_desc = f'Missing {logical} (ATINN={atinn}, col={val_col})'
+        error_df = validator._prepare_error_dataframe(work, empty_mask, 'COMPLETENESS', err_desc) if error_count > 0 else None
+        if error_df is not None and not error_df.empty:
+            if 'cde_type' in work.columns:
+                error_df['LOOKUP_CDE_TYPE'] = work.loc[error_df.index, 'cde_type'].map(norm_cde_type).values
+            if 'equipment_status_code' in work.columns:
+                error_df['LOOKUP_EQUIPMENT_STATUS'] = work.loc[error_df.index, 'equipment_status_code'].map(norm_equipment_status).values
+            error_df['DQ_RULE_CHECK_COLUMNS'] = (
+                f'Completeness: AUSP_EQUIPMENT ATINN={atinn} → {logical} via {val_col}'
+                + ('; cooler scope (model+COOLER+status+!7%)' if require_scope else '')
+                + ('; value from ATLFV' if atinn == '52' else '')
+            )
+
+        is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
+        if save_result:
+            rule_info = {
+                'rule_code': rule_code,
+                'rule_description': rule.get('rule_description', 'Unknown rule'),
+                'quality_category': rule.get('quality_category', 'Completeness'),
+                'table_name': table_name,
+                'original_column': rule.get('column_name_checked', pivot_name),
+                'matched_column': val_col,
+            }
+            if self._parallel_lock:
+                with self._parallel_lock:
+                    self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                    if error_df is not None and not error_df.empty:
+                        self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+            else:
+                self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                if error_df is not None and not error_df.empty:
+                    self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        elif error_df is not None and not error_df.empty:
+            self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        print(f'      [RESULT] {rule_code}: evaluated={total_rows:,}, errors={error_count:,}')
+        return (error_count, total_rows)
 
     def _process_equipment_field_completeness(self, rule_code, df, table_name, rule, save_result, timestamp):
         """
