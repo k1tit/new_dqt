@@ -1,0 +1,224 @@
+﻿Diagnose log at 2026-07-09T11:13:09Z
+
+AppPath: C:\Program Files\Git\mingw64\bin\git-credential-manager.exe
+InstallDir: C:\Program Files\Git\mingw64\bin\
+Version: 2.6.1+786ab03440ddc82e807a97c0e540f5247e44cec6
+
+------------
+Diagnostic: Environment
+Skipped: False
+Success: True
+Exception: None
+Log:
+OSType: Windows
+OSVersion: 10.0 (build 19045)
+Reading environment variables... OK
+ Variables:
+HOMEPATH=\Users\kitit
+DriverData=C:\Windows\System32\Drivers\DriverData
+COMPUTERNAME=WIN-VABLG3UKROC
+TELEGRAM_TOKEN=7235014213:AAF-o8m63XO93qHiyFBRMX9YBOASjgwu6Ec
+GIT_TRACE2_PARENT_SID=0a90bb99-e6a4-4dce-ab7b-994858483893
+CommonProgramFiles(x86)=C:\Program Files (x86)\Common Files
+TMP=C:\Users\kitit\AppData\Local\Temp
+ChocolateyLastPathUpdate=C:\Program Files\Amazon\AWSCLIV2\
+PyCharm=C:\Program Files\JetBrains\PyCharm 2024.1.4\bin;
+SESSIONNAME=Console
+PSExecutionPolicyPreference=Bypass
+DataGrip=C:\Program Files\JetBrains\DataGrip 2025.2.4\bin
+VSCODE_HANDLES_UNCAUGHT_ERRORS=true
+PROCESSOR_REVISION=2102
+PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PY;.PYW;.CPL
+VSCODE_IPC_HOOK=\\.\pipe\484ae6c5-2.6.20-main-sock
+SystemDrive=C:
+GIT_EXEC_PATH=C:/Program Files/Git/mingw64/libexec/git-core
+TEMP=C:\Users\kitit\AppData\Local\Temp
+LOCALAPPDATA=C:\Users\kitit\AppData\Local
+MSYSTEM=MINGW64
+TERM=dumb
+CURSOR_TRACE_ID=665ee90859fb45e093d0aa762bba9210
+ProgramW6432=C:\Program Files
+windir=C:\Windows
+USERDOMAIN=WIN-VABLG3UKROC
+NO_COLOR=1
+PROCESSOR_LEVEL=25
+PROCESSOR_IDENTIFIER=AMD64 Family 25 Model 33 Stepping 2, AuthenticAMD
+TMPDIR=C:\Users\kitit\AppData\Local\Temp
+CURSOR_EXTENSION_HOST_ROLE=agent-exec
+ProgramFiles(x86)=C:\Program Files (x86)
+PUBLIC=C:\Users\Public
+NUMBER_OF_PROCESSORS=12
+CommonProgramFiles=C:\Program Files (x86)\Common Files
+VSCODE_ESM_ENTRYPOINT=vs/workbench/api/node/extensionHostProcess
+VSCODE_CRASH_REPORTER_PROCESS_TYPE=extensionHost
+CHROME_CRASHPAD_PIPE_NAME=\\.\pipe\crashpad_49512_NELKZOLPXOZASZBL
+PLINK_PROTOCOL=ssh
+ProgramData=C:\ProgramData
+ProgramFiles=C:\Program Files (x86)
+ChocolateyInstall=C:\ProgramData\chocolatey
+VSCODE_NLS_CONFIG={"userLocale":"en-us","osLocale":"ru","resolvedLanguage":"en","defaultMessagesFile":"C:\\Users\\kitit\\AppData\\Local\\Programs\\cursor\\resources\\app\\out\\nls.messages.json","locale":"en-us","availableLanguages":{}}
+VSCODE_CODE_CACHE_PATH=C:\Users\kitit\AppData\Roaming\Cursor\CachedData\b29eb4ee5f9f6d1cb2afbc09070198d3ea6ad760
+SystemRoot=C:\Windows
+CURSOR_WORKSPACE_LABEL=new_dq
+HOME=C:\Users\kitit
+FORCE_COLOR=0
+LC_CTYPE=C.UTF-8
+CommonProgramW6432=C:\Program Files\Common Files
+FATSECRET_CLIENT_SECRET=15ab27500b554aa0b3db7de38635b8dc
+VSCODE_CWD=C:\Users\kitit\AppData\Local\Programs\cursor
+USERPROFILE=C:\Users\kitit
+CURSOR_AGENT=1
+USERDOMAIN_ROAMINGPROFILE=WIN-VABLG3UKROC
+APPDATA=C:\Users\kitit\AppData\Roaming
+HOMEDRIVE=C:
+VSCODE_PID=49512
+LOGONSERVER=\\WIN-VABLG3UKROC
+_ZO_DOCTOR=0
+PSModulePath=C:\Users\kitit\Documents\WindowsPowerShell\Modules;C:\Program Files\WindowsPowerShell\Modules;C:\Windows\system32\WindowsPowerShell\v1.0\Modules
+FATSECRET_CLIENT_ID=14bb03cd09d9452d99fba38621f04709
+VBOX_MSI_INSTALL_PATH=C:\Program Files\Oracle\VirtualBox\
+USERNAME=kitit
+PROCESSOR_ARCHITEW6432=AMD64
+PROCESSOR_ARCHITECTURE=x86
+OS=Windows_NT
+ComSpec=C:\Windows\system32\cmd.exe
+Path=C:/Program Files/Git/mingw64/libexec/git-core;C:\Program Files\Git\mingw64\bin;C:\Program Files\Git\usr\bin;C:\Users\kitit\bin;C:\Program Files (x86)\Common Files\Oracle\Java\java8path;C:\Program Files (x86)\Common Files\Oracle\Java\javapath;C:\ProgramData\Oracle\Java\javapath;C:\Program Files (x86)\VMware\VMware Workstation\bin\;C:\Python312\Scripts\;C:\Python312\;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files\PuTTY\;C:\ProgramData\chocolatey\bin;C:\Program Files\NVIDIA Corporation\NVIDIA app\NvDLISR;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\Git\cmd;C:\Program Files\Docker\Docker\resources\bin;C:\Program Files\Amazon\AWSCLIV2\;C:\Users\kitit\AppData\Local\Programs\Python\Python311\Scripts\;C:\Users\kitit\AppData\Local\Programs\Python\Python311\;C:\Users\kitit\AppData\Local\Microsoft\WindowsApps;C:\Users\kitit\AppData\Local\Programs\Microsoft VS Code;C:\Users\kitit\AppData\Local\Programs\Microsoft VS Code\bin;atom\bin;C:\Program Files\nodejs\;;C:\Program Files\JetBrains\PyCharm 2024.1.4\bin;;C:\Program Files\JetBrains\DataGrip 2025.2.4\bin;C:\Users\kitit\AppData\Local\Programs\cursor\resources\app\bin;C:\Users\kitit\AppData\Local\Programs\Antigravity\bin;C:\Users\kitit\AppData\Local\cursor-agent
+PT8HOME=C:\Program Files\Cisco Packet Tracer 8.2.1
+VSCODE_PROCESS_TITLE=extension-host (agent-exec) new_dq [3-15]
+ALLUSERSPROFILE=C:\ProgramData
+
+
+------------
+Diagnostic: File system
+Skipped: False
+Success: True
+Exception: None
+Log:
+Temporary directory is 'C:\Users\kitit\AppData\Local\Temp\'...
+Checking basic file I/O...
+Writing to temporary file 'C:\Users\kitit\AppData\Local\Temp\9f7b4c35935f5910751a8a21'... OK
+Reading from temporary file 'C:\Users\kitit\AppData\Local\Temp\9f7b4c35935f5910751a8a21'... OK
+Deleting temporary file 'C:\Users\kitit\AppData\Local\Temp\9f7b4c35935f5910751a8a21'... OK
+Testing IFileSystem instance...
+UserHomePath: C:\Users\kitit
+UserDataDirectoryPath: C:\Users\kitit\.gcm
+GetCurrentDirectory(): C:\Users\kitit\Desktop\new_dq\new_dqt
+
+------------
+Diagnostic: Networking
+Skipped: False
+Success: True
+Exception: None
+Log:
+Checking networking and HTTP stack...
+Creating HTTP client... OK
+IsNetworkAvailable: True
+Sending HEAD request to http://example.com...Sending HEAD request to https://example.com... OK
+ OK
+Acquiring free TCP port... OK
+Testing local HTTP loopback connections...
+Creating new HTTP listener for http://localhost:54741/... OK
+Waiting for loopback connection... OK
+Writing response... OK
+Waiting for response data... OK
+Loopback connection data OK
+
+------------
+Diagnostic: Git
+Skipped: False
+Success: True
+Exception: None
+Log:
+Getting Git version... OK
+Git version is '2.51.1.windows.1'
+Locating current repository...Git repository at 'C:/Users/kitit/Desktop/new_dq/new_dqt/.git'
+ OK
+Listing all Git configuration... OK
+Git configuration:
+file:C:/Program Files/Git/etc/gitconfig	diff.astextplain.textconv=astextplain
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.clean=git-lfs clean -- %f
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.smudge=git-lfs smudge -- %f
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.process=git-lfs filter-process
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.required=true
+file:C:/Program Files/Git/etc/gitconfig	http.sslbackend=schannel
+file:C:/Program Files/Git/etc/gitconfig	core.autocrlf=true
+file:C:/Program Files/Git/etc/gitconfig	core.fscache=true
+file:C:/Program Files/Git/etc/gitconfig	core.symlinks=false
+file:C:/Program Files/Git/etc/gitconfig	pull.rebase=false
+file:C:/Program Files/Git/etc/gitconfig	credential.helper=manager
+file:C:/Program Files/Git/etc/gitconfig	credential.https://dev.azure.com.usehttppath=true
+file:C:/Program Files/Git/etc/gitconfig	init.defaultbranch=master
+file:C:/Users/kitit/.gitconfig	user.name=k1tit
+file:C:/Users/kitit/.gitconfig	user.email=┬Цbalashova419@gmail.com
+file:C:/Users/kitit/.gitconfig	credential.https://git.lab.karpov.courses.provider=generic
+file:C:/Users/kitit/.gitconfig	core.autocrlf=input
+file:C:/Users/kitit/.gitconfig	http.sslbackend=schannel
+file:.git/config	core.repositoryformatversion=0
+file:.git/config	core.filemode=false
+file:.git/config	core.bare=false
+file:.git/config	core.logallrefupdates=true
+file:.git/config	core.symlinks=false
+file:.git/config	core.ignorecase=true
+file:.git/config	remote.origin.url=https://github.com/k1tit/new_dqt.git
+file:.git/config	remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*
+file:.git/config	branch.master.remote=origin
+file:.git/config	branch.master.merge=refs/heads/master
+file:.git/config	branch.master.vscode-merge-base=origin/master
+
+
+------------
+Diagnostic: Credential storage
+Skipped: False
+Success: True
+Exception: None
+Log:
+ICredentialStore instance is of type: CredentialStore
+Writing test credential... OK
+Reading test credential... OK
+Deleting test credential... OK
+
+------------
+Diagnostic: Microsoft authentication (AAD/MSA)
+Skipped: False
+Success: True
+Exception: None
+Log:
+Broker is not enabled.
+Flow type is: Auto
+Gathering MSAL token cache data... OK
+CacheDirectory: C:\Users\kitit\AppData\Local\.IdentityService
+CacheFileName: msal.cache
+CacheFilePath: C:\Users\kitit\AppData\Local\.IdentityService\msal.cache
+Creating cache helper... OK
+Verifying MSAL token cache persistence... OK
+
+------------
+Diagnostic: GitHub API
+Skipped: False
+Success: False
+Exception:
+System.Net.Http.HttpRequestException: Произошла ошибка при отправке запроса. ---> System.Net.WebException: Базовое соединение закрыто: Не удалось установить доверительные отношения для защищенного канала SSL/TLS. ---> System.Security.Authentication.AuthenticationException: Удаленный сертификат недействителен согласно результатам проверки подлинности.
+   в System.Net.TlsStream.EndWrite(IAsyncResult asyncResult)
+   в System.Net.PooledStream.EndWrite(IAsyncResult asyncResult)
+   в System.Net.ConnectStream.WriteHeadersCallback(IAsyncResult ar)
+   --- Конец трассировки внутреннего стека исключений ---
+   в System.Net.HttpWebRequest.EndGetResponse(IAsyncResult asyncResult)
+   в System.Net.Http.HttpClientHandler.GetResponseCallback(IAsyncResult ar)
+   --- Конец трассировки внутреннего стека исключений ---
+   в System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   в System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   в System.Runtime.CompilerServices.TaskAwaiter`1.GetResult()
+   в GitHub.GitHubRestApi.<GetMetaInfoAsync>d__5.MoveNext()
+--- Конец трассировка стека из предыдущего расположения, где возникло исключение ---
+   в System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   в System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   в System.Runtime.CompilerServices.TaskAwaiter`1.GetResult()
+   в GitHub.Diagnostics.GitHubApiDiagnostic.<RunInternalAsync>d__2.MoveNext()
+--- Конец трассировка стека из предыдущего расположения, где возникло исключение ---
+   в System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   в System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   в System.Runtime.CompilerServices.TaskAwaiter`1.GetResult()
+   в GitCredentialManager.Diagnostics.Diagnostic.<RunAsync>d__6.MoveNext()
+Log:
+Using 'https://github.com/' as API target.
+Querying '/meta' endpoint...

@@ -3822,10 +3822,15 @@ class FastDataQualityChecker:
 
     def _ausp_equipment_empty_skip_reason(self) -> str:
         """Подробная причина пустой AUSP_EQUIPMENT (обычная таблица, без AUSP-fallback)."""
+        physical = None
         in_sqlite = False
         sqlite_n = None
         try:
+            if hasattr(self.memory_manager, '_find_ausp_equipment_physical'):
+                physical = self.memory_manager._find_ausp_equipment_physical()
             in_sqlite = bool(self.memory_manager.db_has_table(self.AUSP_EQUIPMENT_TABLE))
+            if not in_sqlite and physical:
+                in_sqlite = True
         except Exception:
             in_sqlite = False
         try:
@@ -3841,13 +3846,14 @@ class FastDataQualityChecker:
         if not in_sqlite or sqlite_n is None:
             return (
                 'AUSP_EQUIPMENT нет в SQLite (таблица не создана). '
-                'Загрузите как обычную таблицу: меню 1 или 3 — файл db/AUSP_EQUIPMENT.xlsx '
-                'или папка db/AUSP_EQUIPMENT/*.xlsx (не пункт 4 AUSP по ATINN).'
+                'Ищем также AUSP_EQUIPMEN / AUSP_EQUIP / AUSP_EQ. '
+                'Загрузите пункт меню 6 (или 1 → AUSP_EQUIPMENT): '
+                'db/AUSP_EQUIPMENT.xlsx (или AUSP_EQUIPMEN.xlsx) / папка, либо AUSP.xlsx с ATINN 24/27/30/52.'
             )
+        phys_note = f' (физическое имя в БД: {physical})' if physical and str(physical).upper() != self.AUSP_EQUIPMENT_TABLE else ''
         return (
-            f'AUSP_EQUIPMENT в SQLite пуста (COUNT(*)={sqlite_n}, RAM={ram_n}). '
-            f'Перезалейте дамп обычной загрузкой (меню 1/3): db/AUSP_EQUIPMENT.xlsx '
-            f'или db/AUSP_EQUIPMENT/*.xlsx. Customer AUSP (папки ATINN) сюда не подмешивается.'
+            f'AUSP_EQUIPMENT в SQLite пуста{phys_note} (COUNT(*)={sqlite_n}, RAM={ram_n}). '
+            f'Перезалейте дамп (меню 6): db/AUSP_EQUIPMENT.xlsx. Customer AUSP сюда не подмешивается.'
         )
 
     def _summarize_cooler_scope_skips(self, reasons: list[str], *, n_input: int, rule_code: str, extras: str = '') -> str:

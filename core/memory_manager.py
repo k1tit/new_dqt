@@ -28,9 +28,23 @@ class MemoryManager:
     AUSP_ATINN_TO_COLUMN = {'143': 'CCAF', '604': 'RED_OUTLET', '148': 'ZGLOBAL_CUSTOMER', '151': 'ZTRADE_NAME'}
     AUSP_EQUIPMENT_TABLE = 'AUSP_EQUIPMENT'
     AUSP_EQUIPMENT_ATINN = frozenset({'24', '27', '30', '52'})
+    # физические имена в SQLite (полный + обрезанные / сокращения)
+    AUSP_EQUIPMENT_PHYSICAL_ALIASES = (
+        'AUSP_EQUIPMENT',
+        'AUSP_EQUIPMEN',
+        'AUSP_EQUIPME',
+        'AUSP_EQUIPM',
+        'AUSP_EQUIP',
+        'AUSP_EQPMNT',
+        'AUSP_EQ',
+    )
     DFKKBPTAXNUM_TABLES = ('DFKKBPTAXNUM1', 'DFKKBPTAXNUM2', 'DFKKBPTAXNUM3', 'DFKKBPTAXNUM4', 'DFKKBPTAXNUM5', 'DFKKBPTAXNUM6')
     TABLES_UNIQUE_PARTNER = ('ZBUT0000P3VVI9', 'ZBUT0000P', 'ZBUT0000P3VV19')
-    TABLE_NAME_ALIASES = {'/LOT/GC_ADR': 'LOTGC_ADR', 'ZBUT0000P3VVI9': 'ZBUT0000P3VVI9_CRM'}
+    TABLE_NAME_ALIASES = {
+        '/LOT/GC_ADR': 'LOTGC_ADR',
+        'ZBUT0000P3VVI9': 'ZBUT0000P3VVI9_CRM',
+        'AUSP_EQUIPMENT': 'AUSP_EQUIPMEN',
+    }
     AUSP_LOAD_NAME = 'AUSP'
     # drop_duplicates на load для таблиц больше порога — дорого и редко нужно (есть спец. дедуп)
     DROP_DUPES_MAX_ROWS = 500_000
@@ -222,6 +236,37 @@ class MemoryManager:
                 return k
         return None
 
+    def _ausp_equipment_alias_set(self) -> set[str]:
+        return {str(a).strip().upper() for a in self.AUSP_EQUIPMENT_PHYSICAL_ALIASES} | {self.AUSP_EQUIPMENT_TABLE}
+
+    def _is_ausp_equipment_name(self, name) -> bool:
+        u = str(name or '').strip().upper()
+        if not u:
+            return False
+        if u in self._ausp_equipment_alias_set():
+            return True
+        canon = self.AUSP_EQUIPMENT_TABLE
+        return bool(u.startswith('AUSP_EQUIP') and canon.startswith(u) and len(u) >= 8)
+
+    def _find_ausp_equipment_physical(self, all_in_db=None):
+        if all_in_db is None:
+            all_in_db = self._get_all_table_names()
+        by_upper = {str(t).strip().upper(): t for t in all_in_db}
+        for alias in self.AUSP_EQUIPMENT_PHYSICAL_ALIASES:
+            hit = by_upper.get(str(alias).strip().upper())
+            if hit:
+                return hit
+        canon = self.AUSP_EQUIPMENT_TABLE
+        best = None
+        best_len = 0
+        for t in all_in_db:
+            tu = str(t).strip().upper()
+            if tu and canon.startswith(tu) and tu.startswith('AUSP_EQU') and len(tu) >= 8:
+                if len(tu) > best_len:
+                    best = t
+                    best_len = len(tu)
+        return best
+
     def _find_table_in_db(self, logical_name, all_in_db=None):
         if all_in_db is None:
             all_in_db = self._get_all_table_names()
@@ -231,6 +276,10 @@ class MemoryManager:
         for t in all_in_db:
             if str(t).strip().upper() == logical_upper:
                 return t
+        if self._is_ausp_equipment_name(logical_upper):
+            found_eq = self._find_ausp_equipment_physical(all_in_db)
+            if found_eq:
+                return found_eq
         alias_physical = self.TABLE_NAME_ALIASES.get(logical_name) or self.TABLE_NAME_ALIASES.get(logical_upper)
         if alias_physical:
             want = str(alias_physical).strip().upper()
@@ -259,6 +308,12 @@ class MemoryManager:
                 if df is not None and str(key).strip().upper() == want:
                     self.data_cache[logical] = df
                     break
+        if self.AUSP_EQUIPMENT_TABLE not in self.data_cache:
+            for key, df in list(self.data_cache.items()):
+                if df is not None and self._is_ausp_equipment_name(key):
+                    self.data_cache[self.AUSP_EQUIPMENT_TABLE] = df
+                    print(f'   {_term("INFO")} alias {key} → {self.AUSP_EQUIPMENT_TABLE} ({len(df):,} строк)')
+                    break
         if 'ZBUT0000P3VVI9' not in self.data_cache:
             for key, df in self.data_cache.items():
                 ku = str(key).strip().upper()
@@ -275,6 +330,10 @@ class MemoryManager:
         for logical, physical in self.TABLE_NAME_ALIASES.items():
             if str(physical).strip().upper() == str(table_name).strip().upper():
                 self.data_cache[logical] = df
+        if self._is_ausp_equipment_name(table_name):
+            self.data_cache[self.AUSP_EQUIPMENT_TABLE] = df
+            if str(table_name).strip().upper() != self.AUSP_EQUIPMENT_TABLE:
+                print(f'   {_term("INFO")} {table_name} зарегистрирована как {self.AUSP_EQUIPMENT_TABLE}')
 
     def _collect_tables_to_load(self, table_names: list, add_reference_tables: bool=True):
         if not table_names:
@@ -461,7 +520,7 @@ class MemoryManager:
         if sqlite_n is None:
             print(
                 f'   {_term("WARNING")} AUSP_EQUIPMENT нет в SQLite. '
-                f'Загрузите обычной загрузкой (меню 1/3): db/AUSP_EQUIPMENT.xlsx или папка db/AUSP_EQUIPMENT/'
+                f'Загрузите пункт меню 6 (или 1 → AUSP_EQUIPMENT): db/AUSP_EQUIPMENT.xlsx / папка, либо AUSP.xlsx с ATINN 24/27/30/52'
             )
             if self.AUSP_EQUIPMENT_TABLE not in self.data_cache:
                 self.data_cache[self.AUSP_EQUIPMENT_TABLE] = pd.DataFrame()
@@ -966,6 +1025,12 @@ class MemoryManager:
                     df = self.data_cache[k]
                     cache_key = k
                     break
+        if df is None and self._is_ausp_equipment_name(requested_upper):
+            for k in self.data_cache:
+                if self._is_ausp_equipment_name(k):
+                    df = self.data_cache[k]
+                    cache_key = k
+                    break
         if df is None and requested_upper == 'ZBUT0000P3VVI9':
             for k in self.data_cache:
                 if str(k).strip().upper().startswith('ZBUT0000P3VVI9'):
@@ -990,6 +1055,10 @@ class MemoryManager:
         for k in self.data_cache:
             if str(k).strip().upper() == requested_upper:
                 return True
+        if self._is_ausp_equipment_name(requested_upper):
+            for k in self.data_cache:
+                if self._is_ausp_equipment_name(k):
+                    return True
         if requested_upper == 'ZBUT0000P3VVI9':
             for k in self.data_cache:
                 if str(k).strip().upper().startswith('ZBUT0000P3VVI9'):

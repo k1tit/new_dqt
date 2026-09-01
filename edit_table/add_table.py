@@ -75,9 +75,30 @@ def resolve_ausp_data_folder(project_root=None):
     return None
 
 
+def _normalize_ausp_equipment_table_token(name: str | None) -> str | None:
+    """AUSP_EQUIPMEN / AUSP_EQ / … → AUSP_EQUIPMENT."""
+    u = str(name or '').strip().upper()
+    if not u:
+        return None
+    aliases = {
+        'AUSP_EQUIPMENT', 'AUSP_EQUIPMEN', 'AUSP_EQUIPME', 'AUSP_EQUIPM',
+        'AUSP_EQUIP', 'AUSP_EQPMNT', 'AUSP_EQ',
+    }
+    if u in aliases:
+        return AUSP_EQUIPMENT_TABLE_NAME
+    if u.startswith('AUSP_EQUIP') and AUSP_EQUIPMENT_TABLE_NAME.startswith(u) and len(u) >= 8:
+        return AUSP_EQUIPMENT_TABLE_NAME
+    return None
+
+
 def resolve_ausp_equipment_data_folder(project_root=None):
     root = project_root or _PROJECT_ROOT
-    for rel in (os.path.join('db', 'AUSP_EQUIPMENT'), 'AUSP_EQUIPMENT'):
+    for rel in (
+        os.path.join('db', 'AUSP_EQUIPMENT'),
+        os.path.join('db', 'AUSP_EQUIPMEN'),
+        'AUSP_EQUIPMENT',
+        'AUSP_EQUIPMEN',
+    ):
         path = os.path.join(root, rel)
         if os.path.isdir(path):
             return path
@@ -314,6 +335,69 @@ def _classify_flat_ausp_target(files: list[str]) -> str:
     return AUSP_TABLE_NAME
 
 
+def _discover_ausp_equipment_files(base_folder=None) -> list[str]:
+    """Ищет файлы для AUSP_EQUIPMENT: папка/имя AUSP_EQUIPMENT и AUSP.xlsx с ATINN 24/27/30/52."""
+    base_abs = _resolve_data_path(base_folder)
+    found: list[str] = []
+    folder = resolve_ausp_equipment_data_folder() or os.path.join(base_abs, AUSP_EQUIPMENT_TABLE_NAME)
+    if folder and os.path.isdir(folder):
+        found.extend(_list_data_files(folder))
+        atinn_groups = _collect_ausp_atinn_file_groups(folder)
+        if atinn_groups:
+            for paths in atinn_groups.values():
+                found.extend(paths)
+    for path in list_flat_data_files(base_abs):
+        stem = os.path.splitext(os.path.basename(path))[0]
+        stem_u = stem.strip().upper()
+        inferred = (_infer_table_from_stem_fallback(stem) or '').strip().upper()
+        if inferred == AUSP_EQUIPMENT_TABLE_NAME or stem_u.startswith('AUSP_EQUIPMENT'):
+            found.append(path)
+            continue
+        if inferred == AUSP_TABLE_NAME or stem_u == 'AUSP' or _AUSP_ATINN_STEM_RE.match(stem):
+            m = _AUSP_ATINN_STEM_RE.match(stem)
+            if m and _ausp_target_table_for_atinn(m.group('atinn')) == AUSP_EQUIPMENT_TABLE_NAME:
+                found.append(path)
+                continue
+            if not m and _classify_flat_ausp_target([path]) == AUSP_EQUIPMENT_TABLE_NAME:
+                print(f'  [AUSP→EQUIPMENT] {os.path.basename(path)} (ATINN 24/27/30/52 в файле)')
+                found.append(path)
+    ausp_folder = resolve_ausp_data_folder() or os.path.join(base_abs, AUSP_TABLE_NAME)
+    if ausp_folder and os.path.isdir(ausp_folder):
+        atinn_groups = _collect_ausp_atinn_file_groups(ausp_folder)
+        if atinn_groups:
+            for atinn, paths in atinn_groups.items():
+                if _ausp_target_table_for_atinn(atinn) == AUSP_EQUIPMENT_TABLE_NAME:
+                    found.extend(paths)
+        else:
+            for p in _list_data_files(ausp_folder):
+                if _classify_flat_ausp_target([p]) == AUSP_EQUIPMENT_TABLE_NAME:
+                    print(f'  [AUSP→EQUIPMENT] {os.path.basename(p)} из {ausp_folder}')
+                    found.append(p)
+    return sorted(set(f for f in found if os.path.isfile(f)))
+
+
+def _verify_sqlite_table(db_path, table_name) -> int | None:
+    try:
+        conn = connect_sqlite(db_path)
+        try:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND upper(name)=upper(?)",
+                (table_name,),
+            ).fetchone()
+            if not row:
+                print(f'  [CHECK] в БД НЕТ таблицы {table_name}: {db_path}')
+                return None
+            real = row[0]
+            n = conn.execute(f'SELECT COUNT(*) FROM "{real}"').fetchone()[0]
+            print(f'  [CHECK] OK: {table_name} в SQLite — {n:,} строк ({db_path})')
+            return int(n)
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f'  [CHECK] не проверить {table_name}: {e}')
+        return None
+
+
 def merge_and_load_ausp_equipment_flat(db_path=None, data_folder=None, data_files=None, skip_final_dedup=False, method='fast'):
     """Equipment AUSP: один дамп (без папок 24/27/30/52) → таблица AUSP_EQUIPMENT как есть."""
     if db_path is None:
@@ -321,33 +405,42 @@ def merge_and_load_ausp_equipment_flat(db_path=None, data_folder=None, data_file
     else:
         db_path = _resolve_db_path(db_path)
     if data_files is None:
-        folder = data_folder or resolve_ausp_equipment_data_folder() or os.path.join(_resolve_data_path(), AUSP_EQUIPMENT_TABLE_NAME)
-        data_files = _list_data_files(folder) if folder and os.path.isdir(folder) else []
+        data_files = _discover_ausp_equipment_files(data_folder)
+        if not data_files and data_folder:
+            folder = data_folder if os.path.isdir(data_folder) else os.path.join(_resolve_data_path(), AUSP_EQUIPMENT_TABLE_NAME)
+            data_files = _list_data_files(folder) if folder and os.path.isdir(folder) else []
     data_files = [f for f in (data_files or []) if os.path.isfile(f)]
     if not data_files:
-        print(f'ОШИБКА: нет файлов для {AUSP_EQUIPMENT_TABLE_NAME} (ожидается db/AUSP_EQUIPMENT/*.xlsx или AUSP_EQUIPMENT.xlsx)')
+        print(f'ОШИБКА: нет файлов для {AUSP_EQUIPMENT_TABLE_NAME}.')
+        print('  Ожидается: db/AUSP_EQUIPMENT.xlsx | db/AUSP_EQUIPMENT/*.xlsx')
+        print('  либо db/AUSP.xlsx / db/AUSP/*.xlsx с ATINN 24/27/30/52 (будет распознано автоматически).')
         return None
     print('\n' + '=' * 80)
-    print(f'ЗАГРУЗКА {AUSP_EQUIPMENT_TABLE_NAME}: единый дамп (ATINN 24/27/30/52 внутри файла)')
+    print(f'ЗАГРУЗКА {AUSP_EQUIPMENT_TABLE_NAME}: обычная таблица → SQLite')
     print('=' * 80)
+    print(f'БД: {db_path}')
     print(f'Файлов: {len(data_files)}')
     for f in data_files[:10]:
         print(f'  - {os.path.basename(f)}')
     if method == 'ultra_fast':
-        return merge_and_load_xlsx_files_ultra_fast(
+        result = merge_and_load_xlsx_files_ultra_fast(
             db_path=db_path,
             data_folder=os.path.dirname(data_files[0]),
             target_table=AUSP_EQUIPMENT_TABLE_NAME,
             skip_final_dedup=skip_final_dedup,
             data_files=data_files,
         )
-    return merge_and_load_xlsx_files_fast(
-        db_path=db_path,
-        data_folder=os.path.dirname(data_files[0]),
-        target_table=AUSP_EQUIPMENT_TABLE_NAME,
-        skip_final_dedup=skip_final_dedup,
-        data_files=data_files,
-    )
+    else:
+        result = merge_and_load_xlsx_files_fast(
+            db_path=db_path,
+            data_folder=os.path.dirname(data_files[0]),
+            target_table=AUSP_EQUIPMENT_TABLE_NAME,
+            skip_final_dedup=skip_final_dedup,
+            data_files=data_files,
+        )
+    if result:
+        _verify_sqlite_table(db_path, AUSP_EQUIPMENT_TABLE_NAME)
+    return result
 
 
 def merge_and_load_ausp_from_atinn_folders(db_path=None, ausp_folder=None, skip_header_after_first=True, chunksize=100000, skip_final_dedup=False):
@@ -924,7 +1017,10 @@ _AUSP_DERIVED_TO_ATINN = {
     'AUSP_30': '30',
     'AUSP_52': '52',
 }
-_AUSP_EQUIPMENT_ATINN_KEYS = frozenset({'AUSP_24', 'AUSP_27', 'AUSP_30', 'AUSP_52', 'AUSP_EQUIPMENT'})
+_AUSP_EQUIPMENT_ATINN_KEYS = frozenset({
+    'AUSP_24', 'AUSP_27', 'AUSP_30', 'AUSP_52',
+    'AUSP_EQUIPMENT', 'AUSP_EQUIPMEN', 'AUSP_EQUIPME', 'AUSP_EQUIPM', 'AUSP_EQUIP', 'AUSP_EQ',
+})
 _DUMP_NUM_SUFFIX_RE = re.compile(r'^(?P<base>.+?)(?:[\s_\-\.]*\(?\d+\)?)$', re.IGNORECASE)
 _AUSP_ATINN_STEM_RE = re.compile(r'^AUSP[_\-\s]*(?P<atinn>\d+)$', re.IGNORECASE)
 
@@ -976,6 +1072,11 @@ def table_name_aliases(table_name: str) -> list[str]:
     aliases = [t]
     if t == '/LOT/GC_ADR' or t.upper().replace('/', '').replace('_', '') == 'LOTGCADR':
         aliases.extend(['/LOT/GC_ADR', 'LOT_GC_ADR', 'LOTGC_ADR', '_LOT_GC_ADR', 'LOT-GC-ADR', 'LOTGCADR'])
+    if t.upper() == AUSP_EQUIPMENT_TABLE_NAME or _normalize_ausp_equipment_table_token(t):
+        aliases.extend([
+            'AUSP_EQUIPMENT', 'AUSP_EQUIPMEN', 'AUSP_EQUIPME', 'AUSP_EQUIPM',
+            'AUSP_EQUIP', 'AUSP_EQPMNT', 'AUSP_EQ',
+        ])
     if '/' in t:
         aliases.append(t.replace('/', '_').strip('_'))
         aliases.append(t.replace('/', ''))
@@ -1050,6 +1151,9 @@ def _infer_table_from_stem_fallback(stem: str) -> str | None:
     raw = str(stem or '').strip()
     if not raw:
         return None
+    eq = _normalize_ausp_equipment_table_token(raw)
+    if eq:
+        return eq
     m_ausp = _AUSP_ATINN_STEM_RE.match(raw)
     if m_ausp:
         return _ausp_target_table_for_atinn(m_ausp.group('atinn'))
@@ -1057,6 +1161,9 @@ def _infer_table_from_stem_fallback(stem: str) -> str | None:
     if m:
         base = m.group('base').rstrip(' ._-\t')
         if base and base.upper() != raw.upper():
+            eq2 = _normalize_ausp_equipment_table_token(base)
+            if eq2:
+                return eq2
             m2 = _AUSP_ATINN_STEM_RE.match(base)
             if m2:
                 return _ausp_target_table_for_atinn(m2.group('atinn'))
@@ -1206,7 +1313,7 @@ def collect_db_load_groups(base_folder=None, rules_path=None) -> dict:
         if atinn:
             table = _ausp_target_table_for_atinn(atinn)
             tu = str(table).strip().upper()
-        if tu == AUSP_EQUIPMENT_TABLE_NAME or tu in _AUSP_EQUIPMENT_ATINN_KEYS:
+        if tu == AUSP_EQUIPMENT_TABLE_NAME or tu in _AUSP_EQUIPMENT_ATINN_KEYS or _normalize_ausp_equipment_table_token(tu):
             table = AUSP_EQUIPMENT_TABLE_NAME
         elif tu == AUSP_TABLE_NAME:
             table = AUSP_TABLE_NAME
@@ -1286,6 +1393,12 @@ def collect_db_load_groups(base_folder=None, rules_path=None) -> dict:
         atinn = None
         if table in _AUSP_DERIVED_TO_ATINN or str(table).upper() in (AUSP_TABLE_NAME, AUSP_EQUIPMENT_TABLE_NAME) or _AUSP_ATINN_STEM_RE.match(stem):
             atinn = _atinn_from_stem(stem)
+        # AUSP.xlsx без ATINN в имени → смотрим ATINN внутри (24/27/30/52 = AUSP_EQUIPMENT)
+        if str(table).strip().upper() == AUSP_TABLE_NAME and not atinn:
+            classified = _classify_flat_ausp_target([path])
+            if classified == AUSP_EQUIPMENT_TABLE_NAME:
+                print(f'  [AUSP flat] {os.path.basename(path)} → {AUSP_EQUIPMENT_TABLE_NAME} (по ATINN в файле)')
+                table = AUSP_EQUIPMENT_TABLE_NAME
         _add_file(table, path, atinn)
 
     # нормализация списков
@@ -1634,19 +1747,28 @@ def load_all_tables_from_db_folders(db_path=None, base_folder=None, method='fast
 
 def _interactive_pick_table_name(exclude_ausp=True):
     all_tables = get_table_folders()
-    # Пункт 4 — только customer AUSP по ATINN; AUSP_EQUIPMENT грузится как обычная таблица (1/3)
+    # Пункт 4 — только customer AUSP по ATINN; AUSP_EQUIPMENT грузится как обычная таблица (1/3/6)
     if exclude_ausp:
         pick_list = [t for t in all_tables if str(t).strip().upper() != AUSP_TABLE_NAME]
     else:
         pick_list = list(all_tables)
+    eq_files = _discover_ausp_equipment_files()
+    if eq_files and not any(str(t).strip().upper() == AUSP_EQUIPMENT_TABLE_NAME for t in pick_list):
+        pick_list = [AUSP_EQUIPMENT_TABLE_NAME] + pick_list
     if not pick_list:
         print('Нет доступных таблиц (подпапки или Excel в db/).')
+        if eq_files:
+            print(f'Но найдены файлы equipment AUSP — используйте пункт меню 6.')
         return None
     print('\nДоступные таблицы:')
+    print('  (пункт меню 1 только ОТКРЫВАЕТ этот список — выберите AUSP_EQUIPMENT отдельно)')
     for i, name in enumerate(pick_list, 1):
-        print(f'  {i:2}. {name}')
+        mark = '  ← equipment AUSP' if str(name).strip().upper() == AUSP_EQUIPMENT_TABLE_NAME else ''
+        print(f'  {i:2}. {name}{mark}')
     if exclude_ausp and any(str(t).strip().upper() == AUSP_TABLE_NAME for t in all_tables):
         print(f'  (для customer AUSP по папкам ATINN — пункт меню 4)')
+    if not any(str(t).strip().upper() == AUSP_EQUIPMENT_TABLE_NAME for t in pick_list):
+        print(f'  (AUSP_EQUIPMENT не найден в db/ — пункт меню 6 или положите AUSP_EQUIPMENT.xlsx)')
     raw = input('\nВведите номер или имя таблицы: ').strip()
     if not raw:
         return None
@@ -1659,29 +1781,62 @@ def _interactive_pick_table_name(exclude_ausp=True):
     matched = next((t for t in pick_list if str(t).strip().upper() == raw.upper()), None)
     if matched:
         return matched
+    if raw.strip().upper() in (AUSP_EQUIPMENT_TABLE_NAME, 'EQUIPMENT', 'AUSP_EQ'):
+        return AUSP_EQUIPMENT_TABLE_NAME
     print(f"Таблица '{raw}' не найдена.")
     return None
+
+def _interactive_load_ausp_equipment(method='fast'):
+    db_path = _resolve_db_path()
+    print('\n' + '=' * 70)
+    print(f'Режим: загрузка {AUSP_EQUIPMENT_TABLE_NAME} (не customer AUSP, не пункт 4)')
+    print(f'БД: {db_path}')
+    print('=' * 70)
+    files = _discover_ausp_equipment_files()
+    if not files:
+        print('Файлы не найдены. Положите один из вариантов:')
+        print('  - db/AUSP_EQUIPMENT.xlsx')
+        print('  - db/AUSP_EQUIPMENT/*.xlsx')
+        print('  - db/AUSP.xlsx с ATINN 24/27/30/52')
+        return None
+    print(f'Найдено файлов: {len(files)}')
+    for fp in files[:15]:
+        print(f'  - {fp}')
+    skip_dedup = input('Пропустить финальную дедупликацию? (y/n) [n]: ').strip().lower() == 'y'
+    return merge_and_load_ausp_equipment_flat(
+        db_path=db_path,
+        data_files=files,
+        skip_final_dedup=skip_dedup,
+        method=method,
+    )
+
 
 def _interactive_load_one_table(method='fast'):
     table_name = _interactive_pick_table_name(exclude_ausp=True)
     if not table_name:
         return None
     if str(table_name).strip().upper() == AUSP_TABLE_NAME:
-        print('Для AUSP выберите пункт 4 меню (загрузка из подпапок ATINN).')
+        print('Для customer AUSP выберите пункт 4 меню.')
         return None
+    if str(table_name).strip().upper() == AUSP_EQUIPMENT_TABLE_NAME:
+        return _interactive_load_ausp_equipment(method=method)
     groups = collect_db_load_groups()
     info = groups.get(table_name)
     if not info or not (info.get('files') or info.get('folder')):
         print(f"ОШИБКА: нет файлов для таблицы '{table_name}'")
         return None
     print(f"\nЗагрузка одной таблицы: {table_name}")
+    print(f'БД: {_resolve_db_path()}')
     files = info.get('files') or []
     for fp in files[:10]:
         print(f'  - {os.path.basename(fp)}')
     if len(files) > 10:
         print(f'  ... и ещё {len(files) - 10}')
     skip_dedup = input('Пропустить финальную дедупликацию? (y/n) [n]: ').strip().lower() == 'y'
-    return _load_table_from_group(_resolve_db_path(), table_name, info, method, skip_dedup, _resolve_data_path())
+    result = _load_table_from_group(_resolve_db_path(), table_name, info, method, skip_dedup, _resolve_data_path())
+    if result:
+        _verify_sqlite_table(_resolve_db_path(), result.get('table_name') or table_name)
+    return result
 
 
 def _interactive_load_excel_by_rules():
@@ -1726,14 +1881,21 @@ if __name__ == '__main__':
     if tables_in_db:
         print('   ', ', '.join(tables_in_db[:15]), '...' if len(tables_in_db) > 15 else '')
     print(f'\nВыберите режим:')
-    print('1. Залить одну таблицу (быстрый метод) — подпапка или Excel в db/')
-    print('2. Залить одну таблицу (ультра-быстрый метод)')
+    print('1. Залить одну таблицу (быстрый) — потом выберите имя из списка')
+    print('2. Залить одну таблицу (ультра-быстрый)')
     print('3. Залить ВСЕ таблицы из db/ (подпапки + плоские Excel)')
-    print('4. AUSP: customer из папок ATINN (143/604/…) → AUSP (AUSP_EQUIPMENT — отдельно, меню 1/3)')
+    print('4. AUSP customer из папок ATINN (143/604/…) → таблица AUSP')
     print('5. Показать сопоставление файлов в db/ с rules.json (без загрузки)')
+    print('6. AUSP_EQUIPMENT — залить equipment AUSP (ATINN 24/27/30/52) → SQLite')
     try:
-        choice = input('\nВведите номер (1–5): ').strip()
-        if choice == '5':
+        choice = input('\nВведите номер (1–6): ').strip()
+        if choice == '6':
+            result = _interactive_load_ausp_equipment(method='fast')
+            if result:
+                print(f"\nУСПЕХ: таблица '{result['table_name']}' — {result['db_rows']:,} строк")
+            else:
+                print('\nAUSP_EQUIPMENT не загружена — проверьте файлы в db/.')
+        elif choice == '5':
             result = _interactive_load_excel_by_rules()
             if result:
                 print('\nСопоставление готово.')
@@ -1741,7 +1903,7 @@ if __name__ == '__main__':
                 print('\nОперация завершена с ошибками или отменена.')
         elif choice == '4':
             print('\nРежим: только customer AUSP из папок ATINN (143/604/148/151).')
-            print('AUSP_EQUIPMENT грузите меню 1 или 3 как обычную таблицу (db/AUSP_EQUIPMENT.xlsx).')
+            print('AUSP_EQUIPMENT — пункт меню 6 (или 1 → выбрать AUSP_EQUIPMENT).')
             skip_dedup = input('Пропустить финальную дедупликацию? (y/n) [n]: ').strip().lower() == 'y'
             result = merge_and_load_ausp_from_atinn_folders(skip_final_dedup=skip_dedup)
             if result:
@@ -1763,6 +1925,7 @@ if __name__ == '__main__':
             result = load_all_tables_from_db_folders(method='ultra_fast' if m == '2' else 'fast', skip_final_dedup=skip_dedup, only_tables=only)
             if result:
                 print(f'\nОперация завершена. Загружено таблиц: {len(result)}')
+                _verify_sqlite_table(_resolve_db_path(), AUSP_EQUIPMENT_TABLE_NAME)
             else:
                 print('\nНет таблиц для загрузки или ошибки.')
         elif choice == '2':
@@ -1772,6 +1935,7 @@ if __name__ == '__main__':
             else:
                 print(f'\nОперация завершена с ошибками или отменена.')
         elif choice == '1':
+            print('\nВажно: «1» только открывает список — выберите AUSP_EQUIPMENT (или сразу пункт 6).')
             result = _interactive_load_one_table(method='fast')
             if result:
                 print(f"\nУСПЕХ: таблица '{result['table_name']}' — {result['db_rows']:,} строк")
