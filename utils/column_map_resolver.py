@@ -705,5 +705,9 @@ def drop_export_alias_duplicates(
                 drop.add(alias_col)
     if not drop:
         return df
+    # never strip DQ diagnostics / LOOKUP enrichment columns from error exports
+    drop = {c for c in drop if not str(c).startswith('LOOKUP_') and not str(c).startswith('DQ_')}
+    if not drop:
+        return df
     return df.drop(columns=sorted(drop), errors='ignore')
 

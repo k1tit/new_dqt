@@ -2338,9 +2338,50 @@ class FastDataQualityChecker:
                 self._log_failed_rule(rule, table_name, str(e), timestamp)
             return (0, 0)
 
+    def _promote_lookup_columns_in_error_df(self, error_df):
+        """LOOKUP_* / DQ_* — в начало Excel ошибок (удобно читать рядом со STAT)."""
+        if error_df is None or error_df.empty:
+            return error_df
+        prefer = [
+            'DQ_RULE_CODE',
+            'DQ_ERROR_DESCRIPTION',
+            'DQ_RULE_CHECK_COLUMNS',
+            'LOOKUP_JEST_STAT',
+            'LOOKUP_EQUIPMENT_STATUS',
+            'LOOKUP_ORDER_BLOCK',
+            'LOOKUP_ACCOUNT_GROUP',
+            'LOOKUP_CDE_TYPE',
+            'LOOKUP_EQUIPMENT_MODEL',
+            'LOOKUP_KUNDE',
+            'LOOKUP_CDE_CATEGORY',
+            'LOOKUP_NUMBER_OF_DOORS',
+            'LOOKUP_ALLOWED_DOOR_EQ',
+            'STAT',
+            'OBJNR',
+            'EQUNR',
+            'INACT',
+            'equipment_status_code',
+            'cde_type',
+            'equipment_model',
+            'KUNDE',
+            'central_order_block_code',
+            'AUFSD',
+            'KTOKD',
+        ]
+        front = [c for c in prefer if c in error_df.columns]
+        rest = [c for c in error_df.columns if c not in front]
+        # остальные LOOKUP_/DQ_ сразу после prefer
+        extra_lu = [c for c in rest if str(c).startswith('LOOKUP_') or str(c).startswith('DQ_')]
+        rest2 = [c for c in rest if c not in extra_lu]
+        return error_df[front + extra_lu + rest2].copy()
+
     def _save_rule_error_with_limit(self, rule_code, table_name, error_df, error_count, is_suspicious, total_rows):
         if error_df is None or error_df.empty:
             return
+        try:
+            error_df = self._promote_lookup_columns_in_error_df(error_df)
+        except Exception:
+            pass
         try:
             from utils.column_map_resolver import drop_export_alias_duplicates
             before = list(error_df.columns)
@@ -4727,6 +4768,7 @@ class FastDataQualityChecker:
                 f'dm_customer_equipment: JEST.STAT→TJ30T.TXT04 × KNA1.AUFSD via V_EQUI.KUNDE; '
                 f'matrix={os.path.basename(matrix_path or "conf_order_block_cooler_status.json")}'
             )
+            error_df = self._promote_lookup_columns_in_error_df(error_df)
 
         is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
         if save_result:
