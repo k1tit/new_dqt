@@ -3865,13 +3865,84 @@ class FastDataQualityChecker:
         return (
             f'{rule_code}: нет строк в cooler scope после фильтров '
             f'(вход={n_input:,}, все пропущены). Причины: {breakdown}.{extra} '
-            f'Нужны: V_EQUI (DATBI open, KUNDE NOT NULL, EQART=COOLER, TYPBZ), '
+            f'Нужны: V_EQUI (DATBI open, KUNDE NOT NULL, TYPBZ) + AUSP ATINN=24 ATWRT=COOLER (via INOB), '
             f'JEST INACT!=X + TJ30T STSMA=CSEQ01→TXT04 in {sorted(COOLER_STATUS_CODES)}, '
             f'KNA1.KTOKD not LIKE 7%.'
         )
 
+    def _get_inob_matnr_to_cuobj(self) -> dict:
+        """MATNR (INOB.OBJEK) -> LTRIM(CUOBJ) for AUSP characteristic joins."""
+        cached = getattr(self, '_inob_matnr_to_cuobj', None)
+        if cached is not None:
+            return cached
+        inob = self._load_table_for_equipment('INOB')
+        out = {}
+        if inob is None or inob.empty:
+            self._inob_matnr_to_cuobj = out
+            print('      [WARN] INOB пуста — нет MATNR→CUOBJ для AUSP ATINN=24 (cde_type)')
+            return out
+        cuobj_col = self._find_col_by_names(inob, ('CUOBJ', 'CUOBJ_IN', 'INSTANCE'))
+        objek_col = self._find_col_by_names(inob, ('OBJEK', 'MATNR', 'OBJECT'))
+        if not cuobj_col or not objek_col:
+            self._inob_matnr_to_cuobj = out
+            return out
+        for mat, cu in zip(inob[objek_col].tolist(), inob[cuobj_col].tolist()):
+            m = str(mat or '').strip()
+            c = ltrim_zeros(cu)
+            if not m or not c:
+                continue
+            for k in (m, ltrim_zeros(m)):
+                if k and k not in out:
+                    out[k] = c
+        self._inob_matnr_to_cuobj = out
+        print(f'      [CACHE] INOB MATNR→CUOBJ: {len(out):,}')
+        return out
+
+    def _get_ausp_equipment_char_by_cuobj(self, atinn: str, *, prefer_value_cols=None) -> dict:
+        """LTRIM(AUSP.OBJEK)=CUOBJ → characteristic value for given ATINN (AUSP_EQUIPMENT)."""
+        atinn_n = str(atinn or '').strip()
+        prefer = prefer_value_cols or ('ATWRT', 'ATFLV', 'ATLFV')
+        cache_attr = f'_ausp_eq_char_{atinn_n}_{"_".join(prefer)}'
+        cached = getattr(self, cache_attr, None)
+        if cached is not None:
+            return cached
+        out = {}
+        df = self._load_table_for_equipment(self.AUSP_EQUIPMENT_TABLE)
+        if df is None or df.empty:
+            setattr(self, cache_attr, out)
+            print(f'      [WARN] AUSP_EQUIPMENT пуста — нет ATINN={atinn_n}')
+            return out
+        atinn_col, atwrt_col = self._find_ausp_columns(df.columns, self.AUSP_EQUIPMENT_TABLE)
+        objek_col = self._find_col_by_names(df, ('OBJEK', 'CUOBJ', 'EQUNR', 'OBJNR'))
+        val_col = None
+        for name in prefer:
+            hit = self._find_col_by_names(df, (name,))
+            if hit:
+                val_col = hit
+                break
+        if not val_col:
+            val_col = atwrt_col
+        if not atinn_col or not val_col or not objek_col:
+            setattr(self, cache_attr, out)
+            print(f'      [WARN] AUSP_EQUIPMENT: нет колонок ATINN/OBJEK/value для ATINN={atinn_n}')
+            return out
+        work = df[[objek_col, atinn_col, val_col]].copy()
+        work['_atinn'] = work[atinn_col].apply(self._normalize_atinn_for_filter)
+        work = work[work['_atinn'] == atinn_n]
+        for objek, val in zip(work[objek_col].tolist(), work[val_col].tolist()):
+            k = ltrim_zeros(objek)
+            if not k or k in out:
+                continue
+            s = str(val or '').strip()
+            if s and s.lower() not in ('none', 'null', 'nan', '<na>'):
+                out[k] = s
+        setattr(self, cache_attr, out)
+        label = 'cde_type' if atinn_n == '24' else f'ATINN={atinn_n}'
+        print(f'      [CACHE] AUSP_EQUIPMENT {label} → {val_col}: {len(out):,} CUOBJ')
+        return out
+
     def _get_vequi_equipment_attrs_lookup(self) -> dict:
-        """OBJNR/EQUNR -> {model, cde_type, kunde, matnr, objnr, equnr} after DM filters."""
+        """OBJNR/EQUNR -> {model, cde_type(ATINN24), kunde, matnr, ...} after DM filters."""
         cached = getattr(self, '_vequi_equipment_attrs_lookup', None)
         if cached is not None:
             return cached
@@ -3883,26 +3954,43 @@ class FastDataQualityChecker:
         equnr_col = self._find_col_by_names(vequi, ('EQUNR', 'Equipment', 'EQUIPMENT'))
         objnr_col = self._find_col_by_names(vequi, ('OBJNR',))
         model_col = self._find_col_by_names(vequi, ('TYPBZ', 'equipment_model', 'equimpment_model', 'MODEL'))
-        cde_col = self._find_col_by_names(vequi, ('EQART', 'cde_type', 'CDE_TYPE', 'OBJECTTYPE', 'EQTYP'))
+        eqtyp_col = self._find_col_by_names(vequi, ('EQTYP', 'equipment_category_code'))
         kunde_col = self._find_col_by_names(vequi, ('KUNDE', 'KUNNR', 'Customer', 'CUSTOMER'))
-        matnr_col = self._find_col_by_names(vequi, ('MATNR', 'MATERIAL'))
+        matnr_col = self._find_col_by_names(vequi, ('MATNR', 'MZATNR', 'MATERIAL', 'material_code'))
         if not equnr_col and not objnr_col:
             print(f'      [WARN] V_EQUI: нет EQUNR/OBJNR (cols: {list(vequi.columns)[:12]})')
             self._vequi_equipment_attrs_lookup = lookup
             return lookup
 
+        mat_to_cu = self._get_inob_matnr_to_cuobj()
+        cde_by_cu = self._get_ausp_equipment_char_by_cuobj('24', prefer_value_cols=('ATWRT', 'ATFLV', 'ATLFV'))
+
+        def _cde_for_matnr(mat):
+            if not mat:
+                return ''
+            cu = mat_to_cu.get(str(mat).strip()) or mat_to_cu.get(ltrim_zeros(mat))
+            if not cu:
+                return ''
+            return cde_by_cu.get(ltrim_zeros(cu)) or cde_by_cu.get(str(cu).strip()) or ''
+
         def _put(key, row_attrs):
             if key and key not in lookup:
                 lookup[key] = row_attrs
 
+        cde_hit = 0
         for idx in vequi.index:
             equnr = self._norm_equipment_join_key(vequi.at[idx, equnr_col]) if equnr_col else ''
             objnr = norm_objnr(vequi.at[idx, objnr_col]) if objnr_col else ''
+            matnr = vequi.at[idx, matnr_col] if matnr_col else ''
+            cde = _cde_for_matnr(matnr)
+            if cde:
+                cde_hit += 1
             attrs = {
                 'equipment_model': vequi.at[idx, model_col] if model_col else '',
-                'cde_type': vequi.at[idx, cde_col] if cde_col else '',
+                'cde_type': cde,
+                'equipment_category_code': vequi.at[idx, eqtyp_col] if eqtyp_col else '',
                 'kunde': vequi.at[idx, kunde_col] if kunde_col else '',
-                'matnr': vequi.at[idx, matnr_col] if matnr_col else '',
+                'matnr': matnr,
                 'objnr': objnr,
                 'equnr': equnr,
             }
@@ -3913,7 +4001,8 @@ class FastDataQualityChecker:
         self._vequi_equipment_attrs_lookup = lookup
         print(
             f'      [CACHE] V_EQUI equipment attrs: {len(lookup):,} keys '
-            f'(model={model_col}, cde_type={cde_col}, kunde={kunde_col}, matnr={matnr_col})'
+            f'(model={model_col}, cde_type=AUSP ATINN=24 via INOB hit≈{cde_hit:,}, '
+            f'kunde={kunde_col}, matnr={matnr_col})'
         )
         return lookup
 
@@ -4081,19 +4170,15 @@ class FastDataQualityChecker:
 
     def _scope_vequi_cooler_population(self, df, rule_code):
         """
-        Population for equipment Completeness: V_EQUI dm filter + EQART=COOLER + status in cooler set.
-        Returns (scoped_df, skip_reason_or_None). Does NOT check target field fill.
+        Population for equipment Completeness:
+        V_EQUI dm filter + cde_type=AUSP ATINN=24 ATWRT == COOLER + status in cooler set.
         """
         if df is None or df.empty:
             return (df, f'{rule_code}: V_EQUI пуста')
         work = df.copy()
-        # Prefer dm-filtered attrs already on frame; else enrich from lookup
-        cde_col = self._find_col_by_names(work, ('EQART', 'cde_type', 'CDE_TYPE'))
-        model_col = self._find_col_by_names(work, ('TYPBZ', 'equipment_model'))
         objnr_col = self._find_col_by_names(work, ('OBJNR',))
         equnr_col = self._find_col_by_names(work, ('EQUNR', 'Equipment'))
 
-        # Apply DATBI/KUNDE via dm frame keys if possible
         dm = self._get_vequi_dm_frame()
         if dm is not None and not dm.empty and equnr_col:
             dm_eq = self._find_col_by_names(dm, ('EQUNR', 'Equipment'))
@@ -4106,22 +4191,17 @@ class FastDataQualityChecker:
                 if work.empty:
                     return (work, f'{rule_code}: нет строк V_EQUI после dm_customer_equipment (DATBI open, KUNDE NOT NULL)')
 
-        if not cde_col:
-            # attach from attrs lookup
-            attrs = self._get_vequi_equipment_attrs_lookup()
-            key_col = objnr_col or equnr_col
-            if key_col:
-                keys_full = work[key_col].apply(norm_objnr) if objnr_col and key_col == objnr_col else work[key_col].apply(self._norm_equipment_join_key)
-                keys_eq = work[key_col].apply(self._norm_equipment_join_key)
-                work['cde_type'] = [
-                    (attrs.get(keys_full.loc[i]) or attrs.get(keys_eq.loc[i]) or {}).get('cde_type')
-                    for i in work.index
-                ]
-                cde_col = 'cde_type'
-            else:
-                return (work, f'{rule_code}: нет EQART/cde_type и нет ключа EQUNR/OBJNR')
-        else:
-            work['cde_type'] = work[cde_col]
+        # cde_type = at24.ATWRT (NOT EQART)
+        attrs = self._get_vequi_equipment_attrs_lookup()
+        key_col = objnr_col or equnr_col
+        if not key_col:
+            return (work, f'{rule_code}: нет ключа EQUNR/OBJNR для cde_type (AUSP ATINN=24)')
+        keys_full = work[key_col].apply(norm_objnr) if objnr_col and key_col == objnr_col else work[key_col].apply(self._norm_equipment_join_key)
+        keys_eq = work[key_col].apply(self._norm_equipment_join_key)
+        work['cde_type'] = [
+            (attrs.get(keys_full.loc[i]) or attrs.get(keys_eq.loc[i]) or {}).get('cde_type')
+            for i in work.index
+        ]
 
         status_lookup = self._get_jest_status_lookup()
         if objnr_col:
@@ -4140,16 +4220,18 @@ class FastDataQualityChecker:
         st_ok = work['equipment_status_code'].map(norm_equipment_status).isin(COOLER_STATUS_CODES)
         scoped = work.loc[cde_ok & st_ok].copy()
         print(
-            f'      [FILTER] {rule_code}: cooler scope EQART=COOLER + status in '
+            f'      [FILTER] {rule_code}: cooler scope cde_type(ATINN24)=COOLER + status in '
             f'{sorted(COOLER_STATUS_CODES)} -> {len(scoped):,}/{before:,} '
             f'(cde_ok={int(cde_ok.sum()):,}, status_ok={int(st_ok.sum()):,})'
         )
         if scoped.empty:
+            at24_n = len(self._get_ausp_equipment_char_by_cuobj('24') or {})
             return (
                 scoped,
-                f'{rule_code}: нет cooler population (EQART=COOLER и status in '
+                f'{rule_code}: нет cooler population (cde_type=AUSP ATINN=24 ATWRT=COOLER и status in '
                 f'{sorted(COOLER_STATUS_CODES)}; вход={before:,}, cde_ok={int(cde_ok.sum()):,}, '
-                f'status_ok={int(st_ok.sum()):,}, TJ30T map={len(self._get_tj30t_estat_txt04_map() or {}):,})',
+                f'status_ok={int(st_ok.sum()):,}, ATINN24 map={at24_n:,}, '
+                f'TJ30T map={len(self._get_tj30t_estat_txt04_map() or {}):,})',
             )
         return (scoped, None)
 
@@ -4195,7 +4277,8 @@ class FastDataQualityChecker:
             error_df['LOOKUP_CDE_TYPE'] = work.loc[error_df.index, 'cde_type'].map(norm_cde_type).values
             error_df['LOOKUP_EQUIPMENT_STATUS'] = work.loc[error_df.index, 'equipment_status_code'].map(norm_equipment_status).values
             error_df['DQ_RULE_CHECK_COLUMNS'] = (
-                f'Completeness only: V_EQUI.[{field_col}] IS NULL (after EQART=COOLER + JEST/TJ30T status scope). '
+                f'Completeness only: V_EQUI.[{field_col}] IS NULL '
+                f'(after cde_type=AUSP ATINN=24 COOLER + JEST/TJ30T status scope). '
                 f'No format/matrix checks.'
             )
 
@@ -4250,7 +4333,7 @@ class FastDataQualityChecker:
             ob_col = 'central_order_block_code'
         ag_col = self._find_account_group_column(work)
         if 'equipment_model' not in work.columns or 'cde_type' not in work.columns:
-            self._log_skipped_rule(rule, table_name, f'{rule_code}: не удалось присоединить V_EQUI.TYPBZ/EQART', timestamp)
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: не удалось присоединить V_EQUI.TYPBZ / cde_type(ATINN24)', timestamp)
             return (0, 0)
         if not ag_col:
             self._log_skipped_rule(rule, table_name, f'{rule_code}: не найден account_group_code (KNA1.KTOKD via V_EQUI.KUNDE)', timestamp)
@@ -4360,11 +4443,14 @@ class FastDataQualityChecker:
         return (error_count, total_rows)
 
     def _pivot_ausp_equipment_by_objek(self, df):
-        """Long AUSP_EQUIPMENT -> one row per LTRIM(OBJEK)=CUOBJ with ATINN_30 / ATINN_52."""
+        """Long AUSP_EQUIPMENT -> one row per LTRIM(OBJEK)=CUOBJ with ATINN_24/27/30/52.
+        ATINN 52: prefer ATLFV (number_of_doors per DM); others: ATWRT.
+        """
         if df is None or df.empty:
             return pd.DataFrame()
         atinn_col, atwrt_col = self._find_ausp_columns(df.columns, self.AUSP_EQUIPMENT_TABLE)
         objek_col = self._find_col_by_names(df, ('OBJEK', 'CUOBJ', 'EQUNR', 'OBJNR', 'Equipment'))
+        atlfv_col = self._find_col_by_names(df, ('ATLFV', 'ATFLV'))
         if not atinn_col or not atwrt_col or not objek_col:
             wide_keys = [c for c in df.columns if str(c).upper().startswith('ATINN_')]
             if objek_col and wide_keys:
@@ -4372,18 +4458,28 @@ class FastDataQualityChecker:
                 out['_eq_key'] = out[objek_col].apply(ltrim_zeros)
                 return out
             return pd.DataFrame()
-        work = df[[objek_col, atinn_col, atwrt_col]].copy()
+        work = df[[objek_col, atinn_col, atwrt_col] + ([atlfv_col] if atlfv_col else [])].copy()
         work['_atinn'] = work[atinn_col].apply(self._normalize_atinn_for_filter)
         work = work[work['_atinn'].isin(self.AUSP_EQUIPMENT_ATINN)]
         if work.empty:
             return pd.DataFrame()
+
+        def _char_value(row):
+            if str(row['_atinn']) == '52' and atlfv_col:
+                v = row[atlfv_col]
+                s = str(v or '').strip()
+                if s and s.lower() not in ('none', 'null', 'nan', '<na>'):
+                    return v
+            return row[atwrt_col]
+
+        work['_val'] = work.apply(_char_value, axis=1)
         work['_col'] = work['_atinn'].map(lambda a: f'ATINN_{a}')
         work['_eq_key'] = work[objek_col].apply(ltrim_zeros)
         pivoted = (
             work.dropna(subset=['_eq_key'])
             .sort_values(['_eq_key', '_col'])
             .drop_duplicates(subset=['_eq_key', '_col'], keep='last')
-            .pivot(index='_eq_key', columns='_col', values=atwrt_col)
+            .pivot(index='_eq_key', columns='_col', values='_val')
             .reset_index()
         )
         pivoted['OBJEK'] = pivoted['_eq_key']
@@ -4403,6 +4499,7 @@ class FastDataQualityChecker:
 
         cat_col = self._find_col_by_names(pivoted, ('ATINN_30', 'cde_category_code'))
         doors_col = self._find_col_by_names(pivoted, ('ATINN_52', 'number_of_doors'))
+        cde_from_ausp = self._find_col_by_names(pivoted, ('ATINN_24', 'cde_type'))
         if not cat_col or not doors_col:
             self._log_skipped_rule(rule, table_name, f'{rule_code}: нет ATINN_30 (category) и/или ATINN_52 (doors) после pivot', timestamp)
             return (0, 0)
@@ -4410,6 +4507,9 @@ class FastDataQualityChecker:
         work = self._attach_equipment_vequi_kna1_attrs(
             pivoted, table_name, rule_code, key_candidates=('_eq_key', 'OBJEK'), via_inob=True
         )
+        # DM: cde_type = at24.ATWRT — prefer pivot ATINN_24 over V_EQUI attrs
+        if cde_from_ausp and cde_from_ausp in work.columns:
+            work['cde_type'] = work[cde_from_ausp]
         status_lookup = self._get_jest_status_lookup()
         objnr_s = work['_eq_objnr'] if '_eq_objnr' in work.columns else work.get('_eq_key')
         if objnr_s is None:

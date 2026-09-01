@@ -1,7 +1,7 @@
 {
   "description": "Logical dm_customer_equipment — encoded as checker filters/joins (no physical DM table).",
-  "source": "Confluence Customer Equipment / Jaroslaw Kochanski / Oct 24, 2024",
-  "note": "Cluster is also available in all conditions (same pattern as dm_customer_general).",
+  "source": "Confluence Customer Equipment / Jaroslaw Kochanski; field map v3 (material_description)",
+  "note": "Cluster is also available in all conditions (same pattern as dm_customer_general). cde_type = AUSP ATINN=24 ATWRT (NOT V_EQUI.EQART).",
   "sources": [
     {
       "type": "DM",
@@ -79,18 +79,27 @@
     "INOB LEFT JOIN AT52 ON INOB.CUOBJ = LTRIM('0', AT52.OBJEK)",
     "INOB LEFT JOIN AT27 ON INOB.CUOBJ = LTRIM('0', AT27.OBJEK)",
     "AT30 LEFT JOIN CAWN_CRM ON AT30.ATWRT = CAWN_CRM.ATWRT",
-    "CAWN_CRM LEFT JOIN CAWNT_CRM ON CAWN_CRM.ATINN = CAWNT_CRM.ATINN AND CAWN_CRM.ATZHL = CAWNT_CRM.ATZHL",
+    "CAWNT_CRM ON CAWN_CRM.ATINN = CAWNT_CRM.ATINN AND CAWN_CRM.ATZHL = CAWNT_CRM.ATZHL",
     "LEFT JOIN MAKT ON EQ.MATNR = MAKT.MATNR"
   ],
   "field_map": {
-    "equipment_model": "V_EQUI.TYPBZ",
-    "cde_type": "V_EQUI.EQART",
-    "customer_code": "V_EQUI.KUNDE",
-    "equipment_status_code": "TJ30T.TXT04 (via JEST.STAT = TJ30T.ESTAT, STSMA=CSEQ01)",
-    "cde_category_code": "AUSP ATINN=30 ATWRT (via INOB)",
-    "number_of_doors": "AUSP ATINN=52 ATWRT (via INOB)",
-    "cs_branding": "AUSP ATINN=27 ATWRT (via INOB)",
-    "target_coolers_doors_code": "AUSP ATINN=24 ATWRT (via INOB)",
-    "material_description": "MAKT.MAKTX"
+    "customer_code": "eq.KUNDE",
+    "equipment_number": "eq.EQUNR",
+    "acquisition_date": "eq.ANSDT",
+    "equipment_description": "eq.EQKTX",
+    "equipment_model": "eq.TYPBZ",
+    "installation_date": "eq.INBDT",
+    "equipment_category_code": "eq.EQTYP",
+    "equipment_status_code": "t30.TXT04",
+    "equipment_status_description": "t30.TXT30",
+    "cde_type": "at24.ATWRT (AUSP ATINN=24 via INOB; NOT EQART)",
+    "cde_category_code": "at30.ATWRT",
+    "cde_category_description": "ct.ATWTB",
+    "manufacturer_serial_number": "eq.SERGE",
+    "cs_branding": "at27.ATWRT",
+    "number_of_doors": "at52.ATLFV",
+    "material_code": "eq.MZATNR / MATNR",
+    "sap_cluster": "eq.SAP_CLUSTER",
+    "material_description": "mk.MAKTX"
   }
 }
