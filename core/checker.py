@@ -62,7 +62,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-09-01-ausp-char-completeness'
+    CHECKER_BUILD_ID = '2026-09-02-rcconf-389-1-alnum'
     EQUIPMENT_COOLER_STATUS_MATRIX_RULES = frozenset({'RCCONF_342.1', 'RCCONF_342.2'})
     EQUIPMENT_DOOR_EQUIVALENT_MATRIX_RULES = frozenset({'RCCONF_278.1'})
     # Completeness only: field empty → fail; scope cooler+status (not format/matrix rules)
@@ -71,6 +71,33 @@ class FastDataQualityChecker:
         'RCCOMP_387.1': ('ANSDT', 'acquisition_date'),
         'RCCOMP_389.1': ('TYPBZ', 'equipment_model'),
         'RCCOMP_388.1': ('EQKTX', 'equipment_description'),
+    }
+    # Conformity Data Format: empty → skip ''; cooler+status scope; filled + invalid date → fail
+    EQUIPMENT_FIELD_DATE_FORMAT_RULES = {
+        'RCCONF_386.1': ('INBDT', 'installation_date'),
+        'RCCONF_387.1': ('ANSDT', 'acquisition_date'),
+    }
+    # Conformity past-date: empty → skip ''; filled date < sysdate → ok
+    # require_cooler_scope=True → same cooler+status as 386.1; False → only NULL check (387.2 TZ)
+    EQUIPMENT_FIELD_DATE_PAST_RULES = {
+        'RCCONF_386.2': {
+            'col': 'INBDT',
+            'logical': 'installation_date',
+            'require_cooler_scope': True,
+        },
+        'RCCONF_387.2': {
+            'col': 'ANSDT',
+            'logical': 'acquisition_date',
+            'require_cooler_scope': False,
+        },
+    }
+    # Conformity Spelling: EQKTX special chars; empty → skip; cooler+status scope
+    EQUIPMENT_EQKTX_SPECIAL_CHARS_RULES = frozenset({'RCCONF_388.2'})
+    # Conformity: filled value must include letters or digits (TZ); empty → skip; cooler scope
+    # Note: rule titles say "upper/capital" but technical_definition is alphanumeric content
+    EQUIPMENT_ALPHANUMERIC_CONTENT_RULES = {
+        'RCCONF_389.1': ('TYPBZ', 'equipment_model'),
+        'RCCONF_388.1': ('EQKTX', 'equipment_description'),
     }
     # AUSP_EQUIPMENT char completeness; ATINN 52 → ATLFV (number_of_doors)
     EQUIPMENT_AUSP_CHAR_COMPLETENESS_RULES = {
@@ -1274,6 +1301,14 @@ class FastDataQualityChecker:
             return self._process_equipment_ausp_char_completeness(rule_code, df, table_name, rule, save_result, timestamp)
         if rule_code in self.EQUIPMENT_FIELD_COMPLETENESS_RULES and tn == 'V_EQUI':
             return self._process_equipment_field_completeness(rule_code, df, table_name, rule, save_result, timestamp)
+        if rule_code in self.EQUIPMENT_FIELD_DATE_FORMAT_RULES and tn == 'V_EQUI':
+            return self._process_equipment_field_date_format(rule_code, df, table_name, rule, save_result, timestamp)
+        if rule_code in self.EQUIPMENT_FIELD_DATE_PAST_RULES and tn == 'V_EQUI':
+            return self._process_equipment_field_date_past(rule_code, df, table_name, rule, save_result, timestamp)
+        if rule_code in self.EQUIPMENT_EQKTX_SPECIAL_CHARS_RULES and tn == 'V_EQUI':
+            return self._process_equipment_eqktx_special_chars(rule_code, df, table_name, rule, save_result, timestamp)
+        if rule_code in self.EQUIPMENT_ALPHANUMERIC_CONTENT_RULES and tn == 'V_EQUI':
+            return self._process_equipment_alphanumeric_content(rule_code, df, table_name, rule, save_result, timestamp)
         if tn.startswith('DFKKBPTAXNUM'):
             handler_cls = self.table_handlers.get(table_name) or self.table_handlers.get(tn)
             if rule_code in self.TAXNUM_FORMAT_RULES and handler_cls is not None:
@@ -3539,7 +3574,7 @@ class FastDataQualityChecker:
             return LogicalValidator(rule_info, self.error_manager)
         if rule_code in ['RCCOMP_375.1', 'RCCOMP_375.1.2']:
             return CompletenessValidator(rule_info)
-        if rule_code in ['RCCONF_18.2', 'RCCONF_22.2']:
+        if rule_code in ['RCCONF_18.2', 'RCCONF_22.2', 'RCCONF_388.2']:
             return AdvancedSpecialCharactersValidator(rule_info)
         if rule_code == 'RCCONF_22.3':
             return UppercaseValidator(rule_info)
@@ -3553,7 +3588,7 @@ class FastDataQualityChecker:
             return ConsecutiveSpacesValidator(rule_info)
         elif 'специальные символы' in rule_desc_lower or 'special character' in rule_desc_lower:
             return SpecialCharactersValidator(rule_info)
-        elif 'верхний регистр' in rule_desc_lower or 'uppercase' in rule_desc_lower or 'capital letters' in rule_desc_lower:
+        elif 'верхний регистр' in rule_desc_lower or 'uppercase' in rule_desc_lower or 'upper case' in rule_desc_lower or 'capital letters' in rule_desc_lower:
             return UppercaseValidator(rule_info)
         elif 'отсутствует' in rule_desc_lower or 'missing' in rule_desc_lower:
             return CompletenessValidator(rule_info)
@@ -4365,18 +4400,37 @@ class FastDataQualityChecker:
         if v is None:
             return True
         try:
-            if isinstance(v, float) and pd.isna(v):
+            if pd.isna(v):
                 return True
         except Exception:
             pass
         s = str(v).replace('\ufeff', '').replace('\xa0', ' ').strip()
-        if not s or s.lower() in ('none', 'null', 'nan', '<na>', 'nat', 'n/a', 'na'):
+        if not s or s.lower() in ('none', 'null', 'nan', '<na>', 'nat', 'n/a', 'na', 'none'):
+            return True
+        if s in ('-', '.', '/', '\\', '--', '...', '....', '""', "''"):
             return True
         # SAP date / numeric empty
         digits = re.sub(r'\D', '', s)
         if digits and set(digits) <= {'0'}:
             return True
         if re.fullmatch(r'-?0+(?:[.,]0+)?', s.replace(' ', '')):
+            return True
+        return False
+
+    def _equipment_date_is_null_like(self, v) -> bool:
+        """
+        Empty for date Conformity rules (format/past): NULL-like → skip '', not error.
+        Non-date garbage with letters (e.g. 'ABC') is NOT empty — format rule must fail it.
+        """
+        if self._equipment_field_is_empty(v):
+            return True
+        s = str(v).replace('\ufeff', '').replace('\xa0', ' ').strip()
+        if not s:
+            return True
+        digits = re.sub(r'\D', '', s)
+        if digits and set(digits) <= {'0'}:
+            return True
+        if not digits and not re.search(r'[A-Za-zА-Яа-я]', s):
             return True
         return False
 
@@ -4655,6 +4709,453 @@ class FastDataQualityChecker:
         elif error_df is not None and not error_df.empty:
             self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
         print(f'      [RESULT] {rule_code}: evaluated={total_rows:,}, missing={error_count:,}')
+        return (error_count, total_rows)
+
+    def _process_equipment_field_date_format(self, rule_code, df, table_name, rule, save_result, timestamp):
+        """
+        RCCONF_386.1 / 387.1 — Data Format for cooler dates.
+        IF date IS NULL OR not cooler-scope THEN '' (skip).
+        ELSE IF has date format THEN '1' ELSE '0'.
+        """
+        from utils.sap_date_format import is_valid_sap_date_value
+
+        col_hint, logical = self.EQUIPMENT_FIELD_DATE_FORMAT_RULES[rule_code]
+        work, skip = self._scope_vequi_cooler_population(df, rule_code)
+        if skip:
+            self._log_skipped_rule(rule, table_name, skip, timestamp)
+            return (0, 0)
+
+        # Exact SAP name first — avoid fuzzy match picking wrong date column
+        upper_map = {str(c).strip().upper(): c for c in work.columns}
+        field_col = upper_map.get(str(col_hint).strip().upper())
+        if not field_col:
+            field_col = self._find_col_by_names(work, (col_hint, logical, rule.get('column_name_checked') or col_hint))
+        if not field_col or field_col not in work.columns:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: колонка {col_hint} ({logical}) не найдена в V_EQUI (cols: {list(work.columns)[:12]})',
+                timestamp,
+            )
+            return (0, 0)
+        print(f'      [FORMAT] {rule_code}: check column=[{field_col}] (hint={col_hint})')
+
+        empty_mask = work[field_col].apply(self._equipment_date_is_null_like)
+        filled = work.loc[~empty_mask].copy()
+        n_skip_empty = int(empty_mask.sum())
+        total_rows = len(filled)
+        print(
+            f'      [FORMAT] {rule_code}: поле [{field_col}] ({logical}) — '
+            f'filled={total_rows:,}, empty_skip={n_skip_empty:,} / cooler_scope={len(work):,}'
+        )
+        if total_rows == 0:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: в cooler scope нет заполненных {col_hint} (пустые = skip по ТЗ)',
+                timestamp,
+            )
+            return (0, 0)
+
+        ok_mask = filled[field_col].apply(is_valid_sap_date_value)
+        error_mask = ~ok_mask
+        error_count = int(error_mask.sum())
+        if error_count > 0:
+            sample = filled.loc[error_mask, field_col].head(5).tolist()
+            print(f'      [FORMAT] {rule_code}: sample invalid {field_col}: {sample!r}')
+        print(
+            f'      [FORMAT] {rule_code}: invalid_date={error_count:,} / evaluated={total_rows:,} '
+            f'(empty {col_hint} not errors)'
+        )
+
+        validator = ConformityValidator({
+            'rule_code': rule_code,
+            'rule_description': rule.get('rule_description', ''),
+            'quality_category': 'Conformity',
+            'table_name': table_name,
+            'matched_column': field_col,
+            'original_column': col_hint,
+        })
+        err_desc = (
+            f'Invalid date format in {field_col} ({logical}). '
+            f'Expected SAP YYYYMMDD / ISO / DD.MM.YYYY calendar date. Empty values are out of scope.'
+        )
+        error_df = validator._prepare_error_dataframe(filled, error_mask, 'CONFORMITY', err_desc) if error_count > 0 else None
+        if error_df is not None and not error_df.empty:
+            error_df['LOOKUP_CDE_TYPE'] = filled.loc[error_df.index, 'cde_type'].map(norm_cde_type).values
+            error_df['LOOKUP_EQUIPMENT_STATUS'] = filled.loc[error_df.index, 'equipment_status_code'].map(norm_equipment_status).values
+            error_df['DQ_RULE_CHECK_COLUMNS'] = (
+                f'Data Format only: V_EQUI.[{field_col}] has date format '
+                f'(after cde_type=AUSP ATINN=24 COOLER + JEST/TJ30T status). '
+                f'NULL/empty/{col_hint}=00000000 → skip (not error).'
+            )
+
+        is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
+        if save_result:
+            rule_info = {
+                'rule_code': rule_code,
+                'rule_description': rule.get('rule_description', 'Unknown rule'),
+                'quality_category': 'Conformity',
+                'table_name': table_name,
+                'original_column': col_hint,
+                'matched_column': field_col,
+            }
+            if self._parallel_lock:
+                with self._parallel_lock:
+                    self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                    if error_df is not None and not error_df.empty:
+                        self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+            else:
+                self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                if error_df is not None and not error_df.empty:
+                    self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        elif error_df is not None and not error_df.empty:
+            self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        print(f'      [RESULT] {rule_code}: evaluated={total_rows:,}, invalid_format={error_count:,}')
+        return (error_count, total_rows)
+
+    def _process_equipment_field_date_past(self, rule_code, df, table_name, rule, save_result, timestamp):
+        """
+        RCCONF_386.2 — Install Date in past (cooler scope + empty skip).
+        RCCONF_387.2 — Acquisition Date in past (empty skip only; no cooler/status in TZ).
+        ELSE IF date < sysdate THEN '1' ELSE '0'. Unparseable filled → fail.
+        """
+        from datetime import date as date_cls
+        from utils.sap_date_format import parse_sap_date_to_date
+
+        meta = self.EQUIPMENT_FIELD_DATE_PAST_RULES[rule_code]
+        col_hint = meta['col']
+        logical = meta['logical']
+        require_cooler = bool(meta.get('require_cooler_scope'))
+
+        if require_cooler:
+            work, skip = self._scope_vequi_cooler_population(df, rule_code)
+            if skip:
+                self._log_skipped_rule(rule, table_name, skip, timestamp)
+                return (0, 0)
+            scope_label = 'cooler_scope'
+        else:
+            work = df.copy() if df is not None else pd.DataFrame()
+            if work.empty:
+                self._log_skipped_rule(rule, table_name, f'{rule_code}: V_EQUI пуста', timestamp)
+                return (0, 0)
+            # dm_customer_equipment population (DATBI/KUNDE/SPRAS), without cooler/status
+            dm = self._get_vequi_dm_frame()
+            equnr_col = self._find_col_by_names(work, ('EQUNR', 'Equipment'))
+            if dm is not None and not dm.empty and equnr_col:
+                dm_eq = self._find_col_by_names(dm, ('EQUNR', 'Equipment'))
+                if dm_eq:
+                    allowed = set(dm[dm_eq].apply(self._norm_equipment_join_key).tolist())
+                    keys = work[equnr_col].apply(self._norm_equipment_join_key)
+                    before = len(work)
+                    work = work.loc[keys.isin(allowed)].copy()
+                    print(f'      [FILTER] {rule_code}: V_EQUI dm (DATBI/KUNDE/SPRAS) -> {len(work):,}/{before:,}')
+                    if work.empty:
+                        self._log_skipped_rule(
+                            rule, table_name,
+                            f'{rule_code}: нет строк V_EQUI после dm_customer_equipment',
+                            timestamp,
+                        )
+                        return (0, 0)
+            scope_label = 'dm_vequi (no cooler filter)'
+
+        upper_map = {str(c).strip().upper(): c for c in work.columns}
+        field_col = upper_map.get(str(col_hint).strip().upper())
+        if not field_col:
+            field_col = self._find_col_by_names(work, (col_hint, logical, rule.get('column_name_checked') or col_hint))
+        if not field_col or field_col not in work.columns:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: колонка {col_hint} ({logical}) не найдена в V_EQUI (cols: {list(work.columns)[:12]})',
+                timestamp,
+            )
+            return (0, 0)
+
+        empty_mask = work[field_col].apply(self._equipment_date_is_null_like)
+        filled = work.loc[~empty_mask].copy()
+        n_skip_empty = int(empty_mask.sum())
+        total_rows = len(filled)
+        ref_dt = self.reference_datetime
+        if ref_dt is None:
+            today = date_cls.today()
+        elif hasattr(ref_dt, 'date'):
+            today = ref_dt.date()
+        else:
+            today = ref_dt
+        print(
+            f'      [PAST] {rule_code}: поле [{field_col}] ({logical}) — '
+            f'filled={total_rows:,}, empty_skip={n_skip_empty:,} / {scope_label}={len(work):,}, '
+            f'sysdate={today.isoformat()}'
+        )
+        if total_rows == 0:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: нет заполненных {col_hint} (пустые = skip по ТЗ)',
+                timestamp,
+            )
+            return (0, 0)
+
+        parsed = filled[field_col].apply(parse_sap_date_to_date)
+        ok_mask = parsed.apply(lambda d: d is not None and d < today)
+        error_mask = ~ok_mask
+        error_count = int(error_mask.sum())
+        if error_count > 0:
+            sample = filled.loc[error_mask, field_col].head(5).tolist()
+            print(f'      [PAST] {rule_code}: sample not-in-past {field_col}: {sample!r}')
+        print(
+            f'      [PAST] {rule_code}: not_in_past_or_invalid={error_count:,} / evaluated={total_rows:,} '
+            f'(empty {col_hint} not errors)'
+        )
+
+        validator = ConformityValidator({
+            'rule_code': rule_code,
+            'rule_description': rule.get('rule_description', ''),
+            'quality_category': 'Conformity',
+            'table_name': table_name,
+            'matched_column': field_col,
+            'original_column': col_hint,
+        })
+        err_desc = (
+            f'{logical} ({field_col}) must be before sysdate ({today.isoformat()}). '
+            f'Empty values are out of scope.'
+        )
+        error_df = validator._prepare_error_dataframe(filled, error_mask, 'CONFORMITY', err_desc) if error_count > 0 else None
+        if error_df is not None and not error_df.empty:
+            if require_cooler and 'cde_type' in filled.columns:
+                error_df['LOOKUP_CDE_TYPE'] = filled.loc[error_df.index, 'cde_type'].map(norm_cde_type).values
+            if require_cooler and 'equipment_status_code' in filled.columns:
+                error_df['LOOKUP_EQUIPMENT_STATUS'] = filled.loc[error_df.index, 'equipment_status_code'].map(norm_equipment_status).values
+            scope_note = (
+                'cooler scope ATINN24+status'
+                if require_cooler
+                else 'no cooler/status filter (TZ: only IS NULL → skip)'
+            )
+            error_df['DQ_RULE_CHECK_COLUMNS'] = (
+                f'Past date: V_EQUI.[{field_col}] < sysdate={today.isoformat()} ({scope_note}). '
+                f'NULL/empty/{col_hint}=00000000 → skip.'
+            )
+
+        is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
+        if save_result:
+            rule_info = {
+                'rule_code': rule_code,
+                'rule_description': rule.get('rule_description', 'Unknown rule'),
+                'quality_category': 'Conformity',
+                'table_name': table_name,
+                'original_column': col_hint,
+                'matched_column': field_col,
+            }
+            if self._parallel_lock:
+                with self._parallel_lock:
+                    self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                    if error_df is not None and not error_df.empty:
+                        self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+            else:
+                self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                if error_df is not None and not error_df.empty:
+                    self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        elif error_df is not None and not error_df.empty:
+            self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        print(f'      [RESULT] {rule_code}: evaluated={total_rows:,}, not_in_past={error_count:,}')
+        return (error_count, total_rows)
+
+    def _process_equipment_alphanumeric_content(self, rule_code, df, table_name, rule, save_result, timestamp):
+        """
+        RCCONF_389.1 / 388.1 — IF empty or not cooler-scope THEN ''.
+        ELSE IF value includes letters or numeric values THEN '1' ELSE '0'.
+        """
+        col_hint, logical = self.EQUIPMENT_ALPHANUMERIC_CONTENT_RULES[rule_code]
+        work, skip = self._scope_vequi_cooler_population(df, rule_code)
+        if skip:
+            self._log_skipped_rule(rule, table_name, skip, timestamp)
+            return (0, 0)
+
+        upper_map = {str(c).strip().upper(): c for c in work.columns}
+        field_col = upper_map.get(str(col_hint).strip().upper())
+        if not field_col:
+            field_col = self._find_col_by_names(
+                work, (col_hint, logical, rule.get('column_name_checked') or col_hint)
+            )
+        if not field_col or field_col not in work.columns:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: колонка {col_hint} ({logical}) не найдена (cols: {list(work.columns)[:12]})',
+                timestamp,
+            )
+            return (0, 0)
+
+        empty_mask = work[field_col].apply(self._equipment_text_is_empty)
+        filled = work.loc[~empty_mask].copy()
+        n_skip_empty = int(empty_mask.sum())
+        total_rows = len(filled)
+        print(
+            f'      [ALNUM] {rule_code}: [{field_col}] ({logical}) — '
+            f'filled={total_rows:,}, empty_skip={n_skip_empty:,} / cooler_scope={len(work):,}'
+        )
+        if total_rows == 0:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: в cooler scope нет заполненных {col_hint} (пустые = skip по ТЗ)',
+                timestamp,
+            )
+            return (0, 0)
+
+        texts = filled[field_col].astype(str)
+        has_alnum = texts.str.contains(r'[0-9A-Za-zА-Яа-яЁё]', regex=True, na=False)
+        error_mask = ~has_alnum
+        error_count = int(error_mask.sum())
+        if error_count > 0:
+            sample = filled.loc[error_mask, field_col].head(5).tolist()
+            print(f'      [ALNUM] {rule_code}: sample without letters/digits: {sample!r}')
+        print(f'      [ALNUM] {rule_code}: no_alnum={error_count:,} / evaluated={total_rows:,} (empty not errors)')
+
+        validator = ConformityValidator({
+            'rule_code': rule_code,
+            'rule_description': rule.get('rule_description', ''),
+            'quality_category': 'Conformity',
+            'table_name': table_name,
+            'matched_column': field_col,
+            'original_column': col_hint,
+        })
+        err_desc = (
+            f'{logical} ({field_col}) must include letters or numeric values. '
+            f'Empty values are out of scope.'
+        )
+        error_df = validator._prepare_error_dataframe(filled, error_mask, 'CONFORMITY', err_desc) if error_count > 0 else None
+        if error_df is not None and not error_df.empty:
+            error_df['LOOKUP_CDE_TYPE'] = filled.loc[error_df.index, 'cde_type'].map(norm_cde_type).values
+            error_df['LOOKUP_EQUIPMENT_STATUS'] = filled.loc[error_df.index, 'equipment_status_code'].map(norm_equipment_status).values
+            error_df['DQ_RULE_CHECK_COLUMNS'] = (
+                f'Alphanumeric content: V_EQUI.[{field_col}] must include letter or digit '
+                f'(cooler scope). NULL/empty → skip. (Title may say upper-case; TZ is alnum.)'
+            )
+
+        is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
+        if save_result:
+            rule_info = {
+                'rule_code': rule_code,
+                'rule_description': rule.get('rule_description', 'Unknown rule'),
+                'quality_category': 'Conformity',
+                'table_name': table_name,
+                'original_column': col_hint,
+                'matched_column': field_col,
+            }
+            if self._parallel_lock:
+                with self._parallel_lock:
+                    self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                    if error_df is not None and not error_df.empty:
+                        self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+            else:
+                self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                if error_df is not None and not error_df.empty:
+                    self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        elif error_df is not None and not error_df.empty:
+            self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        print(f'      [RESULT] {rule_code}: evaluated={total_rows:,}, no_alnum={error_count:,}')
+        return (error_count, total_rows)
+
+    def _equipment_text_is_empty(self, v) -> bool:
+        """Empty text field (EQKTX): NULL/blank only — do not treat '0' as empty description."""
+        if v is None:
+            return True
+        try:
+            if pd.isna(v):
+                return True
+        except Exception:
+            pass
+        s = str(v).replace('\ufeff', '').replace('\xa0', ' ').strip()
+        if not s or s.lower() in ('none', 'null', 'nan', '<na>', 'nat', 'n/a', 'na'):
+            return True
+        if s in ('-', '.', '/', '\\', '--', '...'):
+            return True
+        return False
+
+    def _process_equipment_eqktx_special_chars(self, rule_code, df, table_name, rule, save_result, timestamp):
+        """
+        RCCONF_388.2 — Valid Equipment Description with no Special Characters.
+        IF EQKTX IS NULL OR not cooler-scope THEN '' (skip).
+        ELSE advanced special-char / quotes / brackets checks via conf_special_characters.
+        """
+        work, skip = self._scope_vequi_cooler_population(df, rule_code)
+        if skip:
+            self._log_skipped_rule(rule, table_name, skip, timestamp)
+            return (0, 0)
+
+        upper_map = {str(c).strip().upper(): c for c in work.columns}
+        field_col = upper_map.get('EQKTX')
+        if not field_col:
+            field_col = self._find_col_by_names(
+                work, ('EQKTX', 'equipment_description', rule.get('column_name_checked') or 'EQKTX')
+            )
+        if not field_col or field_col not in work.columns:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: колонка EQKTX (equipment_description) не найдена (cols: {list(work.columns)[:12]})',
+                timestamp,
+            )
+            return (0, 0)
+
+        empty_mask = work[field_col].apply(self._equipment_text_is_empty)
+        filled = work.loc[~empty_mask].copy()
+        n_skip_empty = int(empty_mask.sum())
+        print(
+            f'      [SPELL] {rule_code}: [{field_col}] — '
+            f'filled={len(filled):,}, empty_skip={n_skip_empty:,} / cooler_scope={len(work):,}'
+        )
+        if filled.empty:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: в cooler scope нет заполненных EQKTX (пустые = skip по ТЗ)',
+                timestamp,
+            )
+            return (0, 0)
+
+        validator = AdvancedSpecialCharactersValidator({
+            'rule_code': rule_code,
+            'rule_description': rule.get('rule_description', ''),
+            'quality_category': 'Conformity',
+            'table_name': table_name,
+            'matched_column': field_col,
+            'original_column': 'EQKTX',
+        })
+        total_rows, error_count, error_df = validator.validate(
+            filled, field_col, technical_definition=rule.get('technical_definition'), rule_code=rule_code
+        )
+        total_rows = int(total_rows or 0)
+        error_count = int(error_count or 0)
+        print(f'      [SPELL] {rule_code}: invalid={error_count:,} / evaluated={total_rows:,} (empty EQKTX not errors)')
+
+        if error_df is not None and not error_df.empty:
+            error_df = error_df.copy()
+            if 'cde_type' in filled.columns:
+                error_df['LOOKUP_CDE_TYPE'] = filled.loc[error_df.index, 'cde_type'].map(norm_cde_type).values
+            if 'equipment_status_code' in filled.columns:
+                error_df['LOOKUP_EQUIPMENT_STATUS'] = filled.loc[error_df.index, 'equipment_status_code'].map(norm_equipment_status).values
+            error_df['DQ_RULE_CHECK_COLUMNS'] = (
+                'Spelling: V_EQUI.EQKTX special chars / consecutive / quotes / brackets '
+                '(cooler scope ATINN24+status). NULL/empty EQKTX → skip.'
+            )
+
+        is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
+        if save_result:
+            rule_info = {
+                'rule_code': rule_code,
+                'rule_description': rule.get('rule_description', 'Unknown rule'),
+                'quality_category': 'Conformity',
+                'table_name': table_name,
+                'original_column': 'EQKTX',
+                'matched_column': field_col,
+            }
+            if self._parallel_lock:
+                with self._parallel_lock:
+                    self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                    if error_df is not None and not error_df.empty:
+                        self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+            else:
+                self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                if error_df is not None and not error_df.empty:
+                    self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        elif error_df is not None and not error_df.empty:
+            self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        print(f'      [RESULT] {rule_code}: evaluated={total_rows:,}, invalid_spelling={error_count:,}')
         return (error_count, total_rows)
 
     def _process_equipment_cooler_status_matrix(self, rule_code, df, table_name, rule, save_result, timestamp):

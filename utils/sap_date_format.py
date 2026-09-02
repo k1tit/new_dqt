@@ -21,6 +21,134 @@ def is_sap_date_column(col_name: str) -> bool:
     return _normalize_col_key(col_name) in _SAP_DATE_COL_KEYS
 
 
+def _calendar_ok_ymd(y: int, m: int, d: int) -> bool:
+    try:
+        date(y, m, d)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def is_valid_sap_date_value(value) -> bool:
+    """
+    True if value is a parseable calendar date (SAP YYYYMMDD / ISO / DD.MM.YYYY / Excel serial).
+    Empty / zero-date / null → False (caller should exclude empties before format check).
+    """
+    if value is None:
+        return False
+    try:
+        if isinstance(value, float) and pd.isna(value):
+            return False
+    except Exception:
+        pass
+    if isinstance(value, datetime):
+        return True
+    if isinstance(value, date):
+        return True
+    if isinstance(value, pd.Timestamp):
+        return not pd.isna(value)
+
+    s = str(value).strip().strip("'").strip('"').replace('\ufeff', '').replace('\xa0', ' ')
+    if not s or s.lower() in _EMPTY:
+        return False
+
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', s):
+        y, m, d = (int(x) for x in s.split('-'))
+        return _calendar_ok_ymd(y, m, d)
+    if re.fullmatch(r'\d{2}\.\d{2}\.\d{4}', s):
+        d, m, y = (int(x) for x in s.split('.'))
+        return _calendar_ok_ymd(y, m, d)
+    if re.fullmatch(r'\d{2}/\d{2}/\d{4}', s):
+        d, m, y = (int(x) for x in s.split('/'))
+        return _calendar_ok_ymd(y, m, d)
+
+    digits = ''
+    if re.fullmatch(r'\d+\.0+', s):
+        digits = s.split('.')[0]
+    elif re.fullmatch(r'\d+', s):
+        digits = s
+    else:
+        only = re.sub(r'\D', '', s)
+        if len(only) == 8:
+            digits = only
+
+    if len(digits) == 8:
+        if set(digits) <= {'0'}:
+            return False
+        y, m, d = int(digits[:4]), int(digits[4:6]), int(digits[6:8])
+        return _calendar_ok_ymd(y, m, d)
+
+    try:
+        if isinstance(value, (int, float)) and not pd.isna(value):
+            n = float(value)
+            if 30000 <= n <= 60000:
+                datetime.utcfromtimestamp((n - 25569) * 86400)
+                return True
+    except (ValueError, TypeError, OverflowError, OSError):
+        pass
+    return False
+
+
+def parse_sap_date_to_date(value):
+    """
+    Parse SAP/Excel/ISO date to datetime.date, or None if empty/invalid.
+    """
+    if value is None:
+        return None
+    try:
+        if isinstance(value, float) and pd.isna(value):
+            return None
+    except Exception:
+        pass
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, pd.Timestamp):
+        if pd.isna(value):
+            return None
+        return value.date()
+
+    s = str(value).strip().strip("'").strip('"').replace('\ufeff', '').replace('\xa0', ' ')
+    if not s or s.lower() in _EMPTY:
+        return None
+
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', s):
+        y, m, d = (int(x) for x in s.split('-'))
+        return date(y, m, d) if _calendar_ok_ymd(y, m, d) else None
+    if re.fullmatch(r'\d{2}\.\d{2}\.\d{4}', s):
+        d, m, y = (int(x) for x in s.split('.'))
+        return date(y, m, d) if _calendar_ok_ymd(y, m, d) else None
+    if re.fullmatch(r'\d{2}/\d{2}/\d{4}', s):
+        d, m, y = (int(x) for x in s.split('/'))
+        return date(y, m, d) if _calendar_ok_ymd(y, m, d) else None
+
+    digits = ''
+    if re.fullmatch(r'\d+\.0+', s):
+        digits = s.split('.')[0]
+    elif re.fullmatch(r'\d+', s):
+        digits = s
+    else:
+        only = re.sub(r'\D', '', s)
+        if len(only) == 8:
+            digits = only
+
+    if len(digits) == 8:
+        if set(digits) <= {'0'}:
+            return None
+        y, m, d = int(digits[:4]), int(digits[4:6]), int(digits[6:8])
+        return date(y, m, d) if _calendar_ok_ymd(y, m, d) else None
+
+    try:
+        if isinstance(value, (int, float)) and not pd.isna(value):
+            n = float(value)
+            if 30000 <= n <= 60000:
+                return datetime.utcfromtimestamp((n - 25569) * 86400).date()
+    except (ValueError, TypeError, OverflowError, OSError):
+        pass
+    return None
+
+
 def format_sap_date_value(value) -> str:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return ''
