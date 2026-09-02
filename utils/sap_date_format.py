@@ -1,4 +1,4 @@
-"""Format SAP date values (YYYYMMDD, Excel floats) for human-readable export."""
+"""Format / parse SAP date values (YYYYMMDD, ISO+time, Excel floats) for DQ checks and export."""
 from __future__ import annotations
 
 import re
@@ -9,6 +9,7 @@ import pandas as pd
 _SAP_DATE_COL_KEYS = frozenset({
     'DATE_FROM', 'DATE_TO', 'VALID_FROM', 'VALID_TO',
     'DATEFROM', 'DATETO', 'VALIDFROM', 'VALIDTO',
+    'INBDT', 'ANSDT', 'DATAB', 'DATBI', 'ERDAT', 'AEDAT',
 })
 _EMPTY = {'', 'none', 'null', 'nan', 'nat', '-', '0', '0.0', '0.00', 'n/a', 'na'}
 
@@ -29,168 +30,141 @@ def _calendar_ok_ymd(y: int, m: int, d: int) -> bool:
         return False
 
 
-def is_valid_sap_date_value(value) -> bool:
-    """
-    True if value is a parseable calendar date (SAP YYYYMMDD / ISO / DD.MM.YYYY / Excel serial).
-    Empty / zero-date / null → False (caller should exclude empties before format check).
-    """
-    if value is None:
-        return False
+def _ymd_to_date(y: int, m: int, d: int):
+    if not _calendar_ok_ymd(y, m, d):
+        return None
+    return date(y, m, d)
+
+
+def _excel_serial_to_date(n: float):
+    # Excel serial day (Windows 1900 system); typical business dates ~20000..60000
+    if not (15000 <= n <= 80000):
+        return None
     try:
-        if isinstance(value, float) and pd.isna(value):
-            return False
-    except Exception:
-        pass
-    if isinstance(value, datetime):
-        return True
-    if isinstance(value, date):
-        return True
-    if isinstance(value, pd.Timestamp):
-        return not pd.isna(value)
-
-    s = str(value).strip().strip("'").strip('"').replace('\ufeff', '').replace('\xa0', ' ')
-    if not s or s.lower() in _EMPTY:
-        return False
-
-    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', s):
-        y, m, d = (int(x) for x in s.split('-'))
-        return _calendar_ok_ymd(y, m, d)
-    if re.fullmatch(r'\d{2}\.\d{2}\.\d{4}', s):
-        d, m, y = (int(x) for x in s.split('.'))
-        return _calendar_ok_ymd(y, m, d)
-    if re.fullmatch(r'\d{2}/\d{2}/\d{4}', s):
-        d, m, y = (int(x) for x in s.split('/'))
-        return _calendar_ok_ymd(y, m, d)
-
-    digits = ''
-    if re.fullmatch(r'\d+\.0+', s):
-        digits = s.split('.')[0]
-    elif re.fullmatch(r'\d+', s):
-        digits = s
-    else:
-        only = re.sub(r'\D', '', s)
-        if len(only) == 8:
-            digits = only
-
-    if len(digits) == 8:
-        if set(digits) <= {'0'}:
-            return False
-        y, m, d = int(digits[:4]), int(digits[4:6]), int(digits[6:8])
-        return _calendar_ok_ymd(y, m, d)
-
-    try:
-        if isinstance(value, (int, float)) and not pd.isna(value):
-            n = float(value)
-            if 30000 <= n <= 60000:
-                datetime.utcfromtimestamp((n - 25569) * 86400)
-                return True
+        return datetime.utcfromtimestamp((n - 25569) * 86400).date()
     except (ValueError, TypeError, OverflowError, OSError):
-        pass
-    return False
+        return None
 
 
 def parse_sap_date_to_date(value):
     """
-    Parse SAP/Excel/ISO date to datetime.date, or None if empty/invalid.
+    Parse SAP/Excel/ISO/datetime-with-time to datetime.date, or None if empty/invalid.
+    Handles common dump forms: YYYYMMDD, YYYY-MM-DD[ HH:MM:SS], DD.MM.YYYY, Excel serial,
+    pandas/numpy timestamps.
     """
     if value is None:
         return None
     try:
-        if isinstance(value, float) and pd.isna(value):
+        if pd.isna(value):
             return None
     except Exception:
         pass
+
+    if isinstance(value, pd.Timestamp):
+        return value.date()
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
         return value
-    if isinstance(value, pd.Timestamp):
-        if pd.isna(value):
-            return None
-        return value.date()
+    # numpy.datetime64
+    try:
+        if hasattr(value, 'dtype') and str(getattr(value, 'dtype', '')).startswith('datetime64'):
+            ts = pd.Timestamp(value)
+            if pd.isna(ts):
+                return None
+            return ts.date()
+    except Exception:
+        pass
+
+    # numeric Excel serial or YYYYMMDD as int/float
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            n = float(value)
+        except (ValueError, TypeError, OverflowError):
+            n = None
+        if n is not None:
+            if 15000 <= n <= 80000:
+                return _excel_serial_to_date(n)
+            # YYYYMMDD as number (e.g. 20240115.0)
+            if 19000101 <= n <= 29991231 and float(n) == int(n):
+                digits = f'{int(n):08d}'
+                return _ymd_to_date(int(digits[:4]), int(digits[4:6]), int(digits[6:8]))
 
     s = str(value).strip().strip("'").strip('"').replace('\ufeff', '').replace('\xa0', ' ')
     if not s or s.lower() in _EMPTY:
         return None
+    # strip fractional seconds / timezone noise for matching
+    s_norm = s.replace('T', ' ')
 
-    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', s):
-        y, m, d = (int(x) for x in s.split('-'))
-        return date(y, m, d) if _calendar_ok_ymd(y, m, d) else None
-    if re.fullmatch(r'\d{2}\.\d{2}\.\d{4}', s):
-        d, m, y = (int(x) for x in s.split('.'))
-        return date(y, m, d) if _calendar_ok_ymd(y, m, d) else None
-    if re.fullmatch(r'\d{2}/\d{2}/\d{4}', s):
-        d, m, y = (int(x) for x in s.split('/'))
-        return date(y, m, d) if _calendar_ok_ymd(y, m, d) else None
+    # ISO date or datetime: 2024-01-15 / 2024-01-15 00:00:00 / 2024-01-15 00:00:00.000
+    m = re.match(r'^(\d{4})-(\d{2})-(\d{2})(?:[ \t].*)?$', s_norm)
+    if m:
+        return _ymd_to_date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
 
-    digits = ''
+    # DD.MM.YYYY[ time]
+    m = re.match(r'^(\d{2})\.(\d{2})\.(\d{4})(?:[ \t].*)?$', s_norm)
+    if m:
+        return _ymd_to_date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+
+    # DD/MM/YYYY[ time]
+    m = re.match(r'^(\d{2})/(\d{2})/(\d{4})(?:[ \t].*)?$', s_norm)
+    if m:
+        return _ymd_to_date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+
+    # YYYYMMDD or YYYYMMDD.0 or YYYYMMDDHHMMSS → take first 8 if look like YYYYMMDD
     if re.fullmatch(r'\d+\.0+', s):
         digits = s.split('.')[0]
     elif re.fullmatch(r'\d+', s):
         digits = s
     else:
-        only = re.sub(r'\D', '', s)
-        if len(only) == 8:
-            digits = only
+        digits = re.sub(r'\D', '', s)
 
-    if len(digits) == 8:
-        if set(digits) <= {'0'}:
+    if len(digits) >= 8:
+        head = digits[:8]
+        if set(head) <= {'0'}:
             return None
-        y, m, d = int(digits[:4]), int(digits[4:6]), int(digits[6:8])
-        return date(y, m, d) if _calendar_ok_ymd(y, m, d) else None
+        y, mo, d = int(head[:4]), int(head[4:6]), int(head[6:8])
+        # prefer YYYYMMDD when year looks sane; avoid misreading Excel serial digits
+        if 1900 <= y <= 2999:
+            return _ymd_to_date(y, mo, d)
 
+    # numeric string Excel serial
     try:
-        if isinstance(value, (int, float)) and not pd.isna(value):
-            n = float(value)
-            if 30000 <= n <= 60000:
-                return datetime.utcfromtimestamp((n - 25569) * 86400).date()
-    except (ValueError, TypeError, OverflowError, OSError):
+        n = float(s.replace(',', '.'))
+        if 15000 <= n <= 80000:
+            return _excel_serial_to_date(n)
+    except (ValueError, TypeError):
+        pass
+
+    # last resort: pandas
+    try:
+        ts = pd.to_datetime(s, dayfirst=True, errors='coerce')
+        if ts is not None and not pd.isna(ts):
+            return ts.date()
+    except Exception:
         pass
     return None
 
 
+def is_valid_sap_date_value(value) -> bool:
+    """True if value is a parseable calendar date. Empty/zero-date → False."""
+    return parse_sap_date_to_date(value) is not None
+
+
 def format_sap_date_value(value) -> str:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
+    parsed = parse_sap_date_to_date(value)
+    if parsed is not None:
+        return parsed.strftime('%d.%m.%Y')
+    if value is None:
         return ''
-    if isinstance(value, (datetime, date)):
-        return value.strftime('%d.%m.%Y')
+    try:
+        if pd.isna(value):
+            return ''
+    except Exception:
+        pass
     s = str(value).strip().strip("'").strip('"')
     if not s or s.lower() in _EMPTY:
         return ''
-    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', s):
-        y, m, d = s.split('-')
-        return f'{d}.{m}.{y}'
-    if re.fullmatch(r'\d{2}\.\d{2}\.\d{4}', s):
-        return s
-    if re.fullmatch(r'\d{2}/\d{2}/\d{4}', s):
-        d, m, y = s.split('/')
-        return f'{d}.{m}.{y}'
-    digits = ''
-    if re.fullmatch(r'\d+\.0+', s):
-        digits = s.split('.')[0]
-    elif re.fullmatch(r'\d+', s):
-        digits = s
-    else:
-        only = re.sub(r'\D', '', s)
-        if len(only) == 8:
-            digits = only
-    if len(digits) == 8 and digits != '00000000':
-        try:
-            y = int(digits[:4])
-            m = int(digits[4:6])
-            d = int(digits[6:8])
-            if 1000 <= y <= 9999 and 1 <= m <= 12 and 1 <= d <= 31:
-                return f'{d:02d}.{m:02d}.{y}'
-        except (ValueError, TypeError):
-            pass
-    try:
-        if isinstance(value, (int, float)) and not pd.isna(value):
-            n = float(value)
-            if 30000 <= n <= 60000:
-                dt = datetime.utcfromtimestamp((n - 25569) * 86400)
-                return dt.strftime('%d.%m.%Y')
-    except (ValueError, TypeError, OverflowError, OSError):
-        pass
     return s
 
 
