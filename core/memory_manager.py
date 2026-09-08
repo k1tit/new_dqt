@@ -178,10 +178,16 @@ class MemoryManager:
         return df
 
     def _ensure_db_integrity(self):
+        """Проверка целостности. НЕ переименовывает и НЕ создаёт пустую БД автоматически."""
         try:
             if not self.db_path:
                 return
             if not os.path.exists(self.db_path):
+                return
+            size = os.path.getsize(self.db_path)
+            if size == 0:
+                print(f'   [ERROR] БД пустая (0 байт): {self.db_path}')
+                print('   [ERROR] Ищите рядом бэкап: *.db.corrupted_YYYYMMDD_HHMMSS и восстановите (переименуйте обратно).')
                 return
             conn = connect_sqlite(self.db_path)
             try:
@@ -190,19 +196,11 @@ class MemoryManager:
             finally:
                 conn.close()
             if res and str(res).strip().lower() != 'ok':
-                stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                corrupted_path = f'{self.db_path}.corrupted_{stamp}'
-                os.rename(self.db_path, corrupted_path)
-                for suf in ('-wal', '-shm'):
-                    p = self.db_path + suf
-                    if os.path.exists(p):
-                        try:
-                            os.rename(p, corrupted_path + suf)
-                        except OSError:
-                            pass
-                connect_sqlite(self.db_path).close()
-                print(f'   [WARN] БД {self.db_path} битая ({res}); переименована в {os.path.basename(corrupted_path)} и создана пустая.')
-        except Exception:
+                print(f'   [ERROR] БД не прошла PRAGMA quick_check: {res}')
+                print(f'   [ERROR] Файл НЕ трогаем: {self.db_path}')
+                print('   [ERROR] Проверьте *.corrupted_* рядом, DB Browser / .dump, не запускайте загрузчик поверх.')
+        except Exception as e:
+            print(f'   [WARN] Не удалось проверить целостность БД: {e}')
             return
 
     def _normalize_atinn_value(self, value):
