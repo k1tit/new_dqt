@@ -1,0 +1,3566 @@
+{
+  "description": "manual file material_type_group_mapping for dm_product_general (alias mtg). Future source may switch to SAP.",
+  "join": "m.MATKL = mtg.material_group_code AND m.MTART = mtg.material_type_code",
+  "columns": [
+    "material_type_code",
+    "material_group_code",
+    "material_type_group_name"
+  ],
+  "rows": [
+    {
+      "material_type_code": "ZAP",
+      "material_group_code": "03010101",
+      "material_type_group_name": "03010101 - MRO/COMPONENT PARTS/ELECTRIC & ELECTRONIC/"
+    },
+    {
+      "material_type_code": "ZAP",
+      "material_group_code": "03010201",
+      "material_type_group_name": "03010201 - MRO/COMPONENT PARTS/MECH/HYDR/PNEUM/"
+    },
+    {
+      "material_type_code": "ZAP",
+      "material_group_code": "03010301",
+      "material_type_group_name": "03010301 - MRO/COMPONENT PARTS/FILTERS/"
+    },
+    {
+      "material_type_code": "ZAP",
+      "material_group_code": "03020101",
+      "material_type_group_name": "03020101 - MRO/MATERIALS/CHEMICALS/"
+    },
+    {
+      "material_type_code": "ZAP",
+      "material_group_code": "03020201",
+      "material_type_group_name": "03020201 - MRO/MATERIALS/GLUES/"
+    },
+    {
+      "material_type_code": "ZAP",
+      "material_group_code": "03020301",
+      "material_type_group_name": "03020301 - MRO/MATERIALS/LABORATORY/"
+    },
+    {
+      "material_type_code": "ZAP",
+      "material_group_code": "03020401",
+      "material_type_group_name": "03020401 - MRO/MATERIALS/INDUSTRIAL/AUXILIARY GASES AND CONTAINERS"
+    },
+    {
+      "material_type_code": "ZAP",
+      "material_group_code": "03020402",
+      "material_type_group_name": "03020402 - MRO/MATERIALS/INDUSTRIAL/OTHER"
+    },
+    {
+      "material_type_code": "ZAP",
+      "material_group_code": "03030101",
+      "material_type_group_name": "03030101 - MRO/TOOLS/LABORATORY/"
+    },
+    {
+      "material_type_code": "ZAP",
+      "material_group_code": "03030201",
+      "material_type_group_name": "03030201 - MRO/TOOLS/HAND & MACHINERY/"
+    },
+    {
+      "material_type_code": "ZAP",
+      "material_group_code": "03040101",
+      "material_type_group_name": "03040101 - MRO/SERVICES/PROD/PLANNED"
+    },
+    {
+      "material_type_code": "ZAP",
+      "material_group_code": "03040102",
+      "material_type_group_name": "03040102 - MRO/SERVICES/PROD/REACTIVE"
+    },
+    {
+      "material_type_code": "ZAP",
+      "material_group_code": "03040201",
+      "material_type_group_name": "03040201 - MRO/SERVICES/LABORATORY/PLANNED"
+    },
+    {
+      "material_type_code": "ZAP",
+      "material_group_code": "03040202",
+      "material_type_group_name": "03040202 - MRO/SERVICES/LABORATORY/REACTIVE"
+    },
+    {
+      "material_type_code": "ZCDC",
+      "material_group_code": "01010501",
+      "material_type_group_name": "01010501 - CDE/CDE ASSETS/COFFEE MACHINES"
+    },
+    {
+      "material_type_code": "ZCDE",
+      "material_group_code": "01010101",
+      "material_type_group_name": "01010101 - CDE ASSETS COOLERS"
+    },
+    {
+      "material_type_code": "ZCDE",
+      "material_group_code": "01010201",
+      "material_type_group_name": "01010201 - CDE ASSETS VENDING MACHINARY"
+    },
+    {
+      "material_type_code": "ZCDE",
+      "material_group_code": "01010301",
+      "material_type_group_name": "01010301 - CDE ASSETS WATER DISPENSER"
+    },
+    {
+      "material_type_code": "ZCDE",
+      "material_group_code": "01010401",
+      "material_type_group_name": "01010401 - CDE ASSETS FOUNTAIN"
+    },
+    {
+      "material_type_code": "ZCDE",
+      "material_group_code": "10030101",
+      "material_type_group_name": "10030101 - SALES & MARKETING_POS_FURNITURE"
+    },
+    {
+      "material_type_code": "ZCDE",
+      "material_group_code": "10030201",
+      "material_type_group_name": "10030201 - SALES & MARKETING_POS_PROMOTIONAL OUTDOOR EQUIPMENT"
+    },
+    {
+      "material_type_code": "ZCDE",
+      "material_group_code": "10030301",
+      "material_type_group_name": "10030301 - SALES & MARKETING_POS_SEMI OR PERMANENT PROMOTIONAL ITEMS"
+    },
+    {
+      "material_type_code": "ZCDE",
+      "material_group_code": "10030501",
+      "material_type_group_name": "10030501 - SALES & MARKETING_POS_PERMANENT DISPLAY"
+    },
+    {
+      "material_type_code": "ZCDE",
+      "material_group_code": "10060101",
+      "material_type_group_name": "10060101 - IN STORE ACTIVATION"
+    },
+    {
+      "material_type_code": "ZCDS",
+      "material_group_code": "01020101",
+      "material_type_group_name": "01020101 - ELECTRICAL"
+    },
+    {
+      "material_type_code": "ZCDS",
+      "material_group_code": "01020201",
+      "material_type_group_name": "01020201 - PNEUMATICAL"
+    },
+    {
+      "material_type_code": "ZCDS",
+      "material_group_code": "01020301",
+      "material_type_group_name": "01020301 - MECHANICAL"
+    },
+    {
+      "material_type_code": "ZCDU",
+      "material_group_code": "01040101",
+      "material_type_group_name": "01040101 - Coin Mechanism"
+    },
+    {
+      "material_type_code": "ZCDU",
+      "material_group_code": "01040201",
+      "material_type_group_name": "01040201 - Bill Validatior"
+    },
+    {
+      "material_type_code": "ZCDU",
+      "material_group_code": "01040301",
+      "material_type_group_name": "01040301 - HBB (hellenic black box)"
+    },
+    {
+      "material_type_code": "ZCDU",
+      "material_group_code": "01040401",
+      "material_type_group_name": "01040401 - CCS (cashless reader)"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010101",
+      "material_type_group_name": "05010101 - LOG/TRANS/INBOUND HAULAGE/DOMESTIC INBOUND HAULAGE"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010102",
+      "material_type_group_name": "05010102 - LOG/TRANS/INBOUND HAULAGE/X-BORDER INBOUND HAULAGE"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010103",
+      "material_type_group_name": "05010103 - LOG/TRANS/INBOUND HAULAGE/CUSTOMS SERVICES (RM)"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010104",
+      "material_type_group_name": "05010104 - LOG/TRANS/INBOUND HAULAGE/CUSTOMS DUTIES (RM)"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010105",
+      "material_type_group_name": "05010105 - LOG/TRANS/INBOUND HAULAGE/MOVEMENTS OF PALLETS/EMPTIES_RM_DO"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010106",
+      "material_type_group_name": "05010106 - LOG/TRANS/INBOUND HAULAGE/MOVEMENTS OF PALLETS/EMPTIES_RM_XB"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010201",
+      "material_type_group_name": "05010201 - LOG/TRANS/HAULAGE/DOMESTIC HAULAGE"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010202",
+      "material_type_group_name": "05010202 - LOG/TRANS/HAULAGE/X-BORDER HAULAGE"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010203",
+      "material_type_group_name": "05010203 - LOG/TRANS/HAULAGE/CUSTOMS SERVICES (FP AND MM)"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010204",
+      "material_type_group_name": "05010204 - LOG/TRANS/HAULAGE/CUSTOMS DUTIES (FP AND MM)"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010205",
+      "material_type_group_name": "05010205 - LOG/TRANS/HAULAGE/MOVEMENTS OF PALLETS/EMPTIES (FP AND MM)DO"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010206",
+      "material_type_group_name": "05010206 - LOG/TRANS/HAULAGE/MOVEMENTS OF PALLETS/EMPTIES (FP AND MM)XB"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010301",
+      "material_type_group_name": "05010301 - LOG/TRANS/DISTRIBUTION/DOMESTIC BULK (FTL) DISTRIBUTION"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010302",
+      "material_type_group_name": "05010302 - LOG/TRANS/DISTRIBUTION/X-BORDER BULK (FTL) DISTRIBUTION"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010303",
+      "material_type_group_name": "05010303 - LOG/TRANS/DISTRIBUTION/HANDLING X-DOCK"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010304",
+      "material_type_group_name": "05010304 - LOG/TRANS/DISTRIBUTION/STORAGE X-DOCK"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010305",
+      "material_type_group_name": "05010305 - LOG/TRANS/DISTRIBUTION/CUSTOMS SERVICES"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010306",
+      "material_type_group_name": "05010306 - LOG/TRANS/DISTRIBUTION/CUSTOMS DUTIES"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010307",
+      "material_type_group_name": "05010307 - LOG/TRANS/DISTRIBUTION/MOVEMENTS OF PALLETS / EMPTIES DOMEST"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010308",
+      "material_type_group_name": "05010308 - LOG/TRANS/DISTRIBUTION/MOVEMENTS OF PALLETS / EMPTIES X-BORD"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010309",
+      "material_type_group_name": "05010309 - LOG/TRANS/DISTRIBUTION/PARCELS / COURIER DOMESTIC"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010310",
+      "material_type_group_name": "05010310 - LOG/TRANS/DISTRIBUTION/PARCELS / COURIER INTERNATIONAL"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010401",
+      "material_type_group_name": "05010401 - LOG/TRANS/OTHER /SPECIFIC TRANSPORT SERVICES"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "05010402",
+      "material_type_group_name": "05010402 - LOG/TRANS/OTHER /SPECIFIC EQUIPMENT FOR TRANSPORT"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "11030901",
+      "material_type_group_name": "11030901 - PSV/OTHER SERVICES/CUSTOMS/AGENTS/BROKERAGE FEES"
+    },
+    {
+      "material_type_code": "ZDC",
+      "material_group_code": "11030902",
+      "material_type_group_name": "11030902 - PSV/OTHER SERVICES/CUSTOMS/DUTIES"
+    },
+    {
+      "material_type_code": "ZEM",
+      "material_group_code": "03020401",
+      "material_type_group_name": "03020401 - MRO/MATERIALS/INDUSTRIAL/AUXILIARY GASES AND CONTAINERS"
+    },
+    {
+      "material_type_code": "ZEM",
+      "material_group_code": "1002001",
+      "material_type_group_name": "1002001 - RAW MATERIAL & PACKAGING/OTHER/OTHER RM"
+    },
+    {
+      "material_type_code": "ZEM",
+      "material_group_code": "1003009",
+      "material_type_group_name": "1003009 - RM&P/PRIMARY PACKAGING/REF. GLASS BOTTLES"
+    },
+    {
+      "material_type_code": "ZEM",
+      "material_group_code": "1003010",
+      "material_type_group_name": "1003010 - RM&P/PRIMARY PACKAGING/NON-RET. GLASS BOTT."
+    },
+    {
+      "material_type_code": "ZEM",
+      "material_group_code": "1004001",
+      "material_type_group_name": "1004001 - RM&P/SECONDARY PACKAGING/CRATES"
+    },
+    {
+      "material_type_code": "ZEM",
+      "material_group_code": "1004009",
+      "material_type_group_name": "1004009 - RM&P/SECONDARY PACKAGING/TRAYS, CARTONS, PADS"
+    },
+    {
+      "material_type_code": "ZEM",
+      "material_group_code": "1004010",
+      "material_type_group_name": "1004010 - RM&P/SECONDARY PACKAGING/PALLETS"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1110000",
+      "material_type_group_name": "1110000 - FG_BEVERAGES_BAN"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1111001",
+      "material_type_group_name": "1111001 - FG_BEVERAGES_CSD"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1111002",
+      "material_type_group_name": "1111002 - FG_BEVERAGES_NCD"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1111003",
+      "material_type_group_name": "1111003 - FG_BEVERAGES_WTR"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1111004",
+      "material_type_group_name": "1111004 - FG_BEVERAGES_SPT"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1111005",
+      "material_type_group_name": "1111005 - FG_BEVERAGES_CFE"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1111006",
+      "material_type_group_name": "1111006 - FG_BEVERAGES_TEA"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1111007",
+      "material_type_group_name": "1111007 - FG_BEVERAGES_HOT"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1111008",
+      "material_type_group_name": "1111008 - FG_BEVERAGES_ALC"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1111009",
+      "material_type_group_name": "1111009 - FG_BEVERAGES_OTH"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1111010",
+      "material_type_group_name": "1111010 - FG_BEVERAGES_BEER"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1111011",
+      "material_type_group_name": "1111011 - FG_BEVERAGES_I&G"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1112001",
+      "material_type_group_name": "1112001 - FG_FOOD_DAIRY"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1112002",
+      "material_type_group_name": "1112002 - FG_FOOD_SNACKS - SALTY"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1112003",
+      "material_type_group_name": "1112003 - FG_FOOD_SNACKS - SWEET"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1113001",
+      "material_type_group_name": "1113001 - FG_OTHER_PHONE - CARDS"
+    },
+    {
+      "material_type_code": "ZFG",
+      "material_group_code": "1113002",
+      "material_type_group_name": "1113002 - FG_OTHER_*"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1110000",
+      "material_type_group_name": "1110000 - FG_BEVERAGES_BAN"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1111001",
+      "material_type_group_name": "1111001 - FG_BEVERAGES_CSD"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1111002",
+      "material_type_group_name": "1111002 - FG_BEVERAGES_NCD"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1111003",
+      "material_type_group_name": "1111003 - FG_BEVERAGES_WTR"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1111004",
+      "material_type_group_name": "1111004 - FG_BEVERAGES_SPT"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1111005",
+      "material_type_group_name": "1111005 - FG_BEVERAGES_CFE"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1111006",
+      "material_type_group_name": "1111006 - FG_BEVERAGES_TEA"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1111007",
+      "material_type_group_name": "1111007 - FG_BEVERAGES_HOT"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1111008",
+      "material_type_group_name": "1111008 - FG_BEVERAGES_ALC"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1111009",
+      "material_type_group_name": "1111009 - FG_BEVERAGES_OTH"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1111010",
+      "material_type_group_name": "1111010 - FG_BEVERAGES_BEER"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1111011",
+      "material_type_group_name": "1111011 - FG_BEVERAGES_I&G"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1112001",
+      "material_type_group_name": "1112001 - FG_FOOD_DAIRY"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1112002",
+      "material_type_group_name": "1112002 - FG_FOOD_SNACKS - SALTY"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1112003",
+      "material_type_group_name": "1112003 - FG_FOOD_SNACKS - SWEET"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1113001",
+      "material_type_group_name": "1113001 - FG_OTHER_PHONE - CARDS"
+    },
+    {
+      "material_type_code": "ZFGA",
+      "material_group_code": "1113002",
+      "material_type_group_name": "1113002 - FG_OTHER_*"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1110000",
+      "material_type_group_name": "1110000 - FG_BEVERAGES_BAN"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1111001",
+      "material_type_group_name": "1111001 - FG_BEVERAGES_CSD"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1111002",
+      "material_type_group_name": "1111002 - FG_BEVERAGES_NCD"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1111003",
+      "material_type_group_name": "1111003 - FG_BEVERAGES_WTR"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1111004",
+      "material_type_group_name": "1111004 - FG_BEVERAGES_SPT"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1111005",
+      "material_type_group_name": "1111005 - FG_BEVERAGES_CFE"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1111006",
+      "material_type_group_name": "1111006 - FG_BEVERAGES_TEA"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1111007",
+      "material_type_group_name": "1111007 - FG_BEVERAGES_HOT"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1111008",
+      "material_type_group_name": "1111008 - FG_BEVERAGES_ALC"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1111009",
+      "material_type_group_name": "1111009 - FG_BEVERAGES_OTH"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1111010",
+      "material_type_group_name": "1111010 - FG_BEVERAGES_BEER"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1111011",
+      "material_type_group_name": "1111011 - FG_BEVERAGES_I&G"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1112001",
+      "material_type_group_name": "1112001 - FG_FOOD_DAIRY"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1112002",
+      "material_type_group_name": "1112002 - FG_FOOD_SNACKS - SALTY"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1112003",
+      "material_type_group_name": "1112003 - FG_FOOD_SNACKS - SWEET"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1113001",
+      "material_type_group_name": "1113001 - FG_OTHER_PHONE - CARDS"
+    },
+    {
+      "material_type_code": "ZFGC",
+      "material_group_code": "1113002",
+      "material_type_group_name": "1113002 - FG_OTHER_*"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1110000",
+      "material_type_group_name": "1110000 - FG_BEVERAGES_BAN"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1111001",
+      "material_type_group_name": "1111001 - FG_BEVERAGES_CSD"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1111002",
+      "material_type_group_name": "1111002 - FG_BEVERAGES_NCD"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1111003",
+      "material_type_group_name": "1111003 - FG_BEVERAGES_WTR"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1111004",
+      "material_type_group_name": "1111004 - FG_BEVERAGES_SPT"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1111005",
+      "material_type_group_name": "1111005 - FG_BEVERAGES_CFE"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1111006",
+      "material_type_group_name": "1111006 - FG_BEVERAGES_TEA"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1111007",
+      "material_type_group_name": "1111007 - FG_BEVERAGES_HOT"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1111008",
+      "material_type_group_name": "1111008 - FG_BEVERAGES_ALC"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1111009",
+      "material_type_group_name": "1111009 - FG_BEVERAGES_OTH"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1111010",
+      "material_type_group_name": "1111010 - FG_BEVERAGES_BEER"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1111011",
+      "material_type_group_name": "1111011 - FG_BEVERAGES_I&G"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1112001",
+      "material_type_group_name": "1112001 - FG_FOOD_DAIRY"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1112002",
+      "material_type_group_name": "1112002 - FG_FOOD_SNACKS - SALTY"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1112003",
+      "material_type_group_name": "1112003 - FG_FOOD_SNACKS - SWEET"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1113001",
+      "material_type_group_name": "1113001 - FG_OTHER_PHONE - CARDS"
+    },
+    {
+      "material_type_code": "ZFGM",
+      "material_group_code": "1113002",
+      "material_type_group_name": "1113002 - FG_OTHER_*"
+    },
+    {
+      "material_type_code": "ZFGP",
+      "material_group_code": "1003012",
+      "material_type_group_name": "1003012 - RM&P_PPA_PETPREFORM"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1110000",
+      "material_type_group_name": "1110000 - FG_BEVERAGES_BAN"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1111001",
+      "material_type_group_name": "1111001 - FG_BEVERAGES_CSD"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1111002",
+      "material_type_group_name": "1111002 - FG_BEVERAGES_NCD"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1111003",
+      "material_type_group_name": "1111003 - FG_BEVERAGES_WTR"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1111004",
+      "material_type_group_name": "1111004 - FG_BEVERAGES_SPT"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1111005",
+      "material_type_group_name": "1111005 - FG_BEVERAGES_CFE"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1111006",
+      "material_type_group_name": "1111006 - FG_BEVERAGES_TEA"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1111007",
+      "material_type_group_name": "1111007 - FG_BEVERAGES_HOT"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1111008",
+      "material_type_group_name": "1111008 - FG_BEVERAGES_ALC"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1111009",
+      "material_type_group_name": "1111009 - FG_BEVERAGES_OTH"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1111010",
+      "material_type_group_name": "1111010 - FG_BEVERAGES_BEER"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1111011",
+      "material_type_group_name": "1111011 - FG_BEVERAGES_I&G"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1112001",
+      "material_type_group_name": "1112001 - FG_FOOD_DAIRY"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1112002",
+      "material_type_group_name": "1112002 - FG_FOOD_SNACKS - SALTY"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1112003",
+      "material_type_group_name": "1112003 - FG_FOOD_SNACKS - SWEET"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1113001",
+      "material_type_group_name": "1113001 - FG_OTHER_PHONE - CARDS"
+    },
+    {
+      "material_type_code": "ZFGS",
+      "material_group_code": "1113002",
+      "material_type_group_name": "1113002 - FG_OTHER_*"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12010101",
+      "material_type_group_name": "12010101 - IST/SOFTWARE /BUSINESS APPL&SYSTEM SW/SAP LICENSES"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12010102",
+      "material_type_group_name": "12010102 - IST/SOFTWARE /BUSINESS APPL&SYSTEM SW/DATABASES LICENSES"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12010103",
+      "material_type_group_name": "12010103 - IST/SOFTWARE /BUSINESS APPL&SYSTEM SW/ARCHIVING SOFTWARE"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12010104",
+      "material_type_group_name": "12010104 - IST/SOFTWARE /BUSINESS APPL&SYSTEM SW/LOG/MANUFACTURING SOFT"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12010105",
+      "material_type_group_name": "12010105 - IST/SOFTWARE /BUSINESS APPL&SYSTEM SW/WAREHOUSING SOFTWARE"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12010106",
+      "material_type_group_name": "12010106 - IST/SOFTWARE /BUSINESS APPL&SYSTEM SW/HR'S RELATED SOFTWARE"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12010107",
+      "material_type_group_name": "12010107 - IST/SOFTWARE /BUSINESS APPL&SYSTEM SW/INFORMATION SECURITY"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12010108",
+      "material_type_group_name": "12010108 - IST/SOFTWARE /BUSINESS APPL&SYSTEM SW/NON-SAP FINANCE SYSTEM"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12010109",
+      "material_type_group_name": "12010109 - IST/SOFTWARE /BUSINESS APPL&SYSTEM SW/S&M SOFTWARE"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12010110",
+      "material_type_group_name": "12010110 - IST/SOFTWARE /BUSINESS APPL&SYSTEM SW/INTERNET/WEB"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12010111",
+      "material_type_group_name": "12010111 - IST/SOFTWARE /BUSINESS APPL&SYSTEM SW/INFRASTRUCTURE"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12010201",
+      "material_type_group_name": "12010201 - IST/SOFTWARE /GENERIC IT OFFICE SW/BACK OFFICE SOFTWARE"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12020101",
+      "material_type_group_name": "12020101 - IST/IT INFRASTRUCTURE/PC'S & PERIPHERALS/LAPTOPS"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12020102",
+      "material_type_group_name": "12020102 - IST/IT INFRASTRUCTURE/PC'S & PERIPHERALS/TABLETS & HAND HELD"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12020103",
+      "material_type_group_name": "12020103 - IST/IT INFRASTRUCTURE/PC'S & PERIPHERALS/DESKTOPS (& MONITOR"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12020104",
+      "material_type_group_name": "12020104 - IST/IT INFRASTRUCTURE/PC'S & PERIPHERALS/PERIPH, SPARES&CONS"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12020201",
+      "material_type_group_name": "12020201 - IST/IT INFRASTRUCTURE/NETWORK HW & PERIPHER/SERVERS"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12020202",
+      "material_type_group_name": "12020202 - IST/IT INFRASTRUCTURE/NETWORK HW & PERIPHER/STORAGE"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12020203",
+      "material_type_group_name": "12020203 - IST/IT INFRASTRUCTURE/NETWORK HW & PERIPHER/FORTIGATE/FORTIN"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12020204",
+      "material_type_group_name": "12020204 - IST/IT INFRASTRUCTURE/NETWORK HW & PERIPHER/PERIP, SPARES&CO"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12020301",
+      "material_type_group_name": "12020301 - IST/IT INFRASTRUCTURE/AUDIO/VISUAL EQUIPMENT /TV, DVD, PROJE"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12020302",
+      "material_type_group_name": "12020302 - IST/IT INFRASTRUCTURE/AUDIO/VISUAL EQUIPMENT /VIDEOCONFERENC"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12020401",
+      "material_type_group_name": "12020401 - IST/IT INFRASTRUCTURE/PRINT & COPY/PRINTERS, SCANNERS, COPIE"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12020402",
+      "material_type_group_name": "12020402 - IST/IT INFRASTRUCTURE/PRINT & COPY/SPARE PARTS & CONSUMABLES"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12020403",
+      "material_type_group_name": "12020403 - IST/IT INFRASTRUCTURE/PRINT & COPY/PRINTING AS A SERVICE"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12030101",
+      "material_type_group_name": "12030101 - IST/SERVICES/DATA CENTER SERVICES/CENTRALISED DATA CENTER SE"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12030102",
+      "material_type_group_name": "12030102 - IST/SERVICES/DATA CENTER SERVICES/NATIONAL (LOCAL) DATA CENT"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12030201",
+      "material_type_group_name": "12030201 - IST/SERVICES/PROFESSIONAL SERVICES/SERVICE DESK SERVICES"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12030202",
+      "material_type_group_name": "12030202 - IST/SERVICES/PROFESSIONAL SERVICES/APPLICATION MAINTENANCE S"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12030203",
+      "material_type_group_name": "12030203 - IST/SERVICES/PROFESSIONAL SERVICES/SAP APPLICATIONS"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12030204",
+      "material_type_group_name": "12030204 - IST/SERVICES/PROFESSIONAL SERVICES/NON-SAP APPLICATIONS"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12030205",
+      "material_type_group_name": "12030205 - IST/SERVICES/PROFESSIONAL SERVICES/SERVICES FOR PC'S & PERIP"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12030206",
+      "material_type_group_name": "12030206 - IST/SERVICES/PROFESSIONAL SERVICES/IMPLEMENT SERV_SW"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12030207",
+      "material_type_group_name": "12030207 - IST/SERVICES/PROFESSIONAL SERVICES/IMPLEMENT SERV_NWHW"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12030208",
+      "material_type_group_name": "12030208 - IST/SERVICES/PROFESSIONAL SERVICES/IMPLEMENT SERV_AUDIO/VISU"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12030209",
+      "material_type_group_name": "12030209 - IST/SERVICES/PROFESSIONAL SERVICES/IMPLEMENT SERV_PRINT&COPY"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12030210",
+      "material_type_group_name": "12030210 - IST/SERVICES/PROFESSIONAL SERVICES/IT CONSULTANCY"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12040101",
+      "material_type_group_name": "12040101 - IST/TELCO/VOICE & DATA TRANSFER SERVICES/FIXED LINE SERVICES"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12040102",
+      "material_type_group_name": "12040102 - IST/TELCO/VOICE & DATA TRANSFER SERVICES/MOBILE SERV(VOICDTA"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12040103",
+      "material_type_group_name": "12040103 - IST/TELCO/VOICE & DATA TRANSFER SERVICES/LEASED LINES"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12040104",
+      "material_type_group_name": "12040104 - IST/TELCO/VOICE & DATA TRANSFER SERVICES/MOBILE PHONES"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12040105",
+      "material_type_group_name": "12040105 - IST/TELCO/VOICE & DATA TRANSFER SERVICES/ANALG/DIGIT/MEET PH"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12040106",
+      "material_type_group_name": "12040106 - IST/TELCO/VOICE & DATA TRANSFER SERVICES/SPARES&CONS_MOBILE"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12040201",
+      "material_type_group_name": "12040201 - IST/TELCO/TELECOMMUNICATION EQUIPMENT/CTI EQUIPMENT&SERVICES"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12040202",
+      "material_type_group_name": "12040202 - IST/TELCO/TELECOMMUNICATION EQUIPMENT/PBX EQUIP& SERVICES"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12040301",
+      "material_type_group_name": "12040301 - IST/TELCO/WIDE ACCESS NETWORK/INTERNATIONAL WIDE ACCESS NETW"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12040302",
+      "material_type_group_name": "12040302 - IST/TELCO/WIDE ACCESS NETWORK/NATIONAL WIDE ACCESS NETWORK ("
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12040401",
+      "material_type_group_name": "12040401 - IST/TELCO/INTERNET/WEB SERVICES/INTERNET/WEB PROVIDER FEES"
+    },
+    {
+      "material_type_code": "ZIS",
+      "material_group_code": "12040402",
+      "material_type_group_name": "12040402 - IST/TELCO/INTERNET/WEB SERVICES/INTERNET SUBSCRIPTIONS"
+    },
+    {
+      "material_type_code": "ZKIT",
+      "material_group_code": "1001004",
+      "material_type_group_name": "1001004 - RAW MATERIAL & PACKAGING/INGREDIENTS/CONC & FLV TCCC"
+    },
+    {
+      "material_type_code": "ZKIT",
+      "material_group_code": "1001023",
+      "material_type_group_name": "1001023 - RAW MATERIAL & PACKAGING/INGREDIENTS/JUICE TCCC"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010101",
+      "material_type_group_name": "10010101 - SAM_ADVR_ATL_DES"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010102",
+      "material_type_group_name": "10010102 - SAM_ADVR_ATL_PRO"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010103",
+      "material_type_group_name": "10010103 - SAM_ADVR_ATL_MED"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010104",
+      "material_type_group_name": "10010104 - SAM_ADVR_ATL_PRD_POS"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010105",
+      "material_type_group_name": "10010105 - SAM_ADVR_ATL_PRD - CIN"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010106",
+      "material_type_group_name": "10010106 - SAM_ADVR_ATL_PRD - ONL"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010107",
+      "material_type_group_name": "10010107 - SAM_ADVR_ATL_PRD - TV"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010108",
+      "material_type_group_name": "10010108 - SAM_ADVR_ATL_PRD - RAD"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010109",
+      "material_type_group_name": "10010109 - SAM_ADVR_ATL_PRD - NWS"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010110",
+      "material_type_group_name": "10010110 - SAM_ADVR_ATL_PRD - MGZ"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010111",
+      "material_type_group_name": "10010111 - SAM_ADVR_ATL_BUY - CNM"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010112",
+      "material_type_group_name": "10010112 - SAM_ADVR_ATL_BUY - TV"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010113",
+      "material_type_group_name": "10010113 - SAM_ADVR_ATL_BUY - RAD"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010114",
+      "material_type_group_name": "10010114 - SAM_ADVR_ATL_BUY - NWS"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010115",
+      "material_type_group_name": "10010115 - SAM_ADVR_ATL_BUY - MGZ"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010116",
+      "material_type_group_name": "10010116 - SAM_ADVR_ATL_BUY - DGT"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010117",
+      "material_type_group_name": "10010117 - SAM_ADVR_ATL_BUY - SOC"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010118",
+      "material_type_group_name": "10010118 - SAM_ADVR_ATL_FEE"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010201",
+      "material_type_group_name": "10010201 - SAM_ADVR_BTL_EVE"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010202",
+      "material_type_group_name": "10010202 - SAM_ADVR_BTL_SAMPL"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10010203",
+      "material_type_group_name": "10010203 - SAM_ADVR_BTL_COM"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10020201",
+      "material_type_group_name": "10020201 - SAM_SPONS_SPONS_SPO"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "1003003",
+      "material_type_group_name": "1003003 - RM&P_PPA_SLEEVES"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10030101",
+      "material_type_group_name": "10030101 - SAM_POS_FURN_FURNITR"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10030201",
+      "material_type_group_name": "10030201 - SAM_POS_EQU_EQUIPM"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10030301",
+      "material_type_group_name": "10030301 - SAM_POS_PROMO_PROMO"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10030401",
+      "material_type_group_name": "10030401 - SAM_POS_IN - STO_NONPR"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10030501",
+      "material_type_group_name": "10030501 - SAM_POS_OUTD_PERMAN"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10040101",
+      "material_type_group_name": "10040101 - SAM_SRV_MARKET_MAR"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10040201",
+      "material_type_group_name": "10040201 - SAM_SRV_ACTV_CUSTOMR"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10040301",
+      "material_type_group_name": "10040301 - SAM_SRV_ACTV_CONSUMR"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10040401",
+      "material_type_group_name": "10040401 - SAM_SRV_MERCH_MERHC"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10040501",
+      "material_type_group_name": "10040501 - SAM_SRV_PACK_ART"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10050101",
+      "material_type_group_name": "10050101 - SAM_DRINK_PLASTI_PLA"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10050201",
+      "material_type_group_name": "10050201 - SAM_DRINK_GLASSW_GLA"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10050301",
+      "material_type_group_name": "10050301 - SAM_DRINK_PAPER - _PAP"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10060101",
+      "material_type_group_name": "10060101 - SAM_PRT_PRT_PAP - CB"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10060201",
+      "material_type_group_name": "10060201 - SAM_PRT_PRT_PL - FOIL"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10070101",
+      "material_type_group_name": "10070101 - SAM_MERCH_CLOTHI_CLO"
+    },
+    {
+      "material_type_code": "ZMM",
+      "material_group_code": "10070201",
+      "material_type_group_name": "10070201 - SAM_MERCH_GIVE - A_GIV"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010101",
+      "material_type_group_name": "10010101 - SAM_ADVR_ATL_DES"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010102",
+      "material_type_group_name": "10010102 - SAM_ADVR_ATL_PRO"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010103",
+      "material_type_group_name": "10010103 - SAM_ADVR_ATL_MED"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010104",
+      "material_type_group_name": "10010104 - SAM_ADVR_ATL_PRD_POS"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010105",
+      "material_type_group_name": "10010105 - SAM_ADVR_ATL_PRD - CIN"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010106",
+      "material_type_group_name": "10010106 - SAM_ADVR_ATL_PRD - ONL"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010107",
+      "material_type_group_name": "10010107 - SAM_ADVR_ATL_PRD - TV"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010108",
+      "material_type_group_name": "10010108 - SAM_ADVR_ATL_PRD - RAD"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010109",
+      "material_type_group_name": "10010109 - SAM_ADVR_ATL_PRD - NWS"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010110",
+      "material_type_group_name": "10010110 - SAM_ADVR_ATL_PRD - MGZ"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010111",
+      "material_type_group_name": "10010111 - SAM_ADVR_ATL_BUY - CNM"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010112",
+      "material_type_group_name": "10010112 - SAM_ADVR_ATL_BUY - TV"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010113",
+      "material_type_group_name": "10010113 - SAM_ADVR_ATL_BUY - RAD"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010114",
+      "material_type_group_name": "10010114 - SAM_ADVR_ATL_BUY - NWS"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010115",
+      "material_type_group_name": "10010115 - SAM_ADVR_ATL_BUY - MGZ"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010116",
+      "material_type_group_name": "10010116 - SAM_ADVR_ATL_BUY - DGT"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010117",
+      "material_type_group_name": "10010117 - SAM_ADVR_ATL_BUY - SOC"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010118",
+      "material_type_group_name": "10010118 - SAM_ADVR_ATL_FEE"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010201",
+      "material_type_group_name": "10010201 - SAM_ADVR_BTL_EVE"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010202",
+      "material_type_group_name": "10010202 - SAM_ADVR_BTL_SAMPL"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10010203",
+      "material_type_group_name": "10010203 - SAM_ADVR_BTL_COM"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10020201",
+      "material_type_group_name": "10020201 - SAM_SPONS_SPONS_SPO"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10030101",
+      "material_type_group_name": "10030101 - SAM_POS_FURN_FURNITR"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10030201",
+      "material_type_group_name": "10030201 - SAM_POS_EQU_EQUIPM"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10030301",
+      "material_type_group_name": "10030301 - SAM_POS_PROMO_PROMO"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10030401",
+      "material_type_group_name": "10030401 - SAM_POS_IN - STO_NONPR"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10030501",
+      "material_type_group_name": "10030501 - SAM_POS_OUTD_PERMAN"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10040101",
+      "material_type_group_name": "10040101 - SAM_SRV_MARKET_MAR"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10040201",
+      "material_type_group_name": "10040201 - SAM_SRV_ACTV_CUSTOMR"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10040301",
+      "material_type_group_name": "10040301 - SAM_SRV_ACTV_CONSUMR"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10040401",
+      "material_type_group_name": "10040401 - SAM_SRV_MERCH_MERHC"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10040501",
+      "material_type_group_name": "10040501 - SAM_SRV_PACK_ART"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10050101",
+      "material_type_group_name": "10050101 - SAM_DRINK_PLASTI_PLA"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10050201",
+      "material_type_group_name": "10050201 - SAM_DRINK_GLASSW_GLA"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10050301",
+      "material_type_group_name": "10050301 - SAM_DRINK_PAPER - _PAP"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10060101",
+      "material_type_group_name": "10060101 - SAM_PRT_PRT_PAP - CB"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10060201",
+      "material_type_group_name": "10060201 - SAM_PRT_PRT_PL - FOIL"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10070101",
+      "material_type_group_name": "10070101 - SAM_MERCH_CLOTHI_CLO"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "10070201",
+      "material_type_group_name": "10070201 - SAM_MERCH_GIVE - A_GIV"
+    },
+    {
+      "material_type_code": "ZMMN",
+      "material_group_code": "2002004",
+      "material_type_group_name": "2002004 - OLD"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "03020401",
+      "material_type_group_name": "03020401 - MRO/MATERIALS/INDUSTRIAL/AUXILIARY GASES AND CONTAINERS"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001001",
+      "material_type_group_name": "1001001 - RM&P_IGR_GAS/OIL - CO2"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001002",
+      "material_type_group_name": "1001002 - RAW MATERIAL & PACKAGING/INGREDIENTS/ADDITIVES"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001003",
+      "material_type_group_name": "1001003 - RAW MATERIAL & PACKAGING/INGREDIENTS/CO2 (BULK)"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001004",
+      "material_type_group_name": "1001004 - RAW MATERIAL & PACKAGING/INGREDIENTS/CO2 (BULK)"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001005",
+      "material_type_group_name": "1001005 - RAW MATERIAL & PACKAGING/INGREDIENTS/CONC & FLV NON-TCCC"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001006",
+      "material_type_group_name": "1001006 - RAW MATERIAL & PACKAGING/INGREDIENTS/SUGAR"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001007",
+      "material_type_group_name": "1001007 - RAW MATERIAL & PACKAGING/INGREDIENTS/HFS"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001008",
+      "material_type_group_name": "1001008 - RM&P_IGR_OTHER - SWEET"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001009",
+      "material_type_group_name": "1001009 - RAW MATERIAL & PACKAGING/INGREDIENTS/SYRUP"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001010",
+      "material_type_group_name": "1001010 - RAW MATERIAL & PACKAGING/INGREDIENTS/WATER"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001011",
+      "material_type_group_name": "1001011 - RM&P_IGR_BLEND"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001012",
+      "material_type_group_name": "1001012 - RM&P_IGR_BEER"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001013",
+      "material_type_group_name": "1001013 - RM&P_IGR_MALT"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001014",
+      "material_type_group_name": "1001014 - RM&P_IGR_RICE"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001015",
+      "material_type_group_name": "1001015 - RM&P_IGR_MAIZE"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001016",
+      "material_type_group_name": "1001016 - RM&P_IGR_YOUNG"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001017",
+      "material_type_group_name": "1001017 - RM&P_IGR_WORT"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001018",
+      "material_type_group_name": "1001018 - RM&P_IGR_MATURE"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001019",
+      "material_type_group_name": "1001019 - RM&P_IGR_BRIGHT"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001020",
+      "material_type_group_name": "1001020 - RM&P_IGR_HOP"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001021",
+      "material_type_group_name": "1001021 - RM&P_IGR_YEAST"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001022",
+      "material_type_group_name": "1001022 - RM&P_IGR_CONC - OTHER"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001023",
+      "material_type_group_name": "1001023 - RM&P_IGR_JUICE - TCCC"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001024",
+      "material_type_group_name": "1001024 - RM&P_IGR_CONC - OTHER"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001025",
+      "material_type_group_name": "1001025 - RM&P_IGR_POTATO"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001026",
+      "material_type_group_name": "1001026 - RM&P_IGR_OIL"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001027",
+      "material_type_group_name": "1001027 - RM&P_IGR_SPICE"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1001028",
+      "material_type_group_name": "1001028 - RM&P_IGR_OTHER - BLEND"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1002001",
+      "material_type_group_name": "1002001 - RAW MATERIAL & PACKAGING/OTHER/OTHER RM"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1003002",
+      "material_type_group_name": "1003002 - RAW MATERIAL & PACKAGING/PRIMARY PACKAGING/ASEPTIC CARTONS"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1003003",
+      "material_type_group_name": "1003003 - RM&P/PRIMARY PACKAGING/SLEEVES, PAPER, LIDS"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1003004",
+      "material_type_group_name": "1003004 - RM&P/PRIMARY PACKAGING/STRAWS"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1003005",
+      "material_type_group_name": "1003005 - RM&P/PRIMARY PACKAGING/CAN BODIES"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1003006",
+      "material_type_group_name": "1003006 - RM&P/PRIMARY PACKAGING/CLOSURES METALL"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1003007",
+      "material_type_group_name": "1003007 - RM&P/PRIMARY PACKAGING/CLOSURES PLASTIC"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1003008",
+      "material_type_group_name": "1003008 - RM&P/PRIMARY PACKAGING/CROWNS"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1003009",
+      "material_type_group_name": "1003009 - RM&P/PRIMARY PACKAGING/REF. GLASS BOTTLES"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1003010",
+      "material_type_group_name": "1003010 - RM&P/PRIMARY PACKAGING/NON-RET. GLASS BOTT."
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1003011",
+      "material_type_group_name": "1003011 - RM&P_PPA_PET - RESIN"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1003012",
+      "material_type_group_name": "1003012 - RM&P/PRIMARY PACKAGING/PET PREFORMS"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1003013",
+      "material_type_group_name": "1003013 - RM&P/PRIMARY PACKAGING/PET BOTTLES"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1003014",
+      "material_type_group_name": "1003014 - RM&P/PRIMARY PACKAGING/CAN ENDS"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1003015",
+      "material_type_group_name": "1003015 - RM&P_PPA_FILMS"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1004001",
+      "material_type_group_name": "1004001 - RM&P_SPA_CRATES"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1004002",
+      "material_type_group_name": "1004002 - RM&P/SECONDARY PACKAGING/FILM, SHRINK PRINTED"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1004003",
+      "material_type_group_name": "1004003 - RM&P/SECONDARY PACKAGING/FILM, SHRINK BLANK"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1004004",
+      "material_type_group_name": "1004004 - RM&P/SECONDARY PACKAGING/HANDLES"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1004005",
+      "material_type_group_name": "1004005 - RM&P/SECONDARY PACKAGING/FILM, STRETCH"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1004006",
+      "material_type_group_name": "1004006 - RM&P/SECONDARY PACKAGING/GLUE in BOM"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1004007",
+      "material_type_group_name": "1004007 - RM&P/SECONDARY PACKAGING/PLASTIC LABELS"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1004008",
+      "material_type_group_name": "1004008 - RM&P/SECONDARY PACKAGING/PAPER LABELS"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1004009",
+      "material_type_group_name": "1004009 - RM&P/SECONDARY PACKAGING/TRAYS, CARTONS, PADS"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1004010",
+      "material_type_group_name": "1004010 - RM&P_SPA_PALLET"
+    },
+    {
+      "material_type_code": "ZNVL",
+      "material_group_code": "1004011",
+      "material_type_group_name": "1004011 - RM&P/SECONDARY PACKAGING/SLEEVES"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1110000",
+      "material_type_group_name": "1110000 - FG_BEVERAGES_BAN"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1111001",
+      "material_type_group_name": "1111001 - FG_BEVERAGES_CSD"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1111002",
+      "material_type_group_name": "1111002 - FG/BEVERAGES/NON-CSD"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1111003",
+      "material_type_group_name": "1111003 - FG/BEVERAGES/WATER & NEAR WATER"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1111004",
+      "material_type_group_name": "1111004 - FG/BEVERAGES/SPORT DRINKS"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1111005",
+      "material_type_group_name": "1111005 - FG_BEVERAGES_CFE"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1111006",
+      "material_type_group_name": "1111006 - FG_BEVERAGES_TEA"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1111007",
+      "material_type_group_name": "1111007 - FG_BEVERAGES_HOT"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1111008",
+      "material_type_group_name": "1111008 - FG_BEVERAGES_ALC"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1111009",
+      "material_type_group_name": "1111009 - FG_BEVERAGES_OTH"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1111010",
+      "material_type_group_name": "1111010 - FG_BEVERAGES_BEER"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1111011",
+      "material_type_group_name": "1111011 - FG_BEVERAGES_I&G"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1112001",
+      "material_type_group_name": "1112001 - FG_FOOD_DAIRY"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1112002",
+      "material_type_group_name": "1112002 - FG/FOOD/SNACKS SALTY"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1112003",
+      "material_type_group_name": "1112003 - FG/FOOD/SNACKS SWEET"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1113001",
+      "material_type_group_name": "1113001 - FG/OTHER/PHONE CARDS"
+    },
+    {
+      "material_type_code": "ZNVM",
+      "material_group_code": "1113002",
+      "material_type_group_name": "1113002 - FG/OTHER/*"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "01030101",
+      "material_type_group_name": "01030101 - CDE_SERV_EQUIP REP"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "01030901",
+      "material_type_group_name": "01030901 - CDE_SERV_OTHER"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "02030101",
+      "material_type_group_name": "02030101 - PEQ_PROC_PROC_EQUIPM"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "02040101",
+      "material_type_group_name": "02040101 - PEQ_QUALITY_EQUIP_EQ"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "03010101",
+      "material_type_group_name": "03010101 - MRO_PART_EL_ELECTRN"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "03010201",
+      "material_type_group_name": "03010201 - MRO_PART_MEC/HYDR_PN"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "03010301",
+      "material_type_group_name": "03010301 - MRO_PART_FILTER_FILT"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "03020101",
+      "material_type_group_name": "03020101 - MRO/MATERIALS/CHEMICALS/"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "03020201",
+      "material_type_group_name": "03020201 - MRO_MAT_GLUE_GLUE"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "03020301",
+      "material_type_group_name": "03020301 - MRO_MAT_LABOR_LABOR"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "03020401",
+      "material_type_group_name": "03020401 - MRO_MAT_INDUST_GAS"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "03020402",
+      "material_type_group_name": "03020402 - MRO_MAT_INDUST_OTHER"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "03030101",
+      "material_type_group_name": "03030101 - MRO_TOOL_LABOR_LABOR"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "03030201",
+      "material_type_group_name": "03030201 - MRO_TOOL_HAND_MACHIN"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "04010301",
+      "material_type_group_name": "04010301 - UTL_ENERGY_ENERGY_GA"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "04010401",
+      "material_type_group_name": "04010401 - UTL_ENERGY_ENERGY_PE"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "06060204",
+      "material_type_group_name": "06060204 - FLM_TYRE_PURCH_MHE"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "06120101",
+      "material_type_group_name": "06120101 - FLM_CONS_CONS_CONS"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "07020101",
+      "material_type_group_name": "07020101 - PER_OFFC_PAPER_SUPPL"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "07020201",
+      "material_type_group_name": "07020201 - PER_OFFC_STATIONERY_"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "07030301",
+      "material_type_group_name": "07030301 - PER_HR_UNIFORM_H&S"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "07030302",
+      "material_type_group_name": "07030302 - PER_HR_UNIFORM_CLOTH"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "07030303",
+      "material_type_group_name": "07030303 - PER_HR_UNIFORM_SHOE"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "09010209",
+      "material_type_group_name": "09010209 - REF_MAINT_BUILD_INT"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "09020102",
+      "material_type_group_name": "09020102 - REF_CATERING_UTENSIL"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "09030107",
+      "material_type_group_name": "09030107 - REF_CONSTR_CONST_OFF"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "09040403",
+      "material_type_group_name": "09040403 - REF_SECUR_SECUR_SEC"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "09050301",
+      "material_type_group_name": "09050301 - REF_SOFTSRV_CLEAN_LA"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "09050402",
+      "material_type_group_name": "09050402 - REF_SOFTSRV_MED_MED"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "09050701",
+      "material_type_group_name": "09050701 - REF_SOFTSRV_CLEAN_TO"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "1002001",
+      "material_type_group_name": "1002001 - RM&P_OTH_OTH RM"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "1003003",
+      "material_type_group_name": "1003003 - RM&P_PPA_SLEEVES"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "1004002",
+      "material_type_group_name": "1004002 - RM&P_SPA_FLMSHRKPRTD"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "1004007",
+      "material_type_group_name": "1004007 - RM&P_SPA_PLAST LABEL"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "1004008",
+      "material_type_group_name": "1004008 - RM&P_SPA_PAPER LABEL"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "1004009",
+      "material_type_group_name": "1004009 - RM&P_SPA_TRAY/PAD"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "1004010",
+      "material_type_group_name": "1004010 - RM&P_SPA_PALLET"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "12020401",
+      "material_type_group_name": "12020401 - IST_INFR_PRINT _COPY"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "12040104",
+      "material_type_group_name": "12040104 - IST_TELCO_VODA_MOBPH"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "1301001",
+      "material_type_group_name": "1301001 - RE/FM_BLD_EQ & MAT"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "1307002",
+      "material_type_group_name": "1307002 - RE/FM_STA_OFFSUPPL"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "1802000",
+      "material_type_group_name": "1802000 - WHS_OPEX_*"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "1903001",
+      "material_type_group_name": "1903001 - PER_CLOTH_SALES"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "1903002",
+      "material_type_group_name": "1903002 - PER_CLOTH_PROD/MAINT"
+    },
+    {
+      "material_type_code": "ZOT",
+      "material_group_code": "2604000",
+      "material_type_group_name": "2604000 - EMP_OTHER_*"
+    },
+    {
+      "material_type_code": "ZPAK",
+      "material_group_code": "03020401",
+      "material_type_group_name": "03020401 - MRO/MATERIALS/INDUSTRIAL/AUXILIARY GASES AND CONTAINERS"
+    },
+    {
+      "material_type_code": "ZPAK",
+      "material_group_code": "1002001",
+      "material_type_group_name": "1002001 - RAW MATERIAL & PACKAGING/OTHER/OTHER RM"
+    },
+    {
+      "material_type_code": "ZPAK",
+      "material_group_code": "1003009",
+      "material_type_group_name": "1003009 - RM&P/PRIMARY PACKAGING/REF. GLASS BOTTLES"
+    },
+    {
+      "material_type_code": "ZPAK",
+      "material_group_code": "1003010",
+      "material_type_group_name": "1003010 - RM&P/PRIMARY PACKAGING/NON-RET. GLASS BOTT."
+    },
+    {
+      "material_type_code": "ZPAK",
+      "material_group_code": "1004001",
+      "material_type_group_name": "1004001 - RM&P/SECONDARY PACKAGING/CRATES"
+    },
+    {
+      "material_type_code": "ZPAK",
+      "material_group_code": "1004009",
+      "material_type_group_name": "1004009 - RM&P/SECONDARY PACKAGING/TRAYS, CARTONS, PADS"
+    },
+    {
+      "material_type_code": "ZPAK",
+      "material_group_code": "1004010",
+      "material_type_group_name": "1004010 - RM&P/SECONDARY PACKAGING/PALLETS"
+    },
+    {
+      "material_type_code": "ZPAL",
+      "material_group_code": "03020401",
+      "material_type_group_name": "03020401 - MRO/MATERIALS/INDUSTRIAL/AUXILIARY GASES AND CONTAINERS"
+    },
+    {
+      "material_type_code": "ZPAL",
+      "material_group_code": "1002001",
+      "material_type_group_name": "1002001 - RAW MATERIAL & PACKAGING/OTHER/OTHER RM"
+    },
+    {
+      "material_type_code": "ZPAL",
+      "material_group_code": "1003009",
+      "material_type_group_name": "1003009 - RM&P/PRIMARY PACKAGING/REF. GLASS BOTTLES"
+    },
+    {
+      "material_type_code": "ZPAL",
+      "material_group_code": "1003010",
+      "material_type_group_name": "1003010 - RM&P/PRIMARY PACKAGING/NON-RET. GLASS BOTT."
+    },
+    {
+      "material_type_code": "ZPAL",
+      "material_group_code": "1004001",
+      "material_type_group_name": "1004001 - RM&P/SECONDARY PACKAGING/CRATES"
+    },
+    {
+      "material_type_code": "ZPAL",
+      "material_group_code": "1004009",
+      "material_type_group_name": "1004009 - RM&P/SECONDARY PACKAGING/TRAYS, CARTONS, PADS"
+    },
+    {
+      "material_type_code": "ZPAL",
+      "material_group_code": "1004010",
+      "material_type_group_name": "1004010 - RM&P/SECONDARY PACKAGING/PALLETS"
+    },
+    {
+      "material_type_code": "ZQM",
+      "material_group_code": "2909001",
+      "material_type_group_name": "2909001 - QM_INSPECTION_MATLS"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001001",
+      "material_type_group_name": "1001001 - RM&P_IGR_GAS/OIL - CO2"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001002",
+      "material_type_group_name": "1001002 - RM&P_IGR_ADD"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001003",
+      "material_type_group_name": "1001003 - RM&P_IGR_CO2"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001004",
+      "material_type_group_name": "1001004 - RM&P_IGR_CONC - TCCC"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001005",
+      "material_type_group_name": "1001005 - RM&P_IGR_JUICE - OTHER"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001006",
+      "material_type_group_name": "1001006 - RM&P_IGR_SUGAR"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001007",
+      "material_type_group_name": "1001007 - RM&P_IGR_HFS"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001008",
+      "material_type_group_name": "1001008 - RM&P_IGR_OTHER - SWEET"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001009",
+      "material_type_group_name": "1001009 - RM&P_IGR_SYRUP"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001010",
+      "material_type_group_name": "1001010 - RM&P_IGR_WATER"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001011",
+      "material_type_group_name": "1001011 - RM&P_IGR_BLEND"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001012",
+      "material_type_group_name": "1001012 - RM&P_IGR_BEER"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001013",
+      "material_type_group_name": "1001013 - RM&P_IGR_MALT"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001014",
+      "material_type_group_name": "1001014 - RM&P_IGR_RICE"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001015",
+      "material_type_group_name": "1001015 - RM&P_IGR_MAIZE"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001016",
+      "material_type_group_name": "1001016 - RM&P_IGR_YOUNG"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001017",
+      "material_type_group_name": "1001017 - RM&P_IGR_WORT"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001018",
+      "material_type_group_name": "1001018 - RM&P_IGR_MATURE"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001019",
+      "material_type_group_name": "1001019 - RM&P_IGR_BRIGHT"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001020",
+      "material_type_group_name": "1001020 - RM&P_IGR_HOP"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001021",
+      "material_type_group_name": "1001021 - RM&P_IGR_YEAST"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001022",
+      "material_type_group_name": "1001022 - RM&P_IGR_CONC - OTHER"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001023",
+      "material_type_group_name": "1001023 - RM&P_IGR_JUICE - TCCC"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001024",
+      "material_type_group_name": "1001024 - RM&P_IGR_CONC - OTHER"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001025",
+      "material_type_group_name": "1001025 - RM&P_IGR_POTATO"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001026",
+      "material_type_group_name": "1001026 - RM&P_IGR_OIL"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001027",
+      "material_type_group_name": "1001027 - RM&P_IGR_SPICE"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1001028",
+      "material_type_group_name": "1001028 - RM&P_IGR_OTHER - BLEND"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1002001",
+      "material_type_group_name": "1002001 - RM&P_OTH_OTH - RM"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1003001",
+      "material_type_group_name": "1003001 - RM&P_PPA_BIB"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1003002",
+      "material_type_group_name": "1003002 - RM&P_PPA_ASEPT - CART"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1003003",
+      "material_type_group_name": "1003003 - RM&P_PPA_SLEEVES"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1003004",
+      "material_type_group_name": "1003004 - RM&P_PPA_STRAWS"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1003005",
+      "material_type_group_name": "1003005 - RM&P_PPA_CAN - BODIES"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1003006",
+      "material_type_group_name": "1003006 - RM&P_PPA_CLOS/MET"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1003007",
+      "material_type_group_name": "1003007 - RM&P_PPA_CLOS/PLAST"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1003008",
+      "material_type_group_name": "1003008 - RM&P_PPA_CRWS"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1003009",
+      "material_type_group_name": "1003009 - RM&P_PPA_REFGLASSBTL"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1003010",
+      "material_type_group_name": "1003010 - RM&P_PPA_NON - RGB"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1003011",
+      "material_type_group_name": "1003011 - RM&P_PPA_PET - RESIN"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1003012",
+      "material_type_group_name": "1003012 - RM&P_PPA_PETPREFORM"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1003013",
+      "material_type_group_name": "1003013 - RM&P_PPA_PETBOTTLE"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1003014",
+      "material_type_group_name": "1003014 - RM&P_PPA_CAN - ENDS"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1003015",
+      "material_type_group_name": "1003015 - RM&P_PPA_FILMS"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1004001",
+      "material_type_group_name": "1004001 - RM&P_SPA_CRATES"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1004002",
+      "material_type_group_name": "1004002 - RM&P_SPA_FLMSHRKPRTD"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1004003",
+      "material_type_group_name": "1004003 - RM&P_SPA_FLM - SHRK"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1004004",
+      "material_type_group_name": "1004004 - RM&P_SPA_HANDLES"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1004005",
+      "material_type_group_name": "1004005 - RM&P_SPA_FILM - STRECH"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1004006",
+      "material_type_group_name": "1004006 - RM&P_SPA_GLUE - IN - BoM"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1004007",
+      "material_type_group_name": "1004007 - RM&P_SPA_PLAST - LABEL"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1004008",
+      "material_type_group_name": "1004008 - RM&P_SPA_PAPER - LABEL"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1004009",
+      "material_type_group_name": "1004009 - RM&P_SPA_TRAY/PAD"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1004010",
+      "material_type_group_name": "1004010 - RM&P_SPA_PALLET"
+    },
+    {
+      "material_type_code": "ZRW",
+      "material_group_code": "1004011",
+      "material_type_group_name": "1004011 - RM&P_SPA_SLEEVE"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001001",
+      "material_type_group_name": "1001001 - RM&P_IGR_GAS/OIL - CO2"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001002",
+      "material_type_group_name": "1001002 - RM&P_IGR_ADD"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001003",
+      "material_type_group_name": "1001003 - RM&P_IGR_CO2"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001004",
+      "material_type_group_name": "1001004 - RM&P_IGR_CONC - TCCC"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001005",
+      "material_type_group_name": "1001005 - RM&P_IGR_JUICE - OTHER"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001006",
+      "material_type_group_name": "1001006 - RM&P_IGR_SUGAR"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001007",
+      "material_type_group_name": "1001007 - RM&P_IGR_HFS"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001008",
+      "material_type_group_name": "1001008 - RM&P_IGR_OTHER - SWEET"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001009",
+      "material_type_group_name": "1001009 - RM&P_IGR_SYRUP"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001010",
+      "material_type_group_name": "1001010 - RM&P_IGR_WATER"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001011",
+      "material_type_group_name": "1001011 - RM&P_IGR_BLEND"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001012",
+      "material_type_group_name": "1001012 - RM&P_IGR_BEER"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001013",
+      "material_type_group_name": "1001013 - RM&P_IGR_MALT"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001014",
+      "material_type_group_name": "1001014 - RM&P_IGR_RICE"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001015",
+      "material_type_group_name": "1001015 - RM&P_IGR_MAIZE"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001016",
+      "material_type_group_name": "1001016 - RM&P_IGR_YOUNG"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001017",
+      "material_type_group_name": "1001017 - RM&P_IGR_WORT"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001018",
+      "material_type_group_name": "1001018 - RM&P_IGR_MATURE"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001019",
+      "material_type_group_name": "1001019 - RM&P_IGR_BRIGHT"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001020",
+      "material_type_group_name": "1001020 - RM&P_IGR_HOP"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001021",
+      "material_type_group_name": "1001021 - RM&P_IGR_YEAST"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001022",
+      "material_type_group_name": "1001022 - RM&P_IGR_CONC - OTHER"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001023",
+      "material_type_group_name": "1001023 - RM&P_IGR_JUICE - TCCC"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001024",
+      "material_type_group_name": "1001024 - RM&P_IGR_CONC - OTHER"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001025",
+      "material_type_group_name": "1001025 - RM&P_IGR_POTATO"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001026",
+      "material_type_group_name": "1001026 - RM&P_IGR_OIL"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001027",
+      "material_type_group_name": "1001027 - RM&P_IGR_SPICE"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1001028",
+      "material_type_group_name": "1001028 - RM&P_IGR_OTHER - BLEND"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1002001",
+      "material_type_group_name": "1002001 - RM&P_OTH_OTH - RM"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1003001",
+      "material_type_group_name": "1003001 - RM&P_PPA_BIB"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1003002",
+      "material_type_group_name": "1003002 - RM&P_PPA_ASEPT - CART"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1003003",
+      "material_type_group_name": "1003003 - RM&P_PPA_SLEEVES"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1003004",
+      "material_type_group_name": "1003004 - RM&P_PPA_STRAWS"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1003005",
+      "material_type_group_name": "1003005 - RM&P_PPA_CAN - BODIES"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1003006",
+      "material_type_group_name": "1003006 - RM&P_PPA_CLOS/MET"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1003007",
+      "material_type_group_name": "1003007 - RM&P_PPA_CLOS/PLAST"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1003008",
+      "material_type_group_name": "1003008 - RM&P_PPA_CRWS"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1003009",
+      "material_type_group_name": "1003009 - RM&P_PPA_REFGLASSBTL"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1003010",
+      "material_type_group_name": "1003010 - RM&P_PPA_NON - RGB"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1003011",
+      "material_type_group_name": "1003011 - RM&P_PPA_PET - RESIN"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1003012",
+      "material_type_group_name": "1003012 - RM&P_PPA_PETPREFORM"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1003013",
+      "material_type_group_name": "1003013 - RM&P_PPA_PETBOTTLE"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1003014",
+      "material_type_group_name": "1003014 - RM&P_PPA_CAN - ENDS"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1003015",
+      "material_type_group_name": "1003015 - RM&P_PPA_FILMS"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1004001",
+      "material_type_group_name": "1004001 - RM&P_SPA_CRATES"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1004002",
+      "material_type_group_name": "1004002 - RM&P_SPA_FLMSHRKPRTD"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1004003",
+      "material_type_group_name": "1004003 - RM&P_SPA_FLM - SHRK"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1004004",
+      "material_type_group_name": "1004004 - RM&P_SPA_HANDLES"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1004005",
+      "material_type_group_name": "1004005 - RM&P_SPA_FILM - STRECH"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1004006",
+      "material_type_group_name": "1004006 - RM&P_SPA_GLUE - IN - BoM"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1004007",
+      "material_type_group_name": "1004007 - RM&P_SPA_PLAST - LABEL"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1004008",
+      "material_type_group_name": "1004008 - RM&P_SPA_PAPER - LABEL"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1004009",
+      "material_type_group_name": "1004009 - RM&P_SPA_TRAY/PAD"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1004010",
+      "material_type_group_name": "1004010 - RM&P_SPA_PALLET"
+    },
+    {
+      "material_type_code": "ZRWT",
+      "material_group_code": "1004011",
+      "material_type_group_name": "1004011 - RM&P_SPA_SLEEVE"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001001",
+      "material_type_group_name": "1001001 - RM&P_IGR_GAS/OIL - CO2"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001002",
+      "material_type_group_name": "1001002 - RM&P_IGR_ADD"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001003",
+      "material_type_group_name": "1001003 - RM&P_IGR_CO2"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001004",
+      "material_type_group_name": "1001004 - RM&P_IGR_CONC - TCCC"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001005",
+      "material_type_group_name": "1001005 - RM&P_IGR_JUICE - OTHER"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001006",
+      "material_type_group_name": "1001006 - RM&P_IGR_SUGAR"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001007",
+      "material_type_group_name": "1001007 - RM&P_IGR_HFS"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001008",
+      "material_type_group_name": "1001008 - RM&P_IGR_OTHER - SWEET"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001009",
+      "material_type_group_name": "1001009 - RM&P_IGR_SYRUP"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001010",
+      "material_type_group_name": "1001010 - RM&P_IGR_WATER"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001011",
+      "material_type_group_name": "1001011 - RM&P_IGR_BLEND"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001012",
+      "material_type_group_name": "1001012 - RM&P_IGR_BEER"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001013",
+      "material_type_group_name": "1001013 - RM&P_IGR_MALT"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001014",
+      "material_type_group_name": "1001014 - RM&P_IGR_RICE"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001015",
+      "material_type_group_name": "1001015 - RM&P_IGR_MAIZE"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001016",
+      "material_type_group_name": "1001016 - RM&P_IGR_YOUNG"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001017",
+      "material_type_group_name": "1001017 - RM&P_IGR_WORT"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001018",
+      "material_type_group_name": "1001018 - RM&P_IGR_MATURE"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001019",
+      "material_type_group_name": "1001019 - RM&P_IGR_BRIGHT"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001020",
+      "material_type_group_name": "1001020 - RM&P_IGR_HOP"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001021",
+      "material_type_group_name": "1001021 - RM&P_IGR_YEAST"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001022",
+      "material_type_group_name": "1001022 - RM&P_IGR_CONC - OTHER"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001023",
+      "material_type_group_name": "1001023 - RM&P_IGR_JUICE - TCCC"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001024",
+      "material_type_group_name": "1001024 - RM&P_IGR_CONC - OTHER"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001025",
+      "material_type_group_name": "1001025 - RM&P_IGR_POTATO"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001026",
+      "material_type_group_name": "1001026 - RM&P_IGR_OIL"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001027",
+      "material_type_group_name": "1001027 - RM&P_IGR_SPICE"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1001028",
+      "material_type_group_name": "1001028 - RM&P_IGR_OTHER - BLEND"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1002001",
+      "material_type_group_name": "1002001 - RM&P_OTH_OTH - RM"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1003001",
+      "material_type_group_name": "1003001 - RM&P_PPA_BIB"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1003002",
+      "material_type_group_name": "1003002 - RM&P_PPA_ASEPT - CART"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1003003",
+      "material_type_group_name": "1003003 - RM&P_PPA_SLEEVES"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1003004",
+      "material_type_group_name": "1003004 - RM&P_PPA_STRAWS"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1003005",
+      "material_type_group_name": "1003005 - RM&P_PPA_CAN - BODIES"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1003006",
+      "material_type_group_name": "1003006 - RM&P_PPA_CLOS/MET"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1003007",
+      "material_type_group_name": "1003007 - RM&P_PPA_CLOS/PLAST"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1003008",
+      "material_type_group_name": "1003008 - RM&P_PPA_CRWS"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1003009",
+      "material_type_group_name": "1003009 - RM&P_PPA_REFGLASSBTL"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1003010",
+      "material_type_group_name": "1003010 - RM&P_PPA_NON - RGB"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1003011",
+      "material_type_group_name": "1003011 - RM&P_PPA_PET - RESIN"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1003012",
+      "material_type_group_name": "1003012 - RM&P_PPA_PETPREFORM"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1003013",
+      "material_type_group_name": "1003013 - RM&P_PPA_PETBOTTLE"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1003014",
+      "material_type_group_name": "1003014 - RM&P_PPA_CAN - ENDS"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1003015",
+      "material_type_group_name": "1003015 - RM&P_PPA_FILMS"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1004001",
+      "material_type_group_name": "1004001 - RM&P_SPA_CRATES"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1004002",
+      "material_type_group_name": "1004002 - RM&P_SPA_FLMSHRKPRTD"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1004003",
+      "material_type_group_name": "1004003 - RM&P_SPA_FLM - SHRK"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1004004",
+      "material_type_group_name": "1004004 - RM&P_SPA_HANDLES"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1004005",
+      "material_type_group_name": "1004005 - RM&P_SPA_FILM - STRECH"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1004006",
+      "material_type_group_name": "1004006 - RM&P_SPA_GLUE - IN - BoM"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1004007",
+      "material_type_group_name": "1004007 - RM&P_SPA_PLAST - LABEL"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1004008",
+      "material_type_group_name": "1004008 - RM&P_SPA_PAPER - LABEL"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1004009",
+      "material_type_group_name": "1004009 - RM&P_SPA_TRAY/PAD"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1004010",
+      "material_type_group_name": "1004010 - RM&P_SPA_PALLET"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1004011",
+      "material_type_group_name": "1004011 - RM&P_SPA_SLEEVE"
+    },
+    {
+      "material_type_code": "ZSF",
+      "material_group_code": "1201000",
+      "material_type_group_name": "1201000 - SFG_SFG_*"
+    },
+    {
+      "material_type_code": "ZSFB",
+      "material_group_code": "1001010",
+      "material_type_group_name": "1001010 - RM&P_IGR_WATER"
+    },
+    {
+      "material_type_code": "ZSFB",
+      "material_group_code": "1001012",
+      "material_type_group_name": "1001012 - RM&P_IGR_BEER"
+    },
+    {
+      "material_type_code": "ZSFB",
+      "material_group_code": "1001016",
+      "material_type_group_name": "1001016 - RM&P_IGR_YOUNG"
+    },
+    {
+      "material_type_code": "ZSFB",
+      "material_group_code": "1001017",
+      "material_type_group_name": "1001017 - RM&P_IGR_WORT"
+    },
+    {
+      "material_type_code": "ZSFB",
+      "material_group_code": "1001018",
+      "material_type_group_name": "1001018 - RM&P_IGR_MATURE"
+    },
+    {
+      "material_type_code": "ZSFB",
+      "material_group_code": "1001019",
+      "material_type_group_name": "1001019 - RM&P_IGR_BRIGHT"
+    },
+    {
+      "material_type_code": "ZSFB",
+      "material_group_code": "1001021",
+      "material_type_group_name": "1001021 - RM&P_IGR_YEAST"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001001",
+      "material_type_group_name": "1001001 - RM&P_IGR_GAS/OIL - CO2"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001002",
+      "material_type_group_name": "1001002 - RM&P_IGR_ADD"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001003",
+      "material_type_group_name": "1001003 - RM&P_IGR_CO2"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001004",
+      "material_type_group_name": "1001004 - RM&P_IGR_CONC - TCCC"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001005",
+      "material_type_group_name": "1001005 - RM&P_IGR_JUICE - OTHER"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001006",
+      "material_type_group_name": "1001006 - RM&P_IGR_SUGAR"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001007",
+      "material_type_group_name": "1001007 - RM&P_IGR_HFS"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001008",
+      "material_type_group_name": "1001008 - RM&P_IGR_OTHER - SWEET"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001009",
+      "material_type_group_name": "1001009 - RM&P_IGR_SYRUP"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001010",
+      "material_type_group_name": "1001010 - RM&P_IGR_WATER"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001011",
+      "material_type_group_name": "1001011 - RM&P_IGR_BLEND"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001012",
+      "material_type_group_name": "1001012 - RM&P_IGR_BEER"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001013",
+      "material_type_group_name": "1001013 - RM&P_IGR_MALT"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001014",
+      "material_type_group_name": "1001014 - RM&P_IGR_RICE"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001015",
+      "material_type_group_name": "1001015 - RM&P_IGR_MAIZE"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001016",
+      "material_type_group_name": "1001016 - RM&P_IGR_YOUNG"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001017",
+      "material_type_group_name": "1001017 - RM&P_IGR_WORT"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001018",
+      "material_type_group_name": "1001018 - RM&P_IGR_MATURE"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001019",
+      "material_type_group_name": "1001019 - RM&P_IGR_BRIGHT"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001020",
+      "material_type_group_name": "1001020 - RM&P_IGR_HOP"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001021",
+      "material_type_group_name": "1001021 - RM&P_IGR_YEAST"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001022",
+      "material_type_group_name": "1001022 - RM&P_IGR_CONC - OTHER"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001023",
+      "material_type_group_name": "1001023 - RM&P_IGR_JUICE - TCCC"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001024",
+      "material_type_group_name": "1001024 - RM&P_IGR_CONC - OTHER"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001025",
+      "material_type_group_name": "1001025 - RM&P_IGR_POTATO"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001026",
+      "material_type_group_name": "1001026 - RM&P_IGR_OIL"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001027",
+      "material_type_group_name": "1001027 - RM&P_IGR_SPICE"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1001028",
+      "material_type_group_name": "1001028 - RM&P_IGR_OTHER - BLEND"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1002001",
+      "material_type_group_name": "1002001 - RM&P_OTH_OTH - RM"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1003001",
+      "material_type_group_name": "1003001 - RM&P_PPA_BIB"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1003002",
+      "material_type_group_name": "1003002 - RM&P_PPA_ASEPT - CART"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1003003",
+      "material_type_group_name": "1003003 - RM&P_PPA_SLEEVES"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1003004",
+      "material_type_group_name": "1003004 - RM&P_PPA_STRAWS"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1003005",
+      "material_type_group_name": "1003005 - RM&P_PPA_CAN - BODIES"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1003006",
+      "material_type_group_name": "1003006 - RM&P_PPA_CLOS/MET"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1003007",
+      "material_type_group_name": "1003007 - RM&P_PPA_CLOS/PLAST"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1003008",
+      "material_type_group_name": "1003008 - RM&P_PPA_CRWS"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1003009",
+      "material_type_group_name": "1003009 - RM&P_PPA_REFGLASSBTL"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1003010",
+      "material_type_group_name": "1003010 - RM&P_PPA_NON - RGB"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1003011",
+      "material_type_group_name": "1003011 - RM&P_PPA_PET - RESIN"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1003012",
+      "material_type_group_name": "1003012 - RM&P_PPA_PETPREFORM"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1003013",
+      "material_type_group_name": "1003013 - RM&P_PPA_PETBOTTLE"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1003014",
+      "material_type_group_name": "1003014 - RM&P_PPA_CAN - ENDS"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1003015",
+      "material_type_group_name": "1003015 - RM&P_PPA_FILMS"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1004001",
+      "material_type_group_name": "1004001 - RM&P_SPA_CRATES"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1004002",
+      "material_type_group_name": "1004002 - RM&P_SPA_FLMSHRKPRTD"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1004003",
+      "material_type_group_name": "1004003 - RM&P_SPA_FLM - SHRK"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1004004",
+      "material_type_group_name": "1004004 - RM&P_SPA_HANDLES"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1004005",
+      "material_type_group_name": "1004005 - RM&P_SPA_FILM - STRECH"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1004006",
+      "material_type_group_name": "1004006 - RM&P_SPA_GLUE - IN - BoM"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1004007",
+      "material_type_group_name": "1004007 - RM&P_SPA_PLAST - LABEL"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1004008",
+      "material_type_group_name": "1004008 - RM&P_SPA_PAPER - LABEL"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1004009",
+      "material_type_group_name": "1004009 - RM&P_SPA_TRAY/PAD"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1004010",
+      "material_type_group_name": "1004010 - RM&P_SPA_PALLET"
+    },
+    {
+      "material_type_code": "ZSFT",
+      "material_group_code": "1004011",
+      "material_type_group_name": "1004011 - RM&P_SPA_SLEEVE"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06040101",
+      "material_type_group_name": "06040101 - FLM_FUEL_FLM MA_FLM"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06050101",
+      "material_type_group_name": "06050101 - FLM_MAINT__PAS"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06050102",
+      "material_type_group_name": "06050102 - FLM_MAINT__VAN"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06050103",
+      "material_type_group_name": "06050103 - FLM_MAINT__TRK"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06050104",
+      "material_type_group_name": "06050104 - FLM_MAINT__MHE"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06060101",
+      "material_type_group_name": "06060101 - FLM_TYRE_SERV_TRL"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06060102",
+      "material_type_group_name": "06060102 - FLM_TYRE_SERV_VAN"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06060103",
+      "material_type_group_name": "06060103 - FLM_TYRE_SERV_TRK"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06060104",
+      "material_type_group_name": "06060104 - FLM_TYRE_SERV_MHE"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06060201",
+      "material_type_group_name": "06060201 - FLM_TYRE_PURCH_PAS"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06060202",
+      "material_type_group_name": "06060202 - FLM_TYRE_PURCH_VAN"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06060203",
+      "material_type_group_name": "06060203 - FLM_TYRE_PURCH_TRK"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06060204",
+      "material_type_group_name": "06060204 - FLM_TYRE_PURCH_MHE"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06070101",
+      "material_type_group_name": "06070101 - FLM_SPARE_PURCH_SPA"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06080101",
+      "material_type_group_name": "06080101 - FLM_INSURE_SERV_PAS"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06080102",
+      "material_type_group_name": "06080102 - FLM_INSURE_SERV_VAN"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06080103",
+      "material_type_group_name": "06080103 - FLM_INSURE_SERV_TRK"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06090101",
+      "material_type_group_name": "06090101 - FLM_SAFE_LEASE_GPS"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06090201",
+      "material_type_group_name": "06090201 - FLM_SAFE_PURCH_GPS"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06100101",
+      "material_type_group_name": "06100101 - FLM_OTHER_OTHER_SERV"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06110101",
+      "material_type_group_name": "06110101 - FLM_OTHER_OTHER_ASSE"
+    },
+    {
+      "material_type_code": "ZSPF",
+      "material_group_code": "06120101",
+      "material_type_group_name": "06120101 - FLM_CONS_CONS_CONS"
+    },
+    {
+      "material_type_code": "ZSPS",
+      "material_group_code": "03010101",
+      "material_type_group_name": "03010101 - ELECTRICAL/MECHANICAL/ELECTRONICAL"
+    },
+    {
+      "material_type_code": "ZSPS",
+      "material_group_code": "03010201",
+      "material_type_group_name": "03010201 - MECHANICAL/ELECTRICAL"
+    },
+    {
+      "material_type_code": "ZSPS",
+      "material_group_code": "03010301",
+      "material_type_group_name": "03010301 - FILTERS"
+    },
+    {
+      "material_type_code": "ZSPS",
+      "material_group_code": "03020101",
+      "material_type_group_name": "03020101 - MRO/MATERIALS/CHEMICALS/"
+    },
+    {
+      "material_type_code": "ZSPS",
+      "material_group_code": "03020402",
+      "material_type_group_name": "03020402 - SEALING"
+    },
+    {
+      "material_type_code": "ZSPS",
+      "material_group_code": "03030101",
+      "material_type_group_name": "03030101 - ELECTRICAL/MECHANICAL"
+    },
+    {
+      "material_type_code": "ZSPS",
+      "material_group_code": "03030201",
+      "material_type_group_name": "03030201 - MRO/TOOLS/HAND & MACHINERY/"
+    },
+    {
+      "material_type_code": "ZSTL",
+      "material_group_code": "1111004",
+      "material_type_group_name": "1111004 - FG_BEVERAGES_SPT"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "01030101",
+      "material_type_group_name": "01030101 - CDE_SERV_EQUIP REP"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "01030201",
+      "material_type_group_name": "01030201 - CDE_SERV_EQUIP PREV"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "01030301",
+      "material_type_group_name": "01030301 - CDE/SERVICES/REFURBISHMENT"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "01030401",
+      "material_type_group_name": "01030401 - CDE/SERVICES/DISPOSAL"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "01030601",
+      "material_type_group_name": "01030601 - CDE/SERVICES/PLACEMENT"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "01030701",
+      "material_type_group_name": "01030701 - CDE/SERVICES/REMOVAL"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "01030901",
+      "material_type_group_name": "01030901 - CDE_SERV_OTHER"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "05010401",
+      "material_type_group_name": "05010401 - LOG_TRANS_OTHE_SPE_S"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "05020307",
+      "material_type_group_name": "05020307 - LOG_WHSE_EQUIPM_WAR"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "06060204",
+      "material_type_group_name": "06060204 - FLM_TYRE_PURCH_MHE"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "08040201",
+      "material_type_group_name": "08040201 - TAH/MEETING & EVENTS RELATED COSTS/M&E AGENCY VENUE/PLAN ORG"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "09030107",
+      "material_type_group_name": "09030107 - REF_CONSTR_CONST_OFF"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "09060501",
+      "material_type_group_name": "09060501 - REF_BRFS_GARB COLECT"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "11010701",
+      "material_type_group_name": "11010701 - PSV_FS_ACCOUNTANCY"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "11020101",
+      "material_type_group_name": "11020101 - PSV_CONS_BUSINESS_*"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "11020602",
+      "material_type_group_name": "11020602 - PSV_CS_COMERC CONSUL"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "11020702",
+      "material_type_group_name": "11020702 - PSV_CS_HR CONSULTANC"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "11021301",
+      "material_type_group_name": "11021301 - PSV/CONSULTING SERVICES/PUBLIC AFFAIRS & COMMUNICATION"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "11040301",
+      "material_type_group_name": "11040301 - PSV_PROFL SER_ FEES"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "1111008",
+      "material_type_group_name": "1111008 - FG_BEVERAGES_ALC"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "1111009",
+      "material_type_group_name": "1111009 - FG_BEVERAGES_OTH"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "1112001",
+      "material_type_group_name": "1112001 - FG_FOOD_DAIRY"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "1113002",
+      "material_type_group_name": "1113002 - FG_OTHER_*"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "12010111",
+      "material_type_group_name": "12010111 - IST_SW_BUSAPL_INFRA"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "1603000",
+      "material_type_group_name": "1603000 - CST_IMPORT_*"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "1902003",
+      "material_type_group_name": "1902003 - PER/SERVICES/RELOCATION SERVICES"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "1902004",
+      "material_type_group_name": "1902004 - PER_SRV_TRAIN"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "2001002",
+      "material_type_group_name": "2001002 - M&S/ABOVE THE LINE/ADVERTISING MAT& SERVICES"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "2002005",
+      "material_type_group_name": "2002005 - M&S/BELOW THE LINE/POINT OF SALES, POINT OF PROMO"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "2004000",
+      "material_type_group_name": "2004000 - M&S/STANDARD PROMOTIONAL ITEMS/*"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "2005002",
+      "material_type_group_name": "2005002 - M&S_SRV_P&A"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "2401007",
+      "material_type_group_name": "2401007 - PFS_CSLT_FINANCE"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "2401011",
+      "material_type_group_name": "2401011 - PFS_CSLT_STRATEGY"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "2401012",
+      "material_type_group_name": "2401012 - PFS_CSLT_PRODANALYS"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "2401014",
+      "material_type_group_name": "2401014 - PFS_CSLT_PROD&PROCES"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "2401015",
+      "material_type_group_name": "2401015 - PFS/CONSULTANCY/QUALITY AUDIT"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "2402007",
+      "material_type_group_name": "2402007 - PFS/INSURANCES/TRANSPORT"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "2503002",
+      "material_type_group_name": "2503002 - CDE_SERV_EQUIP PREV"
+    },
+    {
+      "material_type_code": "ZSV",
+      "material_group_code": "2503009",
+      "material_type_group_name": "2503009 - CDE_SERV_OTHER"
+    },
+    {
+      "material_type_code": "ZWST",
+      "material_group_code": "10020401",
+      "material_type_group_name": "10020401 - WST_REC_NONREC"
+    }
+  ]
+}

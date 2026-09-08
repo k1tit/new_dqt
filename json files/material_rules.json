@@ -1,0 +1,78 @@
+{
+  "_meta": {
+    "domain": "Material",
+    "description": "Правила DQ по материалам. Структура как у rules.json: ключ = имя таблицы SAP, значение = массив правил.",
+    "output_dir": "Material report",
+    "note": "Ключи, начинающиеся с _, checker игнорирует. dm_product_general: MARA + MAKT (MAKTX, exclude %ABP%)."
+  },
+  "MARA": [
+    {
+      "rule_code": "RPCONF_166.1",
+      "rule_description": "For FG (MTART= ZFG, ZFGS) the value for MEINS should be \"CS\", \"ST\" or \"PC\" in MARA View",
+      "technical_definition": [
+        "For material_description NOT LIKE '%ABP%'",
+        "IF base_unit_of_measure_code IS NULL THEN ''",
+        "ELSE IF material_type_code IN (ZFG, ZFGS) AND base_unit_of_measure_code IN (CS, ST, PC) THEN '1'",
+        "ELSE IF material_type_code IN (ZFG, ZFGS) AND base_unit_of_measure_code NOT IN (CS, ST, PC) THEN '0'",
+        "ELSE ''"
+      ],
+      "value_checked": "base_unit_of_measure_code",
+      "datamart_or_reference_table_used": "dm_product_general",
+      "check_details_message": "",
+      "quality_category": "Conformity",
+      "domain": "Product",
+      "sub_domain": "General",
+      "type_of_check": "TBC",
+      "table_name_checked": "MARA",
+      "column_name_checked": "MEINS",
+      "business_attribute_name": "Base Unit of Measure",
+      "exclude_from_score_calculation": false
+    },
+    {
+      "rule_code": "RPCONF_196.10",
+      "rule_description": "For Material Type (MTART)=ZNVL, ZKIT check if MTPOS_MARA = NORM/ZWST in MARA View",
+      "technical_definition": [
+        "For material_description NOT LIKE '%ABP%'",
+        "IF general_item_category_group_code IS NULL THEN ''",
+        "ELSE IF (material_type_code IN (ZNVL) AND general_item_category_group_code IN ('NORM', 'ZWST')) OR",
+        "(material_type_code IN (ZKIT) AND general_item_category_group_code IN ('NORM')) THEN '1'",
+        "ELSE IF (material_type_code IN (ZNVL) AND general_item_category_group_code NOT IN ('NORM', 'ZWST')) OR",
+        "(material_type_code IN (ZKIT) AND general_item_category_group_code NOT IN ('NORM')) THEN '0'",
+        "ELSE ''"
+      ],
+      "value_checked": "general_item_category_group_code",
+      "datamart_or_reference_table_used": "dm_product_general",
+      "check_details_message": "",
+      "quality_category": "Conformity",
+      "domain": "Product",
+      "sub_domain": "General",
+      "type_of_check": "TBC",
+      "table_name_checked": "MARA",
+      "column_name_checked": "MTPOS_MARA",
+      "business_attribute_name": "General Item Category Group",
+      "exclude_from_score_calculation": false
+    },
+    {
+      "rule_code": "RPCONF_196.11",
+      "rule_description": "For Material Type (MTART)= ZSV check if MTPOS_MARA = LEIS or ZLIS in MARA View",
+      "technical_definition": [
+        "For material_description NOT LIKE '%ABP%'",
+        "IF general_item_category_group_code IS NULL THEN ''",
+        "ELSE IF material_type_code IN (ZSV) AND general_item_category_group_code IN ('LEIS', 'ZLIS') THEN '1'",
+        "ELSE IF material_type_code IN (ZSV) AND general_item_category_group_code NOT IN ('LEIS', 'ZLIS') THEN '0'",
+        "ELSE ''"
+      ],
+      "value_checked": "general_item_category_group_code",
+      "datamart_or_reference_table_used": "dm_product_general",
+      "check_details_message": "",
+      "quality_category": "Conformity",
+      "domain": "Product",
+      "sub_domain": "General",
+      "type_of_check": "TBC",
+      "table_name_checked": "MARA",
+      "column_name_checked": "MTPOS_MARA",
+      "business_attribute_name": "General Item Category Group",
+      "exclude_from_score_calculation": false
+    }
+  ]
+}

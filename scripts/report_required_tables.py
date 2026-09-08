@@ -30,6 +30,7 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 DEFAULT_RULES = os.path.join(_PROJECT_ROOT, 'json files', 'rules.json')
+DEFAULT_MATERIAL_RULES = os.path.join(_PROJECT_ROOT, 'json files', 'material_rules.json')
 
 # Primary keys in rules.json that are equipment domain
 EQUIPMENT_PRIMARY = frozenset({'V_EQUI', 'JEST', 'AUSP_EQUIPMENT'})
@@ -42,7 +43,18 @@ RULE_EXTRA_TABLES: dict[str, tuple[str, ...]] = {
     'RCCONF_388.3': ('MAKT',),  # material_description vs EQKTX
     'RCCONF_143.7': ('TVBVK',),
     'RCCONF_119.2': ('KNVV',),
+    'RPCONF_166.1': ('MAKT',),
+    'RPCONF_196.10': ('MAKT',),
+    'RPCONF_196.11': ('MAKT',),
 }
+
+MATERIAL_PRIMARY = frozenset({'MARA'})
+MATERIAL_DEPS = ('MARA', 'MAKT')
+MATERIAL_FULL_DM_SOFT = (
+    'AUSP', 'CABN', 'T134T', 'T023T', 'T006A', 'T141T',
+    'ZMDM_BP_CODE', 'CAWNT', 'CAWN', 'ZMDM_BPP_CODET', 'ZMDM_BPP_CODE',
+    'MARM', 'ZMDM_PACK_CODE',
+)
 
 KNA1_DEPENDENT = frozenset({
     'BUT0BK', 'BUT051', 'KNB1', 'KNVV', 'KNVP', 'KNVH',
@@ -128,12 +140,17 @@ def expand_dependencies(primary: set[str], rule_codes: set[str]) -> dict[str, se
     need: dict[str, set[str]] = defaultdict(set)
 
     for t in sorted(primary):
-        need[t].add('primary (rules.json)')
+        need[t].add('primary (rules)')
 
     # Equipment cluster
     if primary & EQUIPMENT_PRIMARY:
         for t in EQUIPMENT_DEPS:
             need[t].add('equipment dm joins (V_EQUI/JEST/AUSP_EQUIPMENT → TJ30T, INOB, KNA1)')
+
+    # Material / product cluster
+    if primary & MATERIAL_PRIMARY:
+        for t in MATERIAL_DEPS:
+            need[t].add('dm_product_general (MARA + MAKT SPRAS=E / %ABP%)')
 
     # Customer AUSP
     if primary & AUSP_CUSTOMER or 'AUSP' in primary:
@@ -256,7 +273,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description='Список таблиц, нужных для прогона quality report',
     )
-    parser.add_argument('--rules', default=DEFAULT_RULES, help='Путь к rules.json')
+    parser.add_argument('--rules', default=DEFAULT_RULES, help='Путь к rules.json / material_rules.json')
+    parser.add_argument(
+        '--report',
+        choices=('customer', 'material'),
+        default=None,
+        help='Шорткат: customer -> rules.json, material -> material_rules.json',
+    )
     parser.add_argument(
         '--tables',
         nargs='+',
@@ -281,6 +304,11 @@ def main() -> int:
     )
     parser.add_argument('--out', default=None, help='Записать отчёт в файл')
     args = parser.parse_args()
+
+    if args.report == 'material' and args.rules == DEFAULT_RULES:
+        args.rules = DEFAULT_MATERIAL_RULES
+    elif args.report == 'customer' and args.rules == DEFAULT_RULES:
+        args.rules = DEFAULT_RULES
 
     rules_path = args.rules
     if not os.path.isabs(rules_path):
@@ -307,6 +335,9 @@ def main() -> int:
     if args.full_refs:
         for t in ('T005', 'BUT020', 'KNVV', 'ZW2_CMDEMAND'):
             expanded.setdefault(t, set()).add('full-load add_reference_tables')
+        if set(primary.keys()) & MATERIAL_PRIMARY:
+            for t in MATERIAL_FULL_DM_SOFT:
+                expanded.setdefault(t, set()).add('dm_product_general full soft deps (--full-refs)')
 
     db_tables = None
     if args.check_db:

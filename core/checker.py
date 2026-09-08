@@ -62,7 +62,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-09-02-sap-date-parse-fix'
+    CHECKER_BUILD_ID = '2026-09-08-material-report-profiles'
     EQUIPMENT_COOLER_STATUS_MATRIX_RULES = frozenset({'RCCONF_342.1', 'RCCONF_342.2'})
     EQUIPMENT_DOOR_EQUIVALENT_MATRIX_RULES = frozenset({'RCCONF_278.1'})
     # Completeness only: field empty → fail; scope cooler+status (not format/matrix rules)
@@ -180,10 +180,11 @@ class FastDataQualityChecker:
     })
     KNA1_JOIN_BLOCKED_COLUMNS = frozenset({'CLIENT', 'CL', 'MANDT', 'MANDANT'})
 
-    def __init__(self, db_path: str, rules_file: str, output_dir: str='quality_reports', parallel_tables: int=0, use_async_load: bool=False, debug: bool=False, reference_datetime=None, save_all_errors: bool=False, use_parquet_cache: bool=True, rebuild_parquet_cache: bool=False):
+    def __init__(self, db_path: str, rules_file: str, output_dir: str='quality_reports', parallel_tables: int=0, use_async_load: bool=False, debug: bool=False, reference_datetime=None, save_all_errors: bool=False, use_parquet_cache: bool=True, rebuild_parquet_cache: bool=False, report_prefix: str='quality_check_report'):
         self.db_path = db_path
         self.rules_file = rules_file
         self.output_dir = output_dir
+        self.report_prefix = str(report_prefix or 'quality_check_report').strip() or 'quality_check_report'
         self.parallel_tables = max(0, int(parallel_tables))
         self.use_async_load = bool(use_async_load)
         self.debug = bool(debug)
@@ -713,10 +714,22 @@ class FastDataQualityChecker:
         try:
             with open(self.rules_file, 'r', encoding='utf-8') as f:
                 rules = json.load(f)
-            total_tables = len(rules)
-            total_rules = sum((len(rules[table]) for table in rules))
-            print(f'\n\x1b[1m[INFO]\x1b[0m Загружено {total_tables} таблиц, {total_rules} правил')
-            return rules
+            if not isinstance(rules, dict):
+                self.logger.error('[ERROR] rules file: ожидался JSON object')
+                return {}
+            # skip meta / non-table keys (_meta, comments)
+            cleaned = {}
+            for table, rows in rules.items():
+                key = str(table or '').strip()
+                if not key or key.startswith('_'):
+                    continue
+                if not isinstance(rows, list):
+                    continue
+                cleaned[key] = rows
+            total_tables = len(cleaned)
+            total_rules = sum(len(cleaned[table]) for table in cleaned)
+            print(f'\n\x1b[1m[INFO]\x1b[0m Загружено {total_tables} таблиц, {total_rules} правил  ({os.path.basename(self.rules_file)} → {self.output_dir})')
+            return cleaned
         except Exception as e:
             self.logger.error(f'Ошибка загрузки конфигурации: {e}')
             return {}
@@ -878,9 +891,9 @@ class FastDataQualityChecker:
         except Exception as e:
             print(f'\n[ERROR] Ошибка записи в папку total: {e}')
             traceback.print_exc()
-        report_name = 'quality_check_report'
+        report_name = self.report_prefix
         if specific_table:
-            report_name = f'quality_check_report_{self._safe_filename_token(specific_table)}'
+            report_name = f'{self.report_prefix}_{self._safe_filename_token(specific_table)}'
         self._create_correct_report(report_name, file_timestamp)
         print(f'\n' + '=' * 100)
         print(f'\x1b[1mПРОВЕРКА ЗАВЕРШЕНА\x1b[0m')
@@ -1770,6 +1783,71 @@ class FastDataQualityChecker:
                 self._log_skipped_rule(rule, table_name, "Нет строк для оценки RCCONF_371.2 после фильтра PAFKT + central_order_block_code='M'", timestamp)
                 return (0, 0)
             params['allowed_values'] = ['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', 'DF', 'F1', 'F2', 'F3', 'F4', 'F5', 'FX', 'Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6', 'Z7']
+        if rule_code in ('RPCONF_166.1', 'RPCONF_196.10', 'RPCONF_196.11') and str(table_name or '').strip().upper() == 'MARA':
+            from utils.material_mara_scope import (
+                error_description_for_rule,
+                pass_mask_for_rpconf,
+                scope_mara_for_rpconf,
+            )
+            if not matched_column or matched_column not in df_to_validate.columns:
+                self._log_skipped_rule(rule, table_name, f'{rule_code}: колонка {column_to_check} не найдена в MARA', timestamp)
+                return (0, 0)
+            makt_df = None
+            try:
+                makt_df = self._get_table_for_rules('MAKT')
+                if (makt_df is None or makt_df.empty) and hasattr(self.memory_manager, 'ensure_table_loaded'):
+                    self.memory_manager.ensure_table_loaded('MAKT', reload_if_empty=True)
+                    makt_df = self._get_table_for_rules('MAKT')
+            except Exception as e:
+                print(f'      [WARN] {rule_code}: MAKT не загружена ({e}) — фильтр %ABP% может быть неполным')
+            if makt_df is None or makt_df.empty:
+                print(f'      [WARN] {rule_code}: MAKT пуста/нет — material_description LIKE %ABP% не исключается')
+            scoped, st = scope_mara_for_rpconf(df_to_validate, rule_code, matched_column, makt_df=makt_df)
+            print(
+                f"      [FILTER] {rule_code} dm_product_general: "
+                f"{st.get('before'):,} -> basic={st.get('after_basic_scope')} -> ABP={st.get('after_abp')} "
+                f"-> MTART={st.get('after_mtart')} -> value={st.get('after_value')}"
+            )
+            if scoped is None or scoped.empty:
+                self._log_skipped_rule(
+                    rule,
+                    table_name,
+                    f"{rule_code}: нет строк после scope (is_basic_scope + MTART + non-empty {matched_column} + not LIKE %ABP%)",
+                    timestamp,
+                )
+                return (0, 0)
+            ok_mask = pass_mask_for_rpconf(scoped, rule_code, matched_column, mtart_col=st.get('mtart_col'))
+            error_mask = ~ok_mask
+            error_count = int(error_mask.sum())
+            total_rows = int(len(scoped))
+            n_ok = int(ok_mask.sum())
+            print(f'      [CHECK] {rule_code}: оценено {total_rows:,}, OK={n_ok:,}, ошибки={error_count:,}')
+            error_description = error_description_for_rule(rule_code)
+            error_df = validator._prepare_error_dataframe(scoped, error_mask, 'CONFORMITY', error_description) if error_count > 0 else None
+            is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
+            if save_result:
+                rule_info = {
+                    'rule_code': rule_code,
+                    'rule_description': rule.get('rule_description', 'Unknown rule'),
+                    'quality_category': rule.get('quality_category', 'Unknown'),
+                    'table_name': table_name,
+                    'original_column': column_to_check,
+                    'matched_column': matched_column,
+                }
+                if self._parallel_lock:
+                    with self._parallel_lock:
+                        self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                        self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+                else:
+                    self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                    self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+            elif error_df is not None and (not error_df.empty):
+                if self._parallel_lock:
+                    with self._parallel_lock:
+                        self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+                else:
+                    self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+            return (error_count, total_rows)
         if rule_code in ['RCCONF_39.5', 'RCCONF_39.5.2'] and matched_column and (matched_column in df_to_validate.columns):
             before_filter_count = len(df_to_validate)
             col_series = df_to_validate[matched_column]
@@ -2797,11 +2875,11 @@ class FastDataQualityChecker:
             print(f'\x1b[1mПРОВЕРКА ЗАВЕРШЕНА УСПЕШНО!\x1b[0m')
             print(f'=' * 100)
             if specific_table:
-                report_name = f'quality_check_report_{self._safe_filename_token(specific_table)}.xlsx'
+                report_name = f'{self.report_prefix}_{self._safe_filename_token(specific_table)}.xlsx'
             elif table_list and len(table_list) == 1:
-                report_name = f'quality_check_report_{self._safe_filename_token(table_list[0])}.xlsx'
+                report_name = f'{self.report_prefix}_{self._safe_filename_token(table_list[0])}.xlsx'
             else:
-                report_name = 'quality_check_report.xlsx'
+                report_name = f'{self.report_prefix}.xlsx'
             report_path = getattr(self, 'last_stable_report_path', None) or getattr(self, 'last_report_path', None) or os.path.join(self.output_dir, report_name)
             print(f'   Отчет: {report_path}')
             if getattr(self, 'last_errors_dir', None) and os.path.isdir(self.last_errors_dir):
@@ -5215,7 +5293,7 @@ class FastDataQualityChecker:
                 results.append(None)
                 continue
             if rule_code == 'RCCONF_342.2':
-                results.append(eval_rcconf_342_2(block, no_cooler))
+                results.append(eval_rcconf_342_2(block, no_cooler, status))
             else:
                 results.append(eval_rcconf_342_1(block, status, allowed, no_cooler))
 
@@ -5248,13 +5326,14 @@ class FastDataQualityChecker:
         )
         if rule_code == 'RCCONF_342.2':
             err_desc = (
-                "Cooler linked to customer whose central_order_block_code forbids coolers "
-                "(allowed_cooler_status='No cooler must be linked to this customer' in conf_order_block_cooler_status)."
+                "Cooler (status != LOST) linked to customer whose central_order_block_code forbids coolers "
+                "(allowed_cooler_status='No cooler must be linked to this customer' in conf_order_block_cooler_status). "
+                "LOST coolers are excluded from this fail."
             )
         else:
             err_desc = (
                 'Invalid combination central_order_block_code × equipment_status_code '
-                'vs conf_order_block_cooler_status (or block forbids cooler).'
+                'vs conf_order_block_cooler_status (or block forbids cooler; LOST is OK on no-cooler blocks).'
             )
         error_df = validator._prepare_error_dataframe(work, error_mask, 'CONFORMITY', err_desc) if error_count > 0 else None
         if error_df is not None and not error_df.empty:

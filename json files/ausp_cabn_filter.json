@@ -1,0 +1,18 @@
+{
+  "description": "ausp_cabn_filter for dm_product_general (CABN.ATNAM / AUSP ATINN by cluster)",
+  "columns": ["ATINN_CL1", "ATINN_CL2", "ATNAM"],
+  "rows": [
+    {"ATINN_CL1": "823", "ATINN_CL2": "862", "ATNAM": "CCHBC_COFFEE_CHANNEL"},
+    {"ATINN_CL1": "824", "ATINN_CL2": "863", "ATNAM": "CCHBC_COFFEE_CLASS"},
+    {"ATINN_CL1": "825", "ATINN_CL2": "864", "ATNAM": "CCHBC_COFFEE_FORMAT"},
+    {"ATINN_CL1": "826", "ATINN_CL2": "865", "ATNAM": "CCHBC_COFFEE_METHOD"},
+    {"ATINN_CL1": "827", "ATINN_CL2": "866", "ATNAM": "CCHBC_COFFEE_CAPSULE_SYSTEM"},
+    {"ATINN_CL1": "829", "ATINN_CL2": "868", "ATNAM": "CCHBC_BPP_CODE"},
+    {"ATINN_CL1": "838", "ATINN_CL2": "874", "ATNAM": "SPR_MM_CORE_MATERIAL"},
+    {"ATINN_CL1": "839", "ATINN_CL2": "875", "ATNAM": "SPR_MM_SHAPE"},
+    {"ATINN_CL1": "841", "ATINN_CL2": "877", "ATNAM": "SPR_MM_WEIGHT"},
+    {"ATINN_CL1": "847", "ATINN_CL2": "883", "ATNAM": "SPR_MM_RECYCLE_CONTENT"},
+    {"ATINN_CL1": "851", "ATINN_CL2": "887", "ATNAM": "SPR_MM_CO2"},
+    {"ATINN_CL1": "83", "ATINN_CL2": "83", "ATNAM": "PM_TYPENUMBER"}
+  ]
+}

@@ -430,7 +430,7 @@ def merge_and_load_ausp_equipment_flat(db_path=None, data_folder=None, data_file
             skip_final_dedup=skip_final_dedup,
             data_files=data_files,
         )
-    else:
+                else:
         result = merge_and_load_xlsx_files_fast(
             db_path=db_path,
             data_folder=os.path.dirname(data_files[0]),
@@ -449,7 +449,7 @@ def merge_and_load_ausp_from_atinn_folders(db_path=None, ausp_folder=None, skip_
     """
     if db_path is None:
         db_path = _resolve_db_path()
-    else:
+            else:
         db_path = _resolve_db_path(db_path)
     folders = []
     if ausp_folder:
@@ -638,10 +638,10 @@ def merge_and_load_xlsx_files_fast(db_path=None, data_folder=None, target_table=
     print_step(current_step, total_steps, 'Проверка файлов...')
     current_step += 1
     if data_files is None:
-        if not os.path.exists(data_folder):
-            print(f"ОШИБКА: Папка '{data_folder}' не найдена!")
-            return None
-        data_files = _list_data_files(data_folder)
+    if not os.path.exists(data_folder):
+        print(f"ОШИБКА: Папка '{data_folder}' не найдена!")
+        return None
+    data_files = _list_data_files(data_folder)
     else:
         data_files = [f for f in data_files if os.path.isfile(f) and (not os.path.basename(f).startswith('~$'))]
         data_files = sorted(data_files)
@@ -799,9 +799,9 @@ def merge_and_load_xlsx_files_ultra_fast(db_path=None, data_folder=None, target_
     print('=' * 80)
     try:
         if data_files is None:
-            if not os.path.exists(data_folder):
-                raise FileNotFoundError(f"Папка '{data_folder}' не найдена!")
-            data_files = _list_data_files(data_folder)
+        if not os.path.exists(data_folder):
+            raise FileNotFoundError(f"Папка '{data_folder}' не найдена!")
+        data_files = _list_data_files(data_folder)
         else:
             data_files = [f for f in data_files if os.path.isfile(f) and (not os.path.basename(f).startswith('~$'))]
             data_files = sorted(data_files)
@@ -1325,7 +1325,7 @@ def collect_db_load_groups(base_folder=None, rules_path=None) -> dict:
 
     # 1) Подпапки db/ИМЯ_ТАБЛИЦЫ (как раньше)
     for name in sorted(os.listdir(base_abs)):
-        path = os.path.join(base_abs, name)
+            path = os.path.join(base_abs, name)
         if not os.path.isdir(path) or name.startswith('.') or name == '__pycache__':
             continue
         name_u = str(name).strip().upper()

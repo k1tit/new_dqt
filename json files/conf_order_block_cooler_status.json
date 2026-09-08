@@ -3,6 +3,7 @@
   "notes": [
     "central_order_block_code may be empty (blank AUFSD). Such rows MUST be included in mapping.",
     "allowed_cooler_status = 'No cooler must be linked to this customer' means cooler is forbidden for that order block (use as set d in RCCONF_342.1 / fail in RCCONF_342.2).",
+    "Exception: if equipment_status_code = LOST, no-cooler blocks do NOT fail (LOST cooler is ignored for order-block placement).",
     "Other rows are allowed (block, status) pairs for cooler equipment statuses PLCD/FOND/NACT/UINV/LOST."
   ],
   "columns": [

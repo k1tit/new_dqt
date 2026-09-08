@@ -13,7 +13,37 @@ except ImportError as _imp_err:
     raise SystemExit(1) from _imp_err
 DB_PATH, DB_SOURCE = resolve_database_path(_PROJECT_ROOT)
 RULES_FILE = os.path.join(_PROJECT_ROOT, 'json files', 'rules.json')
+MATERIAL_RULES_FILE = os.path.join(_PROJECT_ROOT, 'json files', 'material_rules.json')
 OUTPUT_DIR = os.path.join(_PROJECT_ROOT, 'quality_reports')
+MATERIAL_OUTPUT_DIR = os.path.join(_PROJECT_ROOT, 'Material report')
+
+try:
+    from utils.report_profiles import REPORT_CHOICES, list_profiles_help, resolve_profile
+except ImportError:
+    REPORT_CHOICES = ('customer', 'material', 'all')
+
+    def resolve_profile(project_root, profile_id):
+        pid = str(profile_id or '').strip().lower()
+        if pid == 'material':
+            return {
+                'id': 'material',
+                'title': 'Material',
+                'rules_file': os.path.join(project_root, 'json files', 'material_rules.json'),
+                'output_dir': os.path.join(project_root, 'Material report'),
+                'report_prefix': 'material_check_report',
+            }
+        if pid == 'customer':
+            return {
+                'id': 'customer',
+                'title': 'Customer / Equipment',
+                'rules_file': os.path.join(project_root, 'json files', 'rules.json'),
+                'output_dir': os.path.join(project_root, 'quality_reports'),
+                'report_prefix': 'quality_check_report',
+            }
+        raise ValueError(pid)
+
+    def list_profiles_help():
+        return 'customer | material | all'
 
 def print_project_info():
     print('=' * 80)
@@ -44,7 +74,11 @@ def setup_environment():
     if os.path.isdir(os.path.join(current_dir, 'config')):
         print(f'config/: найден')
     print('-' * 80)
-    required_files = [(DB_PATH, 'База данных SQLite'), (RULES_FILE, 'Файл правил JSON')]
+    required_files = [
+        (DB_PATH, 'База данных SQLite'),
+        (RULES_FILE, 'Правила Customer (rules.json)'),
+        (MATERIAL_RULES_FILE, 'Правила Material (material_rules.json)'),
+    ]
     for file_path, description in required_files:
         full_path = os.path.join(current_dir, file_path) if not os.path.isabs(file_path) else file_path
         if os.path.exists(full_path):
@@ -74,7 +108,9 @@ def setup_environment():
     else:
         print(f'Файл маппинга колонок: не найден (искали config/column_map.json и json files/column_map.json), будет использоваться стандартный маппинг')
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    print(f'Выходная директория: {OUTPUT_DIR}')
+    os.makedirs(MATERIAL_OUTPUT_DIR, exist_ok=True)
+    print(f'Выходная директория (customer): {OUTPUT_DIR}')
+    print(f'Выходная директория (material): {MATERIAL_OUTPUT_DIR}')
     return current_dir
 
 def load_checker_module():
@@ -139,7 +175,51 @@ def _recreate_checker_from(checker):
         save_all_errors=getattr(checker, 'save_all_errors', False),
         use_parquet_cache=getattr(checker, 'use_parquet_cache', True),
         rebuild_parquet_cache=getattr(checker, 'rebuild_parquet_cache', False),
+        report_prefix=getattr(checker, 'report_prefix', 'quality_check_report'),
     )
+
+
+def build_checker(FastDataQualityChecker, profile: dict, *, parallel_tables=2, async_load=True, debug=False, reference_datetime=None, save_all_errors=False, parquet_cache=True, rebuild_parquet_cache=False):
+    os.makedirs(profile['output_dir'], exist_ok=True)
+    print(f"[REPORT] {profile.get('title', profile['id'])}")
+    print(f"  rules:  {profile['rules_file']}")
+    print(f"  output: {profile['output_dir']}")
+    print(f"  db:     {DB_PATH}")
+    return FastDataQualityChecker(
+        DB_PATH,
+        profile['rules_file'],
+        profile['output_dir'],
+        parallel_tables=parallel_tables,
+        use_async_load=async_load,
+        debug=debug,
+        reference_datetime=reference_datetime,
+        save_all_errors=save_all_errors,
+        use_parquet_cache=parquet_cache,
+        rebuild_parquet_cache=rebuild_parquet_cache,
+        report_prefix=profile.get('report_prefix', 'quality_check_report'),
+    )
+
+
+def prompt_report_profile() -> str:
+    """Интерактивный выбор: customer / material / all."""
+    print('\n' + '=' * 80)
+    print('ВЫБОР ОТЧЁТА')
+    print('=' * 80)
+    print(list_profiles_help())
+    print('-' * 80)
+    print('  [C] Customer / Equipment  (rules.json -> quality_reports)')
+    print('  [M] Material              (material_rules.json -> Material report)')
+    print('  [A] Все отчёты подряд     (одна БД)')
+    print('-' * 80)
+    while True:
+        choice = input('Какой отчёт запустить? [C/M/A] (по умолчанию C): ').strip().upper()
+        if choice in ('', 'C'):
+            return 'customer'
+        if choice == 'M':
+            return 'material'
+        if choice == 'A':
+            return 'all'
+        print('Введите C, M или A')
 
 def _refresh_handlers_before_run(checker):
     if hasattr(checker, 'reload_table_handlers'):
@@ -279,32 +359,55 @@ def run_selected_tables_check(checker, table_names, only_rule_codes: set | None=
     print(f'Длительность: {elapsed}')
     return checker, True
 
-def interactive_mode(checker):
+def interactive_mode(checker, FastDataQualityChecker=None, checker_kwargs=None):
     print('\n' + '=' * 80)
     print('ИНТЕРАКТИВНЫЙ РЕЖИМ')
     print('=' * 80)
+    checker_kwargs = checker_kwargs or {}
     while True:
         print('\nДоступные команды:')
-        print('  [L] - Список таблиц')
-        print('  [F] - Полная проверка всех таблиц')
+        print('  [R] - Сменить тип отчёта (Customer / Material / All)')
+        print('  [L] - Список таблиц (по текущим правилам)')
+        print('  [F] - Полная проверка всех таблиц текущего отчёта')
         print('  [1] - Проверить таблицу по номеру')
         print('  [N] - Проверить таблицу по имени')
         print('  [M] - Проверить несколько таблиц')
         print('  [Q] - Выход')
-        print('  Перед проверкой F/1/N/M можно задать опорную дату для правил «на дату» (например RCCONF_173.1)')
+        print(f"  Текущий отчёт: rules={os.path.basename(checker.rules_file)} -> {checker.output_dir}")
+        print('  Перед проверкой F/1/N/M можно задать опорную дату для правил на дату (например RCCONF_173.1)')
         print('  (перед каждой проверкой core/checker.py и обработчики таблиц перезагружаются с диска)')
         print('-' * 80)
         choice = input('Выберите действие: ').strip().upper()
         if choice == 'Q':
             print('Выход из программы...')
             break
+        elif choice == 'R':
+            report_id = prompt_report_profile()
+            if report_id == 'all':
+                print('[INFO] Режим All: при [F] будут прогнаны оба отчёта подряд.')
+                checker._run_all_reports = True
+            else:
+                checker._run_all_reports = False
+                profile = resolve_profile(_PROJECT_ROOT, report_id)
+                if FastDataQualityChecker is None:
+                    FastDataQualityChecker = load_checker_module()
+                checker = build_checker(FastDataQualityChecker, profile, **checker_kwargs)
         elif choice == 'L':
             list_tables(checker)
         elif choice == 'F':
-            confirm = input('Запустить полную проверку всех таблиц? (y/N): ').strip().upper()
+            confirm = input('Запустить полную проверку? (y/N): ').strip().upper()
             if confirm == 'Y':
                 prompt_reference_datetime(checker)
-                checker, _ = run_full_check(checker)
+                if getattr(checker, '_run_all_reports', False) and FastDataQualityChecker is not None:
+                    for pid in ('customer', 'material'):
+                        profile = resolve_profile(_PROJECT_ROOT, pid)
+                        c = build_checker(FastDataQualityChecker, profile, **{
+                            **checker_kwargs,
+                            'reference_datetime': getattr(checker, 'reference_datetime', None),
+                        })
+                        run_full_check(c)
+                else:
+                    checker, _ = run_full_check(checker)
         elif choice == '1':
             tables = list_tables(checker)
             if tables:
@@ -348,16 +451,25 @@ def interactive_mode(checker):
                     print('Введите числа через пробел!')
         else:
             print('Неизвестная команда. Попробуйте еще раз.')
+    return checker
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Система проверки качества данных', formatter_class=argparse.RawDescriptionHelpFormatter, epilog='\nПримеры использования:\n  python main.py                    # Запуск в интерактивном режиме\n  python main.py --all              # Проверка всех таблиц\n  python main.py --all --async-load # Загрузка таблиц асинхронно (быстрее при многих таблицах)\n  python main.py --all --parallel-tables 4   # Параллельная обработка 4 таблиц\n  python main.py --table KNA1       # Проверка только таблицы KNA1\n  python main.py --table BUT000 --only-rules RCCONF_15.1  # Одна таблица + только эти правила\n  python main.py --table KNA1 --log-file kna1.log   # Логи KNA1 в файл\n  python main.py --table KNA1 --debug               # Подробные логи (DEBUG)\n  python main.py --tables KNA1 BUT000  # Проверка нескольких таблиц\n  python main.py --only-rules RCCOMP_375.1,RCCONF_39.5  # Только указанные правила (по всем таблицам)\n  python main.py --reference-date 2026-04-01  # Опорная дата для правил «на дату» (RCCONF_173.1 и др.)\n  python main.py --list             # Показать список таблиц\n  python main.py --help             # Показать эту справку\n\nСмена БД каждый месяц (одно место):\n  1) Положите новый файл, например db_may.db, в корень проекта\n  2) Отредактируйте config/database.json: "database": "db_may.db", "period": "2026-05"\n  Либо: set DQ_DATABASE=db_may.db  или  python main.py --all --db db_may.db\n        ')
+    parser.add_argument(
+        '--report',
+        type=str,
+        metavar='TYPE',
+        default=None,
+        choices=['customer', 'material', 'all'],
+        help='Тип отчёта: customer (rules.json -> quality_reports), material (material_rules.json -> Material report), all (оба). Без флага — вопрос в консоли.',
+    )
     parser.add_argument('--all', action='store_true', help='Запустить проверку всех таблиц')
     parser.add_argument('--table', type=str, metavar='TABLE_NAME', help='Проверить конкретную таблицу')
     parser.add_argument('--tables', type=str, nargs='+', metavar='TABLE', help='Проверить указанные таблицы (через пробел)')
     parser.add_argument('--list', action='store_true', help='Показать список доступных таблиц')
-    parser.add_argument('--output', type=str, metavar='DIR', default=OUTPUT_DIR, help=f'Директория для отчетов (по умолчанию: {OUTPUT_DIR})')
+    parser.add_argument('--output', type=str, metavar='DIR', default=None, help='Переопределить директорию отчётов (иначе из профиля --report)')
     parser.add_argument('--db', type=str, metavar='PATH', default=None, help='Путь к SQLite (переопределяет config/database.json и DQ_DATABASE). По умолчанию — поле database в config/database.json')
-    parser.add_argument('--rules', type=str, metavar='PATH', default=RULES_FILE, help=f'Путь к файлу правил (по умолчанию: {RULES_FILE})')
+    parser.add_argument('--rules', type=str, metavar='PATH', default=None, help='Переопределить файл правил (иначе из профиля --report)')
     parser.add_argument('--only-rules', type=str, metavar='RULE1,RULE2,...', default=None, help='Выполнить только указанные правила (изолированный запуск). Пример: --only-rules RCCOMP_375.1,RCCONF_39.5')
     parser.add_argument('--debug', action='store_true', help='Подробное логирование (DEBUG): checker, KNA1Handler и др.')
     parser.add_argument('--log-file', type=str, metavar='PATH', default=None, help='Дополнительно писать логи в файл (например, kna1.log при проверке KNA1)')
@@ -390,10 +502,7 @@ def main():
     except FileNotFoundError as e:
         print(f'ОШИБКА: {e}')
         sys.exit(2)
-    if args.rules:
-        RULES_FILE = args.rules
-    if args.output:
-        OUTPUT_DIR = args.output
+
     reference_dt = None
     if getattr(args, 'reference_date', None):
         try:
@@ -401,29 +510,56 @@ def main():
         except ValueError as e:
             print(f'ОШИБКА: {e}')
             sys.exit(2)
+
     print_project_info()
     current_dir = setup_environment()
     FastDataQualityChecker = load_checker_module()
+
+    # Выбор отчёта: CLI --report или вопрос в консоли
+    report_id = getattr(args, 'report', None)
+    if not report_id:
+        if sys.stdin.isatty():
+            report_id = prompt_report_profile()
+        else:
+            report_id = 'customer'
+            print('[INFO] --report не задан, неинтерактивно -> customer')
+
+    checker_kwargs = {
+        'parallel_tables': getattr(args, 'parallel_tables', 2),
+        'async_load': getattr(args, 'async_load', True),
+        'debug': getattr(args, 'debug', False),
+        'reference_datetime': reference_dt,
+        'save_all_errors': getattr(args, 'save_all_errors', False),
+        'parquet_cache': getattr(args, 'parquet_cache', True),
+        'rebuild_parquet_cache': getattr(args, 'rebuild_parquet_cache', False),
+    }
+
+    def _make_profile_checker(pid: str):
+        profile = resolve_profile(_PROJECT_ROOT, pid)
+        if args.rules:
+            profile['rules_file'] = args.rules if os.path.isabs(args.rules) else os.path.join(_PROJECT_ROOT, args.rules)
+        if args.output:
+            profile['output_dir'] = args.output if os.path.isabs(args.output) else os.path.join(_PROJECT_ROOT, args.output)
+        return build_checker(FastDataQualityChecker, profile, **checker_kwargs)
+
+    run_all_reports = report_id == 'all'
     try:
-        checker = FastDataQualityChecker(
-            DB_PATH,
-            RULES_FILE,
-            OUTPUT_DIR,
-            parallel_tables=getattr(args, 'parallel_tables', 2),
-            use_async_load=getattr(args, 'async_load', True),
-            debug=getattr(args, 'debug', False),
-            reference_datetime=reference_dt,
-            save_all_errors=getattr(args, 'save_all_errors', False),
-            use_parquet_cache=getattr(args, 'parquet_cache', True),
-            rebuild_parquet_cache=getattr(args, 'rebuild_parquet_cache', False),
-        )
+        if run_all_reports:
+            # для list / table / interactive стартуем с customer; full --all прогонит оба
+            checker = _make_profile_checker('customer')
+            checker._run_all_reports = True
+        else:
+            checker = _make_profile_checker(report_id)
+            checker._run_all_reports = False
     except Exception as e:
         print(f'ОШИБКА СОЗДАНИЯ CHECKER: {type(e).__name__}: {e}')
         sys.exit(1)
+
+    RULES_FILE = checker.rules_file
+    OUTPUT_DIR = checker.output_dir
+
     build_id = getattr(checker, 'CHECKER_BUILD_ID', '')
     print(f'[INFO] Активная сборка checker: {build_id}')
-    if 'parquet-cache' not in str(build_id) and 'perf-phase-a' not in str(build_id):
-        print('[WARN] Сборка checker может быть устаревшей — сделайте git pull')
     if reference_dt:
         print(f'[INFO] Опорная дата для правил «на дату»: {reference_dt} (конец календарного дня)')
     else:
@@ -433,24 +569,54 @@ def main():
         if cli_runs_check and sys.stdin.isatty():
             print('[INFO] Задать опорную дату сейчас (RCCONF_173.1 и др.)? Enter — оставить время системы; или введите дату ниже.')
             prompt_reference_datetime(checker)
+
+    def _run_full_for_profiles():
+        profiles = ('customer', 'material') if run_all_reports else (report_id,)
+        last = checker
+        for pid in profiles:
+            c = _make_profile_checker(pid)
+            c.reference_datetime = getattr(checker, 'reference_datetime', None)
+            last, _ = run_full_check(c)
+        return last
+
     if args.list:
-        list_tables(checker)
+        if run_all_reports:
+            for pid in ('customer', 'material'):
+                c = _make_profile_checker(pid)
+                print(f"\n--- {pid} ---")
+                list_tables(c)
+        else:
+            list_tables(checker)
     elif args.all:
-        run_full_check(checker)
+        _run_full_for_profiles()
     elif args.table:
+        if run_all_reports:
+            print('[WARN] --table с --report all: правило/таблица только в текущем (customer) наборе; для material задайте --report material')
         run_table_check(checker, args.table, only_rule_codes=_parse_only_rule_codes(args.only_rules))
     elif args.tables:
+        if run_all_reports:
+            print('[WARN] --tables с --report all: только customer-профиль; для material: --report material')
         run_selected_tables_check(checker, args.tables, only_rule_codes=_parse_only_rule_codes(args.only_rules))
     elif getattr(args, 'only_rules', None):
         only_rules = [s.strip() for s in args.only_rules.split(',') if s.strip()]
         if only_rules:
-            checker.run(only_rule_codes=set(only_rules))
+            if run_all_reports:
+                for pid in ('customer', 'material'):
+                    c = _make_profile_checker(pid)
+                    c.run(only_rule_codes=set(only_rules))
+            else:
+                checker.run(only_rule_codes=set(only_rules))
         else:
             print('Укажите хотя бы одно правило для --only-rules (через запятую).')
     elif not sys.stdin.isatty():
-        print('\n[INFO] Запуск без аргументов в неинтерактивной среде (Run в IDE, пайп, фон). Меню [L/F/1/N/M] недоступно — укажите режим:\n  python main.py --all\n  python main.py --table KNA1\n  python main.py --tables KNA1 KNVV\n  python main.py --list\n  python main.py --help')
+        print('\n[INFO] Запуск без аргументов в неинтерактивной среде. Укажите режим:\n'
+              '  python main.py --report customer --all\n'
+              '  python main.py --report material --all\n'
+              '  python main.py --report all --all\n'
+              '  python main.py --list --report customer\n'
+              '  python main.py --help')
     else:
-        interactive_mode(checker)
+        interactive_mode(checker, FastDataQualityChecker=FastDataQualityChecker, checker_kwargs=checker_kwargs)
     print('\n' + '=' * 80)
     print('РАБОТА ПРОГРАММЫ ЗАВЕРШЕНА')
     print('=' * 80)
