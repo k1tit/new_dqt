@@ -130,7 +130,7 @@ def load_checker_module():
                     os.remove(os.path.join(cache_dir, name))
                 except OSError:
                     pass
-    for mod in ('core.checker', 'core'):
+    for mod in ('core.checkиц2ууer', 'core'):
         sys.modules.pop(mod, None)
     try:
         print('Загружаем core.checker...')
