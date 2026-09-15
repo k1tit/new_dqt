@@ -465,7 +465,7 @@ class MemoryManager:
                     if match:
                         to_load.add(match)
             if 'AUSP' in requested:
-                for ref in ('ZMDM_BPP_CODET', 'ZMDM_BPP_CODE'):
+                for ref in ('CABN', 'ZMDM_BPP_CODET', 'ZMDM_BPP_CODE'):
                     match = self._find_table_in_db(ref, all_in_db)
                     if match:
                         to_load.add(match)

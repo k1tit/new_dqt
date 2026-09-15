@@ -1,6 +1,8 @@
 """Evaluators for Product Conformity rules based on dm_product_general."""
 from __future__ import annotations
 
+import json
+import os
 import re
 from typing import Any, Callable, Optional, Sequence
 
@@ -20,7 +22,23 @@ AUSP_RULE_CODES = frozenset({'RPCONF_53.1'})
 MATERIAL_RULE_CODES = MARA_RULE_CODES | MAKT_RULE_CODES | AUSP_RULE_CODES
 
 FINISHED_GOODS_TYPES = frozenset({'ZFG', 'ZFGS', 'ZFGC', 'ZFGM', 'ZFGA', 'ZNVM'})
+BPP_ATNAM = 'CCHBC_BPP_CODE'
 BPP_ATINN_CODES = frozenset({'829', '868'})
+EQUIPMENT_ATINN_CODES = frozenset({'24', '27', '30', '52'})
+MATERIAL_AUSP_ATINN_BY_RULE = {
+    'RPCONF_53.1': BPP_ATINN_CODES,
+}
+
+
+def material_ausp_atinn_values(rule_code: str) -> frozenset[str]:
+    rc = str(rule_code or '').strip().upper()
+    return MATERIAL_AUSP_ATINN_BY_RULE.get(rc, frozenset())
+
+
+def _format_atinn_list(values) -> str:
+    vals = [str(v) for v in values if v]
+    return ','.join(sorted(vals, key=lambda x: (0, int(x)) if x.isdigit() else (1, x)))
+
 
 MTPOS_ALLOWED = {
     'RPCONF_196.10': {
@@ -68,6 +86,21 @@ def _codes(series: pd.Series) -> pd.Series:
     text = series.astype(str).str.strip().str.upper()
     text = text.str.replace(r'\.0+$', '', regex=True)
     return text.where(_filled(series), '')
+
+
+def _atinn_codes(series: pd.Series) -> pd.Series:
+    text = _codes(series)
+
+    def _norm(value: str) -> str:
+        if not value:
+            return ''
+        try:
+            return str(int(float(value)))
+        except (TypeError, ValueError):
+            stripped = value.lstrip('0')
+            return stripped or '0'
+
+    return text.map(_norm)
 
 
 def _matnr(series: pd.Series) -> pd.Series:
@@ -294,6 +327,62 @@ def _bpp_reference_codes(reference: pd.DataFrame) -> set[str]:
     return set(_codes(reference[code_col])) - {''}
 
 
+def _cabn_filter_json_path() -> str:
+    return os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'json files', 'ausp_cabn_filter.json'))
+
+
+def _atinn_from_cabn(cabn: pd.DataFrame, atnam: str) -> set[str]:
+    if cabn is None or cabn.empty:
+        return set()
+    atnam_col = find_col(cabn, ('ATNAM', 'CHARACT', 'CHARACTERISTIC', 'ATNAME'))
+    atinn_col = find_col(cabn, ('ATINN',))
+    if not atnam_col or not atinn_col:
+        return set()
+    names = _codes(cabn[atnam_col])
+    matched = cabn.loc[names.eq(str(atnam).strip().upper()), atinn_col]
+    return set(_atinn_codes(matched)) - {''}
+
+
+def _atinn_from_cabn_filter_json(atnam: str) -> set[str]:
+    path = _cabn_filter_json_path()
+    if not os.path.isfile(path):
+        return set()
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, ValueError, TypeError):
+        return set()
+    rows = data.get('rows', data if isinstance(data, list) else [])
+    target = str(atnam).strip().upper()
+    out = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get('ATNAM') or '').strip().upper() != target:
+            continue
+        for key in ('ATINN_CL1', 'ATINN_CL2', 'ATINN'):
+            raw = row.get(key)
+            if raw is None or str(raw).strip() == '':
+                continue
+            try:
+                out.add(str(int(float(str(raw).strip()))))
+            except (TypeError, ValueError):
+                text = str(raw).strip().lstrip('0')
+                if text:
+                    out.add(text)
+    return out
+
+
+def resolve_bpp_atinn_codes(loader: Callable[[str], pd.DataFrame]) -> tuple[frozenset[str], str]:
+    from_cabn = _atinn_from_cabn(_load(loader, 'CABN'), BPP_ATNAM)
+    if from_cabn:
+        return frozenset(from_cabn), 'CABN.ATNAM=CCHBC_BPP_CODE'
+    from_json = _atinn_from_cabn_filter_json(BPP_ATNAM)
+    if from_json:
+        return frozenset(from_json), 'ausp_cabn_filter.json CCHBC_BPP_CODE'
+    return frozenset(BPP_ATINN_CODES), 'fallback ATINN 829/868'
+
+
 def evaluate_ausp_bpp_rule(
     ausp: pd.DataFrame,
     rule_code: str,
@@ -301,21 +390,38 @@ def evaluate_ausp_bpp_rule(
     loader: Callable[[str], pd.DataFrame],
 ) -> dict:
     rc = str(rule_code).strip().upper()
-    stats = {'input': len(ausp), 'bpp_rows': 0, 'evaluated': 0, 'reference': ''}
+    stats = {'input': len(ausp), 'bpp_rows': 0, 'evaluated': 0, 'reference': '', 'bpp_atinn': '', 'bpp_atinn_source': ''}
     atinn_col = find_col(ausp, ('ATINN',))
     objek_col = find_col(ausp, ('OBJEK', 'MATNR', 'MATERIAL'))
     if not atinn_col or not objek_col or not value_col or value_col not in ausp.columns:
         return _empty_result(f'{rc}: AUSP.ATINN/OBJEK/ATWRT не найдены', stats)
 
-    atinn = _codes(ausp[atinn_col])
-    work = ausp.loc[atinn.isin(BPP_ATINN_CODES)].copy()
+    atinn_needed, atinn_source = resolve_bpp_atinn_codes(loader)
+    stats['bpp_atinn'] = _format_atinn_list(atinn_needed)
+    stats['bpp_atinn_source'] = atinn_source
+    atinn = _atinn_codes(ausp[atinn_col])
+    present = [v for v in set(atinn) if v]
+    present_ordered = _format_atinn_list(present).split(',') if present else []
+    stats['ausp_atinn_sample'] = ','.join([p for p in present_ordered if p][:20])
+    work = ausp.loc[atinn.isin(atinn_needed)].copy()
     klart_col = find_col(work, ('KLART', 'CLASS_TYPE'))
     if klart_col:
         work = work.loc[_codes(work[klart_col]).eq('001')].copy()
     work = _dedupe_bpp_ausp(work, atinn_col, objek_col)
     stats['bpp_rows'] = len(work)
     if work.empty:
-        return _empty_result(f'{rc}: нет AUSP для BPP (ATINN 829/868, KLART=001)', stats)
+        present_s = stats['ausp_atinn_sample'] or 'пусто'
+        extra = ''
+        if present and set(present) <= EQUIPMENT_ATINN_CODES:
+            extra = (
+                ' В AUSP только equipment ATINN 24/27/30/52 — это не BPP. '
+                'Нужен classification AUSP (KLART=001, ATNAM=CCHBC_BPP_CODE) и CABN.'
+            )
+        return _empty_result(
+            f'{rc}: нет AUSP для {BPP_ATNAM} (ATINN {{{stats["bpp_atinn"]}}} из {atinn_source}, KLART=001). '
+            f'В таблице ATINN: {present_s}.{extra}',
+            stats,
+        )
 
     mara = _load(loader, 'MARA')
     if mara.empty:

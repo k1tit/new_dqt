@@ -62,7 +62,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-09-15-material-profile-isolation-fix'
+    CHECKER_BUILD_ID = '2026-09-15-material-ausp-cabn-atinn'
     EQUIPMENT_COOLER_STATUS_MATRIX_RULES = frozenset({'RCCONF_342.1', 'RCCONF_342.2'})
     EQUIPMENT_DOOR_EQUIVALENT_MATRIX_RULES = frozenset({'RCCONF_278.1'})
     # Completeness only: field empty → fail; scope cooler+status (not format/matrix rules)
@@ -375,11 +375,22 @@ class FastDataQualityChecker:
             return re.sub('\\.0+$', '', s) if s else ''
 
     def _ausp_atinn_mask(self, series, atinn_value):
-        target = self._normalize_atinn_for_filter(atinn_value)
-        if not target:
+        return self._ausp_atinn_mask_any(series, [atinn_value])
+
+    def _ausp_atinn_mask_any(self, series, atinn_values):
+        targets = {self._normalize_atinn_for_filter(v) for v in (atinn_values or [])}
+        targets.discard('')
+        if not targets:
             return pd.Series(False, index=series.index)
-        normalized = series.apply(lambda x: self._normalize_atinn_for_filter(x))
-        return normalized == target
+        normalized = series.map(self._normalize_atinn_for_filter)
+        return normalized.isin(targets)
+
+    def _is_material_ausp_rule(self, rule):
+        if not rule or self.load_profile != 'material':
+            return False
+        from utils.material_rule_evaluator import AUSP_RULE_CODES
+        rc = self._normalize_rule_code(rule.get('rule_code'))
+        return rc in AUSP_RULE_CODES
 
     AUSP_CUSTOMER_ATINN = frozenset({'143', '604', '148', '151'})
     AUSP_EQUIPMENT_ATINN = frozenset({'24', '27', '30', '52'})
@@ -464,6 +475,12 @@ class FastDataQualityChecker:
         t = (table_name or '').strip().upper()
         if t not in ('AUSP', self.AUSP_EQUIPMENT_TABLE) and not t.startswith('AUSP_'):
             return (None, None, None)
+        if self._is_material_ausp_rule(rule):
+            atinn_col, atwrt_col = self._find_ausp_columns(df.columns, table_name)
+            if not atinn_col or not atwrt_col:
+                return (None, None, None)
+            print(f"      [AUSP] material: ATINN берётся из CABN.ATNAM=CCHBC_BPP_CODE (не 24/27/30/52), колонка '{atwrt_col}', строк: {len(df):,}")
+            return (df, atwrt_col, atwrt_col)
         atinn_value = self._resolve_ausp_atinn_value(rule) if rule else None
         if not atinn_value:
             candidates = [(column_to_check or '').strip()]
@@ -491,7 +508,6 @@ class FastDataQualityChecker:
                     atinn_value = atinn_match.group(1).strip()
         if not atinn_value:
             return (None, None, None)
-        # Equipment vs customer AUSP: не смешивать чужие ATINN
         atinn_norm = self._normalize_atinn_for_filter(atinn_value)
         if t == self.AUSP_EQUIPMENT_TABLE and atinn_norm not in self.AUSP_EQUIPMENT_ATINN:
             print(f'      [WARN] AUSP_EQUIPMENT: ATINN={atinn_norm} не из {{24,27,30,52}}')
@@ -1415,7 +1431,9 @@ class FastDataQualityChecker:
             if ausp_filtered is not None and ausp_atwrt_col is not None and ausp_temporary_name:
                 if ausp_filtered.empty:
                     atinn_val = None
-                    if self.ausp_atinn_mapping:
+                    if self._is_material_ausp_rule(rule):
+                        atinn_val = 'CCHBC_BPP_CODE via CABN'
+                    elif self.ausp_atinn_mapping:
                         for k, v in self.ausp_atinn_mapping.items():
                             if (k or '').strip().upper() == (column_to_check or '').strip().upper():
                                 atinn_val = v
@@ -1430,14 +1448,21 @@ class FastDataQualityChecker:
                 if ausp_atwrt_col in df.columns and ausp_temporary_name != ausp_atwrt_col:
                     df = df.rename(columns={ausp_atwrt_col: ausp_temporary_name})
                 matched_column = ausp_temporary_name
-                print(f"      [AUSP] ATINN отфильтрован, колонка ATWRT временно переименована в '{ausp_temporary_name}', строк: {len(df):,}")
+                if self._is_material_ausp_rule(rule):
+                    print(f"      [AUSP] material: колонка '{matched_column}', строк: {len(df):,}")
+                else:
+                    print(f"      [AUSP] ATINN отфильтрован, колонка ATWRT временно переименована в '{ausp_temporary_name}', строк: {len(df):,}")
             if (table_name or '').strip().upper() in ('AUSP', self.AUSP_EQUIPMENT_TABLE) and (not matched_column):
                 atinn_col, atwrt_col = self._find_ausp_columns(df.columns, table_name)
                 if not atinn_col or not atwrt_col:
                     self._log_skipped_rule(rule, table_name, f'В таблице {table_name} не найдены колонки ATINN или ATWRT', timestamp)
                     return (0, 0)
-                self._log_skipped_rule(rule, table_name, f"Для правила не определено значение ATINN (column_name_checked='{column_to_check}'). Ожидается ATINN_24/27/30/52 или conf_ausp_atinn_mapping.json", timestamp)
-                return (0, 0)
+                if self._is_material_ausp_rule(rule):
+                    matched_column = atwrt_col
+                    print(f"      [AUSP] material: колонка '{atwrt_col}', ATINN из CABN.ATNAM=CCHBC_BPP_CODE, строк: {len(df):,}")
+                else:
+                    self._log_skipped_rule(rule, table_name, f"Для правила не определено значение ATINN (column_name_checked='{column_to_check}'). Ожидается ATINN_24/27/30/52 или conf_ausp_atinn_mapping.json", timestamp)
+                    return (0, 0)
             if not matched_column:
                 matched_column = self._resolve_column_for_rule(df, actual_column_to_check, table_name)
             if not matched_column and actual_column_to_check != column_to_check:

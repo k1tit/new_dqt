@@ -112,6 +112,79 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         self._assert_result(result, 2, 1)
         self.assertEqual('ZMDM_BPP_CODET', result['stats']['reference'])
 
+    def test_rpc53_1_picks_bpp_atinn_from_mixed_ausp(self):
+        ausp = pd.DataFrame({
+            'ATINN': ['24', '143', '0000000829', '868', '829'],
+            'OBJEK': ['1', '2', '000000000000000010', '000000000000000011', '000000000000000013'],
+            'ATWRT': ['COOLER', 'CAF', 'BPP_OK', 'BPP_BAD', 'IGNORE_KLART'],
+            'KLART': ['002', '001', '001', '001', '002'],
+            'ATZHL': ['1', '1', '1', '1', '1'],
+        })
+        tables = {
+            'MARA': pd.DataFrame({
+                'MATNR': ['10', '11', '13'],
+                'MTART': ['ZFG', 'ZFGS', 'ZFG'],
+            }),
+            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_OK'], 'ATWTB': ['VALID']}),
+            'ZMDM_BPP_CODE': pd.DataFrame(),
+        }
+        result = evaluate_ausp_bpp_rule(
+            ausp,
+            'RPCONF_53.1',
+            'ATWRT',
+            lambda name: tables.get(name, pd.DataFrame()),
+        )
+        self._assert_result(result, 2, 1)
+        self.assertEqual(2, result['stats']['bpp_rows'])
+        self.assertEqual({'BPP_OK', 'BPP_BAD'}, set(result['df']['ATWRT']))
+
+    def test_rpc53_1_uses_cabn_atinn(self):
+        ausp = pd.DataFrame({
+            'ATINN': ['24', '1001', '829'],
+            'OBJEK': ['1', '000000000000000010', '000000000000000099'],
+            'ATWRT': ['COOLER', 'BPP_OK', 'BPP_BAD'],
+            'KLART': ['002', '001', '001'],
+            'ATZHL': ['1', '1', '1'],
+        })
+        tables = {
+            'CABN': pd.DataFrame({'ATINN': ['1001'], 'ATNAM': ['CCHBC_BPP_CODE']}),
+            'MARA': pd.DataFrame({'MATNR': ['10', '99'], 'MTART': ['ZFG', 'ZFG']}),
+            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_OK'], 'ATWTB': ['VALID']}),
+            'ZMDM_BPP_CODE': pd.DataFrame(),
+        }
+        result = evaluate_ausp_bpp_rule(
+            ausp,
+            'RPCONF_53.1',
+            'ATWRT',
+            lambda name: tables.get(name, pd.DataFrame()),
+        )
+        self._assert_result(result, 1, 0)
+        self.assertEqual('CABN.ATNAM=CCHBC_BPP_CODE', result['stats']['bpp_atinn_source'])
+        self.assertEqual(['BPP_OK'], list(result['df']['ATWRT']))
+
+    def test_rpc53_1_skips_equipment_only_ausp(self):
+        ausp = pd.DataFrame({
+            'ATINN': ['24', '27', '30', '52'],
+            'OBJEK': ['1', '2', '3', '4'],
+            'ATWRT': ['COOLER', 'X', 'Y', '1'],
+            'KLART': ['002', '002', '002', '002'],
+            'ATZHL': ['1', '1', '1', '1'],
+        })
+        tables = {
+            'MARA': pd.DataFrame({'MATNR': ['1'], 'MTART': ['ZFG']}),
+            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_OK']}),
+            'ZMDM_BPP_CODE': pd.DataFrame(),
+        }
+        result = evaluate_ausp_bpp_rule(
+            ausp,
+            'RPCONF_53.1',
+            'ATWRT',
+            lambda name: tables.get(name, pd.DataFrame()),
+        )
+        self.assertIsNotNone(result['skip_reason'])
+        self.assertIn('24', result['skip_reason'])
+        self.assertIn('equipment', result['skip_reason'].lower())
+
 
 if __name__ == '__main__':
     unittest.main()
