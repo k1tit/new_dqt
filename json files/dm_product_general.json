@@ -8,7 +8,7 @@
   },
   "is_basic_scope": {
     "definition": "IF (LVORM <> 'X' AND MSTAE <> '99') AND MTART NOT IN (ZCDN, ZSPN) THEN '1' ELSE '0'",
-    "note": "Moving all refiltration to this flag. DQ Conformity on dm_product_general evaluates is_basic_scope=1 unless rule technical says otherwise."
+    "note": "Moving all refiltration to this flag. This is a DM output attribute, not an implicit DQ filter; each rule follows its own technical_definition."
   },
   "sources": [
     {"type": "DM", "place": "MARA", "alias": "m", "filtering": null},
@@ -134,6 +134,23 @@
     "bpp_pack_size_code": "pc.pack_size",
     "bpp_sales_unit_code": "pc.sales_unit"
   },
-  "dq_rules_using_dm": ["RPCONF_166.1", "RPCONF_196.10", "RPCONF_196.11"],
-  "dq_minimal_tables_for_current_rules": ["MARA", "MAKT"]
+  "dq_rules_using_dm": [
+    "RPCONF_166.1",
+    "RPCONF_196.10",
+    "RPCONF_196.11",
+    "RPCONF_196.12",
+    "RPCONF_225.4",
+    "RPCONF_225.5",
+    "RPCONF_253.4",
+    "RPCONF_265.1",
+    "RPCONF_371.1",
+    "RPCONF_53.1"
+  ],
+  "dq_minimal_tables_for_current_rules": [
+    "MARA",
+    "MAKT",
+    "AUSP",
+    "ZMDM_BPP_CODET",
+    "ZMDM_BPP_CODE"
+  ]
 }

@@ -1,9 +1,9 @@
 {
   "_meta": {
     "domain": "Material",
-    "description": "Правила DQ по материалам. Структура как у rules.json: ключ = имя таблицы SAP, значение = массив правил.",
+    "description": "Правила DQ по материалам для логического dm_product_general.",
     "output_dir": "Material report",
-    "note": "Ключи, начинающиеся с _, checker игнорирует. dm_product_general: MARA + MAKT (MAKTX, exclude %ABP%)."
+    "note": "Ключи, начинающиеся с _, checker игнорирует. Пустые значения в Conformity пропускаются."
   },
   "MARA": [
     {
@@ -11,9 +11,9 @@
       "rule_description": "For FG (MTART= ZFG, ZFGS) the value for MEINS should be \"CS\", \"ST\" or \"PC\" in MARA View",
       "technical_definition": [
         "For material_description NOT LIKE '%ABP%'",
-        "IF base_unit_of_measure_code IS NULL THEN ''",
-        "ELSE IF material_type_code IN (ZFG, ZFGS) AND base_unit_of_measure_code IN (CS, ST, PC) THEN '1'",
-        "ELSE IF material_type_code IN (ZFG, ZFGS) AND base_unit_of_measure_code NOT IN (CS, ST, PC) THEN '0'",
+        "IF base_unit_of_measure_code IS NULL OR general_item_category_group_code = 'ZFGD' THEN ''",
+        "ELSE IF material_type_code IN (ZFG, ZFGS) AND general_item_category_group_code NOT IN ('ZCVI', 'ZCVP', 'ZSNK') AND base_unit_of_measure_code IN (CS, PC, ST) THEN '1'",
+        "ELSE IF material_type_code IN (ZFG, ZFGS) AND general_item_category_group_code NOT IN ('ZCVI', 'ZCVP', 'ZSNK') AND base_unit_of_measure_code NOT IN (CS, PC, ST) THEN '0'",
         "ELSE ''"
       ],
       "value_checked": "base_unit_of_measure_code",
@@ -26,6 +26,10 @@
       "table_name_checked": "MARA",
       "column_name_checked": "MEINS",
       "business_attribute_name": "Base Unit of Measure",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
       "exclude_from_score_calculation": false
     },
     {
@@ -34,10 +38,8 @@
       "technical_definition": [
         "For material_description NOT LIKE '%ABP%'",
         "IF general_item_category_group_code IS NULL THEN ''",
-        "ELSE IF (material_type_code IN (ZNVL) AND general_item_category_group_code IN ('NORM', 'ZWST')) OR",
-        "(material_type_code IN (ZKIT) AND general_item_category_group_code IN ('NORM')) THEN '1'",
-        "ELSE IF (material_type_code IN (ZNVL) AND general_item_category_group_code NOT IN ('NORM', 'ZWST')) OR",
-        "(material_type_code IN (ZKIT) AND general_item_category_group_code NOT IN ('NORM')) THEN '0'",
+        "ELSE IF (material_type_code IN (ZNVL) AND general_item_category_group_code IN ('NORM', 'ZWST')) OR (material_type_code IN (ZKIT) AND general_item_category_group_code IN ('NORM')) THEN '1'",
+        "ELSE IF (material_type_code IN (ZNVL) AND general_item_category_group_code NOT IN ('NORM', 'ZWST')) OR (material_type_code IN (ZKIT) AND general_item_category_group_code NOT IN ('NORM')) THEN '0'",
         "ELSE ''"
       ],
       "value_checked": "general_item_category_group_code",
@@ -50,6 +52,10 @@
       "table_name_checked": "MARA",
       "column_name_checked": "MTPOS_MARA",
       "business_attribute_name": "General Item Category Group",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
       "exclude_from_score_calculation": false
     },
     {
@@ -72,6 +78,181 @@
       "table_name_checked": "MARA",
       "column_name_checked": "MTPOS_MARA",
       "business_attribute_name": "General Item Category Group",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
+      "exclude_from_score_calculation": false
+    },
+    {
+      "rule_code": "RPCONF_196.12",
+      "rule_description": "For Material Type (MTART)= ZSTL check if MTPOS_MARA = LEIS in MARA View",
+      "technical_definition": [
+        "For material_description NOT LIKE '%ABP%'",
+        "IF general_item_category_group_code IS NULL THEN ''",
+        "ELSE IF material_type_code IN (ZSTL) AND general_item_category_group_code IN ('LEIS') THEN '1'",
+        "ELSE IF material_type_code IN (ZSTL) AND general_item_category_group_code NOT IN ('LEIS') THEN '0'",
+        "ELSE ''"
+      ],
+      "value_checked": "general_item_category_group_code",
+      "datamart_or_reference_table_used": "dm_product_general",
+      "check_details_message": "",
+      "quality_category": "Conformity",
+      "domain": "Product",
+      "sub_domain": "General",
+      "type_of_check": "TBC",
+      "table_name_checked": "MARA",
+      "column_name_checked": "MTPOS_MARA",
+      "business_attribute_name": "General Item Category Group",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
+      "exclude_from_score_calculation": false
+    },
+    {
+      "rule_code": "RPCONF_253.4",
+      "rule_description": "If MTART = ZFGC the value should be: 1111005, 1111006, 1111007, 1111009, 1113002 in MARA View",
+      "technical_definition": [
+        "For material_description NOT LIKE '%ABP%'",
+        "IF material_group_code IS NULL THEN ''",
+        "ELSE IF material_type_code = 'ZFGC' AND material_group_code IN (1111005, 1111006, 1111007, 1111009, 1113002) THEN '1'",
+        "ELSE IF material_type_code = 'ZFGC' AND material_group_code NOT IN (1111005, 1111006, 1111007, 1111009, 1113002) THEN '0'",
+        "ELSE ''"
+      ],
+      "value_checked": "material_group_code",
+      "datamart_or_reference_table_used": "dm_product_general",
+      "check_details_message": "",
+      "quality_category": "Conformity",
+      "domain": "Product",
+      "sub_domain": "General",
+      "type_of_check": "TBC",
+      "table_name_checked": "MARA",
+      "column_name_checked": "MATKL",
+      "business_attribute_name": "Material Group",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
+      "exclude_from_score_calculation": false
+    },
+    {
+      "rule_code": "RPCONF_265.1",
+      "rule_description": "For FG, Minimum Remaining shelf life <= Total shelf life in MARA View",
+      "technical_definition": [
+        "For material_description NOT LIKE '%ABP%'",
+        "IF material_type_name_unified = 'Finished Goods' AND remaining_shelf_life <= total_shelf_life THEN '1'",
+        "ELSE IF material_type_name_unified = 'Finished Goods' AND remaining_shelf_life > total_shelf_life THEN '0'",
+        "ELSE ''"
+      ],
+      "value_checked": "remaining_shelf_life",
+      "datamart_or_reference_table_used": "dm_product_general",
+      "check_details_message": "",
+      "quality_category": "Conformity",
+      "domain": "Product",
+      "sub_domain": "General",
+      "type_of_check": "TBC",
+      "table_name_checked": "MARA",
+      "column_name_checked": "MHDRZ",
+      "business_attribute_name": "Minimum Remaining shelf life",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
+      "exclude_from_score_calculation": false
+    },
+    {
+      "rule_code": "RPCONF_371.1",
+      "rule_description": "For MTART = ZFG, ZFGS, ZFGC, ZFGM, ZFGA, ZNVM check GEWEI = KG in MARA View",
+      "technical_definition": [
+        "For material_description NOT LIKE '%ABP%'",
+        "IF material_type_code IN (ZFG, ZFGS, ZFGC, ZFGM, ZFGA, ZNVM) AND weight_unit = 'KG' THEN '1'",
+        "ELSE IF material_type_code IN (ZFG, ZFGS, ZFGC, ZFGM, ZFGA, ZNVM) AND weight_unit != 'KG' THEN '0'",
+        "ELSE ''"
+      ],
+      "value_checked": "weight_unit",
+      "datamart_or_reference_table_used": "dm_product_general",
+      "check_details_message": "",
+      "quality_category": "Conformity",
+      "domain": "Product",
+      "sub_domain": "General",
+      "type_of_check": "TBC",
+      "table_name_checked": "MARA",
+      "column_name_checked": "GEWEI",
+      "business_attribute_name": "Weight Unit",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
+      "exclude_from_score_calculation": false
+    }
+  ],
+  "MAKT": [
+    {
+      "rule_code": "RPCONF_225.4",
+      "rule_description": "Material Description should be always in UPPER CASE for All material types in MAKT View",
+      "technical_definition": "IF UPPER(material_description) = material_description THEN '1' ELSE '0'",
+      "value_checked": "material_description",
+      "datamart_or_reference_table_used": "dm_product_general",
+      "check_details_message": "",
+      "quality_category": "Conformity",
+      "domain": "Product",
+      "sub_domain": "General",
+      "type_of_check": "TBC",
+      "table_name_checked": "MAKT",
+      "column_name_checked": "MAKTX",
+      "business_attribute_name": "Material Description",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
+      "exclude_from_score_calculation": false
+    },
+    {
+      "rule_code": "RPCONF_225.5",
+      "rule_description": "Material description should not contain any extra or multiple spaces for All material types in MAKT View",
+      "technical_definition": "IF material_description starts or ends with space or has more than one space between characters THEN '0' ELSE '1'",
+      "value_checked": "material_description",
+      "datamart_or_reference_table_used": "dm_product_general",
+      "check_details_message": "",
+      "quality_category": "Conformity",
+      "domain": "Product",
+      "sub_domain": "General",
+      "type_of_check": "TBC",
+      "table_name_checked": "MAKT",
+      "column_name_checked": "MAKTX",
+      "business_attribute_name": "Material Description",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
+      "exclude_from_score_calculation": false
+    }
+  ],
+  "AUSP": [
+    {
+      "rule_code": "RPCONF_53.1",
+      "rule_description": "The BPP code (ATWRT) assigned to the Material should exist in the BPP reference table in AUSP View",
+      "technical_definition": [
+        "IF bpp_code IS NULL OR bpp_code = 'ZZZZZZZZZZ' THEN ''",
+        "ELSE IF material_type_code LIKE 'ZFG%' AND bpp_name IS NOT NULL THEN '1'",
+        "ELSE IF material_type_code LIKE 'ZFG%' AND bpp_name IS NULL THEN '0'",
+        "ELSE ''"
+      ],
+      "value_checked": "bpp_code",
+      "datamart_or_reference_table_used": "dm_product_general, ZMDM_BPP_CODET, ZMDM_BPP_CODE fallback",
+      "check_details_message": "",
+      "quality_category": "Conformity",
+      "domain": "Product",
+      "sub_domain": "General",
+      "type_of_check": "TBC",
+      "table_name_checked": "AUSP",
+      "column_name_checked": "ATWRT",
+      "business_attribute_name": "BPP Code",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
       "exclude_from_score_calculation": false
     }
   ]

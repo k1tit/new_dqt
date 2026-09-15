@@ -59,8 +59,9 @@ class MemoryManager:
     DROP_DUPES_MAX_ROWS = 500_000
     LOAD_THREAD_WORKERS = 4
 
-    def __init__(self, db_path, *, use_parquet_cache: bool=True, rebuild_parquet_cache: bool=False):
+    def __init__(self, db_path, *, use_parquet_cache: bool=True, rebuild_parquet_cache: bool=False, load_profile: str='customer'):
         self.db_path = db_path
+        self.load_profile = str(load_profile or 'customer').strip().lower()
         self.data_cache = {}
         self.reference_cache = {}
         self._unique_partner_count = {}
@@ -387,10 +388,11 @@ class MemoryManager:
             ausp = self._find_table_in_db(self.AUSP_LOAD_NAME, all_in_db)
             if ausp:
                 to_load.add(ausp)
-            for derived in self.AUSP_DERIVED_NAMES:
-                found = self._find_table_in_db(derived, all_in_db)
-                if found:
-                    to_load.add(found)
+            if self.load_profile != 'material':
+                for derived in self.AUSP_DERIVED_NAMES:
+                    found = self._find_table_in_db(derived, all_in_db)
+                    if found:
+                        to_load.add(found)
         # AUSP_EQUIPMENT: отдельная таблица; AUSP тоже грузим (fallback если equipment пуста)
         if self._needs_ausp_equipment_load(table_names):
             eq = self._find_table_in_db(self.AUSP_EQUIPMENT_TABLE, all_in_db)
@@ -448,11 +450,23 @@ class MemoryManager:
                 if match:
                     to_load.add(match)
         # Customer AUSP → BUT000 + KNA1 (PARTNER_GUID → PARTNER → KTOKD/AUFSD)
-        if self._needs_ausp_load(table_names):
+        if self.load_profile != 'material' and self._needs_ausp_load(table_names):
             for ref in ('BUT000', 'KNA1'):
                 match = self._find_table_in_db(ref, all_in_db)
                 if match:
                     to_load.add(match)
+        if self.load_profile == 'material':
+            requested = {str(t).strip().upper() for t in table_names}
+            if requested & {'MARA', 'MAKT', 'AUSP'}:
+                for ref in ('MARA', 'MAKT'):
+                    match = self._find_table_in_db(ref, all_in_db)
+                    if match:
+                        to_load.add(match)
+            if 'AUSP' in requested:
+                for ref in ('ZMDM_BPP_CODET', 'ZMDM_BPP_CODE'):
+                    match = self._find_table_in_db(ref, all_in_db)
+                    if match:
+                        to_load.add(match)
         # Equipment: V_EQUI + TJ30T + INOB + KNA1 (logical dm_customer_equipment joins)
         eq_names = {'V_EQUI', 'JEST', 'AUSP_EQUIPMENT'}
         if any(str(t).strip().upper() in eq_names for t in table_names) or self._needs_ausp_equipment_load(table_names):
@@ -483,8 +497,9 @@ class MemoryManager:
     def _finalize_load_postprocess(self):
         if self._get_dfkkbptaxnum_cache_key():
             self._build_dfkkbptaxnum_alias_tables()
-        self._build_ausp_derived_tables()
-        self._ensure_ausp_equipment_table()
+        if self.load_profile != 'material':
+            self._build_ausp_derived_tables()
+            self._ensure_ausp_equipment_table()
         self._register_logical_table_aliases()
         for t in self.TABLES_UNIQUE_PARTNER:
             if t in self.data_cache:

@@ -46,6 +46,11 @@ RULE_EXTRA_TABLES: dict[str, tuple[str, ...]] = {
     'RPCONF_166.1': ('MAKT',),
     'RPCONF_196.10': ('MAKT',),
     'RPCONF_196.11': ('MAKT',),
+    'RPCONF_196.12': ('MAKT',),
+    'RPCONF_253.4': ('MAKT',),
+    'RPCONF_265.1': ('MAKT',),
+    'RPCONF_371.1': ('MAKT',),
+    'RPCONF_53.1': ('MARA', 'ZMDM_BPP_CODET', 'ZMDM_BPP_CODE'),
 }
 
 MATERIAL_PRIMARY = frozenset({'MARA'})
@@ -153,7 +158,8 @@ def expand_dependencies(primary: set[str], rule_codes: set[str]) -> dict[str, se
             need[t].add('dm_product_general (MARA + MAKT SPRAS=E / %ABP%)')
 
     # Customer AUSP
-    if primary & AUSP_CUSTOMER or 'AUSP' in primary:
+    material_ausp = 'RPCONF_53.1' in rule_codes
+    if (primary & AUSP_CUSTOMER or 'AUSP' in primary) and not material_ausp:
         need['AUSP'].add('customer AUSP / derived')
         need['BUT000'].add('AUSP PARTNER_GUID → BUT000')
         need['KNA1'].add('AUSP → KNA1 scope')
@@ -173,7 +179,8 @@ def expand_dependencies(primary: set[str], rule_codes: set[str]) -> dict[str, se
         need['KNA1'].add('LOT_GC_ADR customer scope')
 
     # KNA1-dependent
-    if primary & KNA1_DEPENDENT or 'KNA1' in primary or 'KNA1' in need:
+    customer_primary = primary - {'AUSP'} if material_ausp else primary
+    if customer_primary & KNA1_DEPENDENT or 'KNA1' in primary or 'KNA1' in need:
         need['KNA1'].add('KNA1-dependent table / join')
         need['ZW2_CMDEMAND'].add('KNA1 reference (order block time / demand)')
 

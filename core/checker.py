@@ -62,7 +62,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-09-08-material-report-profiles'
+    CHECKER_BUILD_ID = '2026-09-15-material-rules-v1'
     EQUIPMENT_COOLER_STATUS_MATRIX_RULES = frozenset({'RCCONF_342.1', 'RCCONF_342.2'})
     EQUIPMENT_DOOR_EQUIVALENT_MATRIX_RULES = frozenset({'RCCONF_278.1'})
     # Completeness only: field empty → fail; scope cooler+status (not format/matrix rules)
@@ -193,11 +193,13 @@ class FastDataQualityChecker:
         self.save_all_errors = bool(save_all_errors)
         self.use_parquet_cache = bool(use_parquet_cache)
         self.rebuild_parquet_cache = bool(rebuild_parquet_cache)
+        self.load_profile = 'material' if os.path.basename(str(rules_file)).lower() == 'material_rules.json' else 'customer'
         self._parallel_lock = threading.Lock() if self.parallel_tables else None
         self.memory_manager = MemoryManager(
             db_path,
             use_parquet_cache=self.use_parquet_cache,
             rebuild_parquet_cache=self.rebuild_parquet_cache,
+            load_profile=self.load_profile,
         )
         print(f'[CHECKER] {self.CHECKER_BUILD_ID} | {os.path.abspath(__file__)}', flush=True)
         self.error_manager = ErrorFileManager(output_dir)
@@ -794,6 +796,14 @@ class FastDataQualityChecker:
                     self.memory_manager.load_selected_tables_to_ram(tables_to_load)
                 else:
                     self.memory_manager.load_all_data_to_ram()
+            elif self.load_profile == 'material':
+                tables_to_load = list(rules_config.keys())
+                if self.use_async_load and hasattr(self.memory_manager, 'load_selected_tables_to_ram_async_sync'):
+                    self.memory_manager.load_selected_tables_to_ram_async_sync(tables_to_load)
+                elif hasattr(self.memory_manager, 'load_selected_tables_to_ram'):
+                    self.memory_manager.load_selected_tables_to_ram(tables_to_load)
+                else:
+                    self.memory_manager.load_all_data_to_ram()
             elif self.use_async_load and hasattr(self.memory_manager, 'load_selected_tables_to_ram_async_sync'):
                 all_tables = self.memory_manager._get_all_table_names()
                 self.memory_manager.load_selected_tables_to_ram_async_sync(all_tables, add_reference_tables=True)
@@ -857,11 +867,15 @@ class FastDataQualityChecker:
             tables_to_process = []
             for t in table_list:
                 if t == 'AUSP':
-                    for a in self.AUSP_TABLE_GROUP:
-                        if a in rules_config:
-                            tr = _filter_rules(rules_config[a], only_rule_codes)
-                            if tr:
-                                tables_to_process.append((a, tr))
+                    direct = _filter_rules(rules_config.get('AUSP', []), only_rule_codes)
+                    if direct:
+                        tables_to_process.append(('AUSP', direct))
+                    else:
+                        for a in self.AUSP_TABLE_GROUP:
+                            if a in rules_config:
+                                tr = _filter_rules(rules_config[a], only_rule_codes)
+                                if tr:
+                                    tables_to_process.append((a, tr))
                 elif t in rules_config:
                     tr = _filter_rules(rules_config[t], only_rule_codes)
                     if tr:
@@ -930,7 +944,10 @@ class FastDataQualityChecker:
                 do_one((i, (table_name, table_rules)))
 
     def _process_table_rules(self, table_name, table_rules, available_tables, timestamp):
-        if table_name == 'AUSP' and table_rules:
+        if table_name == 'AUSP' and table_rules and not any(
+            str(r.get('table_name_checked') or r.get('table_name') or '').strip().upper() == 'AUSP'
+            for r in table_rules
+        ):
             by_table = {}
             for r in table_rules:
                 t = r.get('table_name_checked') or r.get('table_name') or ''
@@ -1783,46 +1800,45 @@ class FastDataQualityChecker:
                 self._log_skipped_rule(rule, table_name, "Нет строк для оценки RCCONF_371.2 после фильтра PAFKT + central_order_block_code='M'", timestamp)
                 return (0, 0)
             params['allowed_values'] = ['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', 'DF', 'F1', 'F2', 'F3', 'F4', 'F5', 'FX', 'Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6', 'Z7']
-        if rule_code in ('RPCONF_166.1', 'RPCONF_196.10', 'RPCONF_196.11') and str(table_name or '').strip().upper() == 'MARA':
-            from utils.material_mara_scope import (
-                error_description_for_rule,
-                pass_mask_for_rpconf,
-                scope_mara_for_rpconf,
-            )
+        from utils.material_rule_evaluator import MATERIAL_RULE_CODES, evaluate_material_rule
+        if rule_code in MATERIAL_RULE_CODES:
             if not matched_column or matched_column not in df_to_validate.columns:
-                self._log_skipped_rule(rule, table_name, f'{rule_code}: колонка {column_to_check} не найдена в MARA', timestamp)
-                return (0, 0)
-            makt_df = None
-            try:
-                makt_df = self._get_table_for_rules('MAKT')
-                if (makt_df is None or makt_df.empty) and hasattr(self.memory_manager, 'ensure_table_loaded'):
-                    self.memory_manager.ensure_table_loaded('MAKT', reload_if_empty=True)
-                    makt_df = self._get_table_for_rules('MAKT')
-            except Exception as e:
-                print(f'      [WARN] {rule_code}: MAKT не загружена ({e}) — фильтр %ABP% может быть неполным')
-            if makt_df is None or makt_df.empty:
-                print(f'      [WARN] {rule_code}: MAKT пуста/нет — material_description LIKE %ABP% не исключается')
-            scoped, st = scope_mara_for_rpconf(df_to_validate, rule_code, matched_column, makt_df=makt_df)
-            print(
-                f"      [FILTER] {rule_code} dm_product_general: "
-                f"{st.get('before'):,} -> basic={st.get('after_basic_scope')} -> ABP={st.get('after_abp')} "
-                f"-> MTART={st.get('after_mtart')} -> value={st.get('after_value')}"
-            )
-            if scoped is None or scoped.empty:
                 self._log_skipped_rule(
                     rule,
                     table_name,
-                    f"{rule_code}: нет строк после scope (is_basic_scope + MTART + non-empty {matched_column} + not LIKE %ABP%)",
+                    f'{rule_code}: колонка {column_to_check} не найдена в {table_name}',
                     timestamp,
                 )
                 return (0, 0)
-            ok_mask = pass_mask_for_rpconf(scoped, rule_code, matched_column, mtart_col=st.get('mtart_col'))
+
+            def _material_table_loader(requested_table):
+                loaded = self._get_table_for_rules(requested_table)
+                if (loaded is None or loaded.empty) and hasattr(self.memory_manager, 'ensure_table_loaded'):
+                    self.memory_manager.ensure_table_loaded(requested_table, reload_if_empty=True)
+                    loaded = self._get_table_for_rules(requested_table)
+                return loaded
+
+            evaluation = evaluate_material_rule(
+                df_to_validate,
+                table_name,
+                rule_code,
+                matched_column,
+                _material_table_loader,
+            )
+            scoped = evaluation.get('df')
+            skip_reason = evaluation.get('skip_reason')
+            if skip_reason:
+                self._log_skipped_rule(rule, table_name, skip_reason, timestamp)
+                return (0, 0)
+            ok_mask = evaluation['ok_mask']
             error_mask = ~ok_mask
             error_count = int(error_mask.sum())
             total_rows = int(len(scoped))
             n_ok = int(ok_mask.sum())
-            print(f'      [CHECK] {rule_code}: оценено {total_rows:,}, OK={n_ok:,}, ошибки={error_count:,}')
-            error_description = error_description_for_rule(rule_code)
+            stats = evaluation.get('stats') or {}
+            stats_text = ', '.join(f'{key}={value}' for key, value in stats.items() if value not in (None, ''))
+            print(f'      [CHECK] {rule_code}: оценено {total_rows:,}, OK={n_ok:,}, ошибки={error_count:,}; {stats_text}')
+            error_description = evaluation['error_description']
             error_df = validator._prepare_error_dataframe(scoped, error_mask, 'CONFORMITY', error_description) if error_count > 0 else None
             is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
             if save_result:
@@ -3625,6 +3641,9 @@ class FastDataQualityChecker:
                 combined.extend(rules_config.get(alias, []))
             return combined
         if table_name == 'AUSP':
+            direct = rules_config.get('AUSP', [])
+            if direct:
+                return direct
             combined = []
             for t in self.AUSP_TABLE_GROUP:
                 combined.extend(rules_config.get(t, []))
