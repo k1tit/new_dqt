@@ -62,7 +62,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-09-15-material-rules-v1'
+    CHECKER_BUILD_ID = '2026-09-15-material-profile-isolation-fix'
     EQUIPMENT_COOLER_STATUS_MATRIX_RULES = frozenset({'RCCONF_342.1', 'RCCONF_342.2'})
     EQUIPMENT_DOOR_EQUIVALENT_MATRIX_RULES = frozenset({'RCCONF_278.1'})
     # Completeness only: field empty → fail; scope cooler+status (not format/matrix rules)
@@ -195,6 +195,7 @@ class FastDataQualityChecker:
         self.rebuild_parquet_cache = bool(rebuild_parquet_cache)
         self.load_profile = 'material' if os.path.basename(str(rules_file)).lower() == 'material_rules.json' else 'customer'
         self._parallel_lock = threading.Lock() if self.parallel_tables else None
+        self._thread_rule_state = threading.local()
         self.memory_manager = MemoryManager(
             db_path,
             use_parquet_cache=self.use_parquet_cache,
@@ -752,6 +753,7 @@ class FastDataQualityChecker:
         self._but020_partner_lookup_cache = {}
         self._kna1_aufsd_lookup_df = None
         self._table_kna1_preenrich_done = set()
+        self._material_rule_table_cache = {}
         self._vequi_swerk_lookup = None
         self._but000_mapped_df = None
         self._but000_partner_guid_lookup = None
@@ -1096,7 +1098,7 @@ class FastDataQualityChecker:
                     display_row_count = int(df[partner_col].nunique())
         self._print_table_header(table_name, len(table_rules), display_row_count)
         ausp_split = None
-        if (table_name or '').strip().upper() == 'AUSP':
+        if (table_name or '').strip().upper() == 'AUSP' and self.load_profile != 'material':
             ausp_split = self._build_ausp_split(df, table_name)
             if ausp_split:
                 total_slices = sum((len(s[0]) for s in ausp_split.values()))
@@ -1263,7 +1265,8 @@ class FastDataQualityChecker:
         error_count = 0
         suspicious_count = 0
         total_rules = len(table_rules)
-        df = self._preenrich_table_for_kna1_joins(df, table_name, table_rules)
+        if self.load_profile != 'material':
+            df = self._preenrich_table_for_kna1_joins(df, table_name, table_rules)
         if any(self._rule_is_equipment(r) for r in (table_rules or [])):
             before_eq = len(df) if df is not None else 0
             df = self._scope_df_equipment_swerk(df, table_name, f'PREFILTER:{table_name}')
@@ -1293,8 +1296,13 @@ class FastDataQualityChecker:
             is_suspicious = self._check_if_suspicious(self.current_rule, error_count_result, total_rows)
             mass_error = error_count_result > self.MAX_ERRORS_TO_SAVE
             not_evaluated = total_rows == 0 and error_count_result == 0
+            skip_reason = getattr(self._thread_rule_state, 'skip_reason', None)
+            skipped = not_evaluated and bool(skip_reason)
             if error_count_result == 0 and total_rows > 0:
                 success_count += 1
+            elif skipped:
+                self.skipped_rules += 1
+                print(f"      [SKIP] {skip_reason}")
             elif not_evaluated:
                 error_count += 1
             elif is_suspicious or mass_error:
@@ -1311,6 +1319,7 @@ class FastDataQualityChecker:
         import re
         self._last_rule_error = None
         self._last_rule_skip_reason = None
+        self._thread_rule_state.skip_reason = None
         self._current_save_result = save_result
         rule_code_raw = str(rule.get('rule_code', 'UNKNOWN'))
         rule_code = re.sub('[^A-Za-z0-9._-]', '', rule_code_raw).upper()
@@ -1812,10 +1821,17 @@ class FastDataQualityChecker:
                 return (0, 0)
 
             def _material_table_loader(requested_table):
-                loaded = self._get_table_for_rules(requested_table)
+                cache_key = str(requested_table or '').strip().upper()
+                cached = self._material_rule_table_cache.get(cache_key)
+                if cached is not None:
+                    return cached
+                loaded = self.memory_manager.get_table(requested_table)
                 if (loaded is None or loaded.empty) and hasattr(self.memory_manager, 'ensure_table_loaded'):
                     self.memory_manager.ensure_table_loaded(requested_table, reload_if_empty=True)
-                    loaded = self._get_table_for_rules(requested_table)
+                    loaded = self.memory_manager.get_table(requested_table)
+                if loaded is not None and not loaded.empty:
+                    loaded = self._apply_rule_time_column_map(loaded.copy(), requested_table)
+                    self._material_rule_table_cache[cache_key] = loaded
                 return loaded
 
             evaluation = evaluate_material_rule(
@@ -2463,6 +2479,7 @@ class FastDataQualityChecker:
             return (error_count, total_rows)
         except Exception as e:
             self._last_rule_error = str(e)
+            print(f'      [ERROR] {rule_code} ({table_name}): {type(e).__name__}: {e}')
             if save_result:
                 self._log_failed_rule(rule, table_name, str(e), timestamp)
             return (0, 0)
@@ -3598,7 +3615,7 @@ class FastDataQualityChecker:
             out.append('AUSP')
         if needs_ausp_equipment and self.AUSP_EQUIPMENT_TABLE not in [str(x).strip().upper() for x in out]:
             out.append(self.AUSP_EQUIPMENT_TABLE)
-        if needs_ausp:
+        if needs_ausp and self.load_profile != 'material':
             if 'BUT000' not in [str(x).strip().upper() for x in out]:
                 out.append('BUT000')
             if 'KNA1' not in [str(x).strip().upper() for x in out]:
@@ -7727,8 +7744,9 @@ class FastDataQualityChecker:
             print(f'      [WARN] Ошибка добавления central_order_block_code из KNA1 для {rule_code}: {e}')
             return df
     def _log_skipped_rule(self, rule, table_name, reason, timestamp):
+        self._last_rule_skip_reason = reason
+        self._thread_rule_state.skip_reason = reason
         if not getattr(self, '_current_save_result', True):
-            self._last_rule_skip_reason = reason
             return
         rule_code = rule.get('rule_code', 'UNKNOWN')
         self.results.append({'rule_code': rule_code, 'rule_description': rule.get('rule_description', 'Unknown rule'), 'quality_category': rule.get('quality_category', 'Unknown'), 'table_name': table_name, 'column_checked': rule.get('column_name_checked', ''), 'matched_column': '', 'total_records': 0, 'passed': 0, 'failed': 0, 'total_evaluated': 0, 'success_rate_%': 0, 'execution_time_sec': 0, 'check_date': timestamp, 'status': 'ПРОПУЩЕНО', 'status_color': 'gray', 'error_file': 'Нет', 'comments': f'Пропущено: {reason}'})

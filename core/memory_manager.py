@@ -409,7 +409,7 @@ class MemoryManager:
             dfkk_key = next((t for t in all_in_db if str(t).strip().upper() == 'DFKKBPTAXNUM'), None)
             if dfkk_key:
                 to_load.add(dfkk_key)
-        if add_reference_tables:
+        if add_reference_tables and self.load_profile != 'material':
             for ref in ('T005', 'ZW2_CMDEMAND', 'BUT020', 'KNVV'):
                 match = self._find_table_in_db(ref, all_in_db)
                 if match:
@@ -419,7 +419,9 @@ class MemoryManager:
             'AUSP', 'AUSP_143', 'AUSP_604', 'AUSP_148', 'AUSP_151',
         }
         kna1_requested = any((str(t).strip().upper() == 'KNA1' for t in table_names))
-        if kna1_dependent.intersection({str(t).strip().upper() for t in table_names}) or kna1_requested:
+        if self.load_profile != 'material' and (
+            kna1_dependent.intersection({str(t).strip().upper() for t in table_names}) or kna1_requested
+        ):
             match = self._find_table_in_db('KNA1', all_in_db)
             if match:
                 to_load.add(match)

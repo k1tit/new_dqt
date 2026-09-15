@@ -112,26 +112,36 @@ def _attach_material_description(mara: pd.DataFrame, makt: pd.DataFrame) -> tupl
         return out, 'LOOKUP_MATERIAL_DESCRIPTION'
 
     english, _ = _english_makt(makt)
-    mara_matnr = find_col(mara, ('MATNR', 'material_code', 'MATERIAL'))
-    makt_matnr = find_col(english, ('MATNR', 'material_code', 'MATERIAL'))
+    mara_matnr = find_col(mara, ('MATNR', 'material_code', 'MATERIAL', 'MATERIAL_NUMBER'))
+    makt_matnr = find_col(english, ('MATNR', 'material_code', 'MATERIAL', 'MATERIAL_NUMBER'))
     maktx_col = find_col(english, ('MAKTX', 'material_description'))
     if not mara_matnr or not makt_matnr or not maktx_col:
         return mara.copy(), None
 
-    lookup = {}
-    for key, value in zip(_matnr(english[makt_matnr]), english[maktx_col]):
-        if key not in lookup and _filled(pd.Series([value])).iloc[0]:
-            lookup[key] = value
+    lookup = makt.attrs.get('_dq_material_description_lookup')
+    if not isinstance(lookup, dict):
+        keys = _matnr(english[makt_matnr])
+        values = english[maktx_col]
+        valid = keys.ne('0') & _filled(values)
+        pairs = pd.DataFrame({'key': keys.loc[valid], 'value': values.loc[valid]})
+        lookup = pairs.drop_duplicates('key', keep='first').set_index('key')['value'].to_dict()
+        makt.attrs['_dq_material_description_lookup'] = lookup
     out = mara.copy()
     out['LOOKUP_MATERIAL_DESCRIPTION'] = _matnr(out[mara_matnr]).map(lookup)
     return out, 'LOOKUP_MATERIAL_DESCRIPTION'
 
 
 def _scope_mara_not_abp(mara: pd.DataFrame, makt: pd.DataFrame, rule_code: str) -> tuple[pd.DataFrame, dict, Optional[str]]:
-    stats = {'input': len(mara), 'after_abp': 0, 'evaluated': 0}
+    stats = {'input': len(mara), 'description_matched': 0, 'after_abp': 0, 'evaluated': 0}
     work, desc_col = _attach_material_description(mara, makt)
     if not desc_col:
         return work.iloc[0:0].copy(), stats, f'{rule_code}: MAKT.MAKTX (SPRAS=E) не найден — нельзя применить NOT LIKE %ABP%'
+    stats['description_matched'] = int(_filled(work[desc_col]).sum())
+    if stats['description_matched'] == 0:
+        return work.iloc[0:0].copy(), stats, (
+            f'{rule_code}: MARA не сджойнилась с MAKT по MATNR — '
+            'проверьте колонки MATNR/MATERIAL_NUMBER и формат ключа'
+        )
     non_abp = _filled(work[desc_col]) & ~work[desc_col].astype(str).str.contains('ABP', case=False, na=False)
     work = work.loc[non_abp].copy()
     stats['after_abp'] = len(work)
