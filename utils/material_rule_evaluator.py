@@ -20,6 +20,7 @@ MARA_RULE_CODES = frozenset({
 MAKT_RULE_CODES = frozenset({'RPCONF_225.4', 'RPCONF_225.5'})
 AUSP_RULE_CODES = frozenset({'RPCONF_53.1'})
 MATERIAL_RULE_CODES = MARA_RULE_CODES | MAKT_RULE_CODES | AUSP_RULE_CODES
+MATERIAL_AUSP_TABLES = frozenset({'AUSP', 'AUSP_EQUIPMENT'})
 
 FINISHED_GOODS_TYPES = frozenset({'ZFG', 'ZFGS', 'ZFGC', 'ZFGM', 'ZFGA', 'ZNVM'})
 BPP_ATNAM = 'CCHBC_BPP_CODE'
@@ -383,18 +384,46 @@ def resolve_bpp_atinn_codes(loader: Callable[[str], pd.DataFrame]) -> tuple[froz
     return frozenset(BPP_ATINN_CODES), 'fallback ATINN 829/868'
 
 
+def _pick_material_ausp_frame(
+    ausp: pd.DataFrame,
+    table_name: str,
+    loader: Callable[[str], pd.DataFrame],
+) -> tuple[pd.DataFrame, str]:
+    equipment = _load(loader, 'AUSP_EQUIPMENT')
+    if equipment is not None and not equipment.empty:
+        return equipment, 'AUSP_EQUIPMENT'
+    tu = str(table_name or '').strip().upper()
+    if tu == 'AUSP_EQUIPMENT':
+        return ausp if ausp is not None else pd.DataFrame(), 'AUSP_EQUIPMENT'
+    return ausp if ausp is not None else pd.DataFrame(), tu or 'AUSP'
+
+
 def evaluate_ausp_bpp_rule(
     ausp: pd.DataFrame,
     rule_code: str,
     value_col: str,
     loader: Callable[[str], pd.DataFrame],
+    table_name: str = 'AUSP_EQUIPMENT',
 ) -> dict:
     rc = str(rule_code).strip().upper()
-    stats = {'input': len(ausp), 'bpp_rows': 0, 'evaluated': 0, 'reference': '', 'bpp_atinn': '', 'bpp_atinn_source': ''}
+    ausp, ausp_table = _pick_material_ausp_frame(ausp, table_name, loader)
+    stats = {
+        'input': len(ausp),
+        'bpp_rows': 0,
+        'evaluated': 0,
+        'reference': '',
+        'bpp_atinn': '',
+        'bpp_atinn_source': '',
+        'ausp_table': ausp_table,
+    }
     atinn_col = find_col(ausp, ('ATINN',))
     objek_col = find_col(ausp, ('OBJEK', 'MATNR', 'MATERIAL'))
+    if value_col not in (ausp.columns if ausp is not None else []):
+        value_col = find_col(ausp, ('ATWRT', value_col or 'ATWRT')) or value_col
+    if ausp is None or ausp.empty:
+        return _empty_result(f'{rc}: таблица {ausp_table} пуста (нужен classification AUSP, KLART=001)', stats)
     if not atinn_col or not objek_col or not value_col or value_col not in ausp.columns:
-        return _empty_result(f'{rc}: AUSP.ATINN/OBJEK/ATWRT не найдены', stats)
+        return _empty_result(f'{rc}: {ausp_table}.ATINN/OBJEK/ATWRT не найдены', stats)
 
     atinn_needed, atinn_source = resolve_bpp_atinn_codes(loader)
     stats['bpp_atinn'] = _format_atinn_list(atinn_needed)
@@ -412,13 +441,19 @@ def evaluate_ausp_bpp_rule(
     if work.empty:
         present_s = stats['ausp_atinn_sample'] or 'пусто'
         extra = ''
-        if present and set(present) <= EQUIPMENT_ATINN_CODES:
+        present_set = set(present)
+        if present_set and present_set <= EQUIPMENT_ATINN_CODES:
             extra = (
-                ' В AUSP только equipment ATINN 24/27/30/52 — это не BPP. '
+                ' В таблице только equipment ATINN 24/27/30/52 — это не BPP. '
                 'Нужен classification AUSP (KLART=001, ATNAM=CCHBC_BPP_CODE) и CABN.'
             )
+        elif present_set and present_set <= {'143', '148', '151', '604'}:
+            extra = (
+                ' Это customer AUSP (143/148/151/604), не BPP. '
+                'Правило должно читать AUSP_EQUIPMENT.'
+            )
         return _empty_result(
-            f'{rc}: нет AUSP для {BPP_ATNAM} (ATINN {{{stats["bpp_atinn"]}}} из {atinn_source}, KLART=001). '
+            f'{rc}: нет {BPP_ATNAM} в {ausp_table} (ATINN {{{stats["bpp_atinn"]}}} из {atinn_source}, KLART=001). '
             f'В таблице ATINN: {present_s}.{extra}',
             stats,
         )
@@ -486,6 +521,6 @@ def evaluate_material_rule(
         return evaluate_mara_rule(df, rc, value_col, _load(loader, 'MAKT'))
     if rc in MAKT_RULE_CODES and table == 'MAKT':
         return evaluate_makt_rule(df, rc, value_col)
-    if rc in AUSP_RULE_CODES and table == 'AUSP':
-        return evaluate_ausp_bpp_rule(df, rc, value_col, loader)
+    if rc in AUSP_RULE_CODES and table in MATERIAL_AUSP_TABLES:
+        return evaluate_ausp_bpp_rule(df, rc, value_col, loader, table_name=table)
     return _empty_result(f'{rc}: неверная таблица {table} для material evaluator')

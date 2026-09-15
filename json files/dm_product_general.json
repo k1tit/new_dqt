@@ -149,7 +149,7 @@
   "dq_minimal_tables_for_current_rules": [
     "MARA",
     "MAKT",
-    "AUSP",
+    "AUSP_EQUIPMENT",
     "CABN",
     "ZMDM_BPP_CODET",
     "ZMDM_BPP_CODE"

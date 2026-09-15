@@ -50,13 +50,13 @@ RULE_EXTRA_TABLES: dict[str, tuple[str, ...]] = {
     'RPCONF_253.4': ('MAKT',),
     'RPCONF_265.1': ('MAKT',),
     'RPCONF_371.1': ('MAKT',),
-    'RPCONF_53.1': ('MARA', 'CABN', 'ZMDM_BPP_CODET', 'ZMDM_BPP_CODE'),
+    'RPCONF_53.1': ('AUSP_EQUIPMENT', 'MARA', 'CABN', 'ZMDM_BPP_CODET', 'ZMDM_BPP_CODE'),
 }
 
 MATERIAL_PRIMARY = frozenset({'MARA'})
 MATERIAL_DEPS = ('MARA', 'MAKT')
 MATERIAL_FULL_DM_SOFT = (
-    'AUSP', 'CABN', 'T134T', 'T023T', 'T006A', 'T141T',
+    'AUSP_EQUIPMENT', 'AUSP', 'CABN', 'T134T', 'T023T', 'T006A', 'T141T',
     'ZMDM_BP_CODE', 'CAWNT', 'CAWN', 'ZMDM_BPP_CODET', 'ZMDM_BPP_CODE',
     'MARM', 'ZMDM_PACK_CODE',
 )
@@ -148,7 +148,10 @@ def expand_dependencies(primary: set[str], rule_codes: set[str]) -> dict[str, se
         need[t].add('primary (rules)')
 
     # Equipment cluster
-    if primary & EQUIPMENT_PRIMARY:
+    if primary & {'V_EQUI', 'JEST'}:
+        for t in EQUIPMENT_DEPS:
+            need[t].add('equipment dm joins (V_EQUI/JEST/AUSP_EQUIPMENT → TJ30T, INOB, KNA1)')
+    elif 'AUSP_EQUIPMENT' in primary and 'RPCONF_53.1' not in rule_codes:
         for t in EQUIPMENT_DEPS:
             need[t].add('equipment dm joins (V_EQUI/JEST/AUSP_EQUIPMENT → TJ30T, INOB, KNA1)')
 

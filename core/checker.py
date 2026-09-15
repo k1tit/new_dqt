@@ -62,7 +62,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-09-15-material-ausp-cabn-atinn'
+    CHECKER_BUILD_ID = '2026-09-15-material-ausp-equipment-bpp'
     EQUIPMENT_COOLER_STATUS_MATRIX_RULES = frozenset({'RCCONF_342.1', 'RCCONF_342.2'})
     EQUIPMENT_DOOR_EQUIVALENT_MATRIX_RULES = frozenset({'RCCONF_278.1'})
     # Completeness only: field empty → fail; scope cooler+status (not format/matrix rules)
@@ -815,7 +815,7 @@ class FastDataQualityChecker:
                 else:
                     self.memory_manager.load_all_data_to_ram()
             elif self.load_profile == 'material':
-                tables_to_load = list(rules_config.keys())
+                tables_to_load = self._expand_ausp_for_load(list(rules_config.keys()))
                 if self.use_async_load and hasattr(self.memory_manager, 'load_selected_tables_to_ram_async_sync'):
                     self.memory_manager.load_selected_tables_to_ram_async_sync(tables_to_load)
                 elif hasattr(self.memory_manager, 'load_selected_tables_to_ram'):
@@ -1126,7 +1126,10 @@ class FastDataQualityChecker:
                 print(f'   [AUSP] Не удалось разбить по имени: колонки ATINN/ATWRT не найдены. Заголовки ({len(names)}): {names[:15]}{suffix}')
                 self._debug_ausp_columns(df.columns, table_name)
         elif (table_name or '').strip().upper() == self.AUSP_EQUIPMENT_TABLE:
-            print(f'   [AUSP_EQUIPMENT] обычная таблица оборудования (загрузка как JEST/V_EQUI, не customer AUSP)')
+            if self.load_profile == 'material':
+                print(f'   [AUSP_EQUIPMENT] material RPCONF_53.1: classification AUSP (не customer 143/148/151/604)')
+            else:
+                print(f'   [AUSP_EQUIPMENT] обычная таблица оборудования (загрузка как JEST/V_EQUI, не customer AUSP)')
         if table_name in self.table_handlers:
             is_taxnum_table = str(table_name or '').strip().upper().startswith('DFKKBPTAXNUM')
             rule_codes_in_table = {str(r.get('rule_code') or '').strip() for r in table_rules or [] if r}
@@ -3640,13 +3643,19 @@ class FastDataQualityChecker:
             out.append('AUSP')
         if needs_ausp_equipment and self.AUSP_EQUIPMENT_TABLE not in [str(x).strip().upper() for x in out]:
             out.append(self.AUSP_EQUIPMENT_TABLE)
+        if self.load_profile == 'material' and (needs_ausp or needs_ausp_equipment):
+            if self.AUSP_EQUIPMENT_TABLE not in [str(x).strip().upper() for x in out]:
+                out.append(self.AUSP_EQUIPMENT_TABLE)
+            if 'CABN' not in [str(x).strip().upper() for x in out]:
+                out.append('CABN')
         if needs_ausp and self.load_profile != 'material':
             if 'BUT000' not in [str(x).strip().upper() for x in out]:
                 out.append('BUT000')
             if 'KNA1' not in [str(x).strip().upper() for x in out]:
                 out.append('KNA1')
-        # Equipment tables need V_EQUI.SWERK for plant scope 36*/38*/39*
-        if any(str(t).strip().upper() in self.EQUIPMENT_TABLES or str(t).strip().upper() == 'V_EQUI' for t in out):
+        if self.load_profile != 'material' and any(
+            str(t).strip().upper() in self.EQUIPMENT_TABLES or str(t).strip().upper() == 'V_EQUI' for t in out
+        ):
             if 'V_EQUI' not in [str(x).strip().upper() for x in out]:
                 out.append('V_EQUI')
         kna1_dependent = {'BUT0BK', 'BUT051', 'KNB1', 'KNVV', 'KNVP', 'KNVH', 'ADR2', 'ADRC', 'BUT050', 'LOTGC_ADR', '/LOT/GC_ADR', 'LOT_GC_ADR'}

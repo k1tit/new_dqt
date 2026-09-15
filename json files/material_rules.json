@@ -229,7 +229,7 @@
       "exclude_from_score_calculation": false
     }
   ],
-  "AUSP": [
+  "AUSP_EQUIPMENT": [
     {
       "rule_code": "RPCONF_53.1",
       "rule_description": "The BPP code (ATWRT) assigned to the Material should exist in the BPP reference table in AUSP View",
@@ -246,7 +246,7 @@
       "domain": "Product",
       "sub_domain": "General",
       "type_of_check": "TBC",
-      "table_name_checked": "AUSP",
+      "table_name_checked": "AUSP_EQUIPMENT",
       "column_name_checked": "ATWRT",
       "business_attribute_name": "BPP Code",
       "is_active": 1,

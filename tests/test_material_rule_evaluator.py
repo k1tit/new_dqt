@@ -185,6 +185,36 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         self.assertIn('24', result['skip_reason'])
         self.assertIn('equipment', result['skip_reason'].lower())
 
+    def test_rpc53_1_prefers_ausp_equipment_over_customer(self):
+        customer = pd.DataFrame({
+            'ATINN': ['143', '148', '151', '604'],
+            'OBJEK': ['1', '2', '3', '4'],
+            'ATWRT': ['CAF', 'GC', 'TN', 'RED'],
+            'KLART': ['001', '001', '001', '001'],
+        })
+        equipment = pd.DataFrame({
+            'ATINN': ['829'],
+            'OBJEK': ['000000000000000010'],
+            'ATWRT': ['BPP_OK'],
+            'KLART': ['001'],
+            'ATZHL': ['1'],
+        })
+        tables = {
+            'AUSP_EQUIPMENT': equipment,
+            'MARA': pd.DataFrame({'MATNR': ['10'], 'MTART': ['ZFG']}),
+            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_OK'], 'ATWTB': ['VALID']}),
+            'ZMDM_BPP_CODE': pd.DataFrame(),
+        }
+        result = evaluate_ausp_bpp_rule(
+            customer,
+            'RPCONF_53.1',
+            'ATWRT',
+            lambda name: tables.get(name, pd.DataFrame()),
+            table_name='AUSP',
+        )
+        self._assert_result(result, 1, 0)
+        self.assertEqual('AUSP_EQUIPMENT', result['stats']['ausp_table'])
+
 
 if __name__ == '__main__':
     unittest.main()
