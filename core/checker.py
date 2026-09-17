@@ -63,7 +63,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-09-17-material-bpp-cawn-m'
+    CHECKER_BUILD_ID = '2026-09-17-equipment-stable-counts'
     EQUIPMENT_COOLER_STATUS_MATRIX_RULES = frozenset({'RCCONF_342.1', 'RCCONF_342.2'})
     EQUIPMENT_DOOR_EQUIVALENT_MATRIX_RULES = frozenset({'RCCONF_278.1'})
     # Completeness only: field empty → fail; scope cooler+status (not format/matrix rules)
@@ -200,6 +200,8 @@ class FastDataQualityChecker:
         self.rebuild_parquet_cache = bool(rebuild_parquet_cache)
         self.load_profile = 'material' if os.path.basename(str(rules_file)).lower() == 'material_rules.json' else 'customer'
         self._parallel_lock = threading.Lock() if self.parallel_tables else None
+        self._results_lock = threading.Lock()
+        self._equipment_lookup_lock = threading.RLock()
         self._thread_rule_state = threading.local()
         self.memory_manager = MemoryManager(
             db_path,
@@ -993,6 +995,7 @@ class FastDataQualityChecker:
         def do_one(item):
             i, (table_name, table_rules) = item
             try:
+                self._thread_rule_state.save_result = True
                 if self._parallel_lock:
                     with self._parallel_lock:
                         print(f'\n[ПРОГРЕСС] Таблица {i}/{total_tables}: {table_name}')
@@ -1006,13 +1009,28 @@ class FastDataQualityChecker:
                 else:
                     print(f'   \x1b[91m[ERROR]\x1b[0m Ошибка при обработке таблицы {table_name}: {str(e)}')
                 traceback.print_exc()
-        if self.parallel_tables and len(tables_to_process) > 1:
-            enumerated = list(enumerate(tables_to_process, 1))
+
+        eq_tables = []
+        other_tables = []
+        for pair in tables_to_process:
+            name = str(pair[0] or '').strip().upper()
+            if name in self.EQUIPMENT_TABLES:
+                eq_tables.append(pair)
+            else:
+                other_tables.append(pair)
+        if eq_tables:
+            print(f'   [INFO] Equipment cluster sequential ({len(eq_tables)}): {[p[0] for p in eq_tables]}')
+            self._warmup_equipment_lookups()
+            for i, pair in enumerate(eq_tables, 1):
+                do_one((i, pair))
+        rest_start = len(eq_tables) + 1
+        if self.parallel_tables and len(other_tables) > 1:
+            enumerated = list(enumerate(other_tables, rest_start))
             with ThreadPoolExecutor(max_workers=self.parallel_tables) as executor:
                 list(executor.map(do_one, enumerated))
         else:
-            for i, (table_name, table_rules) in enumerate(tables_to_process, 1):
-                do_one((i, (table_name, table_rules)))
+            for i, pair in enumerate(other_tables, rest_start):
+                do_one((i, pair))
 
     def _process_table_rules(self, table_name, table_rules, available_tables, timestamp):
         if table_name == 'AUSP' and table_rules and not any(
@@ -1031,6 +1049,8 @@ class FastDataQualityChecker:
             return
         self.current_table = table_name
         self.table_start_time = time.time()
+        if str(table_name or '').strip().upper() in self.EQUIPMENT_TABLES:
+            self._warmup_equipment_lookups()
         if str(table_name or '').strip().upper() == 'KNB1':
             setattr(self, '_kna1_ktokd_lookup_df', None)
             setattr(self, '_kna1_aufsd_lookup_df', None)
@@ -1252,11 +1272,12 @@ class FastDataQualityChecker:
                         self.processed_rules += 1
                 else:
                     self.processed_rules += 1
-                self.current_rule = rule.get('rule_code', 'UNKNOWN')
-                sys.stdout.write(f'\r    [{i:3d}/{total_rules:3d}] {self.current_rule:20} | ')
+                rule_code_now = rule.get('rule_code', 'UNKNOWN')
+                self.current_rule = rule_code_now
+                self._thread_rule_state.current_rule = rule_code_now
+                sys.stdout.write(f'\r    [{i:3d}/{total_rules:3d}] {rule_code_now:20} | ')
                 sys.stdout.flush()
                 rule_start_time = time.time()
-                # Не скоупить здесь повторно — ADRCHandler → _process_single_rule уже делает dm_customer_general
                 handler.df = handler_base_df
                 result = handler.validate_rule(rule)
                 execution_time = time.time() - rule_start_time
@@ -1273,7 +1294,7 @@ class FastDataQualityChecker:
                         total_rows = passed + failed
                     if passed + failed != total_rows and total_rows > 0:
                         passed = max(total_rows - failed, 0)
-                    is_suspicious = self._check_if_suspicious(self.current_rule, error_count_result, total_rows)
+                    is_suspicious = self._check_if_suspicious(rule_code_now, error_count_result, total_rows)
                     mass_error = error_count_result > self.MAX_ERRORS_TO_SAVE
                     handler_status = str(result.get('status', '')).strip().upper()
                     not_evaluated = total_rows == 0 and error_count_result == 0
@@ -1286,7 +1307,7 @@ class FastDataQualityChecker:
                         suspicious_count += 1
                     else:
                         error_count += 1
-                    self._print_rule_stats(self.current_rule, total_rows, error_count_result, execution_time, is_suspicious, mass_error, not_evaluated=exec_failed)
+                    self._print_rule_stats(rule_code_now, total_rows, error_count_result, execution_time, is_suspicious, mass_error, not_evaluated=exec_failed)
                     result['check_date'] = timestamp
                     result['passed'] = passed
                     result['failed'] = failed
@@ -1295,29 +1316,29 @@ class FastDataQualityChecker:
                     result['error_count'] = error_count_result
                     if self._parallel_lock:
                         with self._parallel_lock:
-                            self.results.append(result)
+                            self._append_result(result)
                             if error_count_result > 0:
-                                key = f'{self.current_rule}_{table_name}'
+                                key = f'{rule_code_now}_{table_name}'
                                 error_df = result.get('error_df', pd.DataFrame())
                                 if error_df is not None and (not error_df.empty):
                                     if len(error_df) > error_count_result * 1.1:
                                         error_df = error_df.head(error_count_result)
-                                    self._save_rule_error_with_limit(self.current_rule, table_name, error_df, error_count_result, is_suspicious, total_rows)
+                                    self._save_rule_error_with_limit(rule_code_now, table_name, error_df, error_count_result, is_suspicious, total_rows)
                                 else:
-                                    print(f'      [WARN] {self.current_rule} ({table_name}): найдено {error_count_result:,} ошибок, но error_df пустой — детальный файл не будет создан')
-                                    self.rule_errors[key] = {'rule_code': self.current_rule, 'table_name': table_name, 'error_df': pd.DataFrame(), 'error_count': error_count_result, 'is_suspicious': is_suspicious, 'total_rows': total_rows}
+                                    print(f'      [WARN] {rule_code_now} ({table_name}): найдено {error_count_result:,} ошибок, но error_df пустой — детальный файл не будет создан')
+                                    self.rule_errors[key] = {'rule_code': rule_code_now, 'table_name': table_name, 'error_df': pd.DataFrame(), 'error_count': error_count_result, 'is_suspicious': is_suspicious, 'total_rows': total_rows}
                     else:
-                        self.results.append(result)
+                        self._append_result(result)
                         if error_count_result > 0:
-                            key = f'{self.current_rule}_{table_name}'
+                            key = f'{rule_code_now}_{table_name}'
                             error_df = result.get('error_df', pd.DataFrame())
                             if error_df is not None and (not error_df.empty):
                                 if len(error_df) > error_count_result * 1.1:
                                     error_df = error_df.head(error_count_result)
-                                self._save_rule_error_with_limit(self.current_rule, table_name, error_df, error_count_result, is_suspicious, total_rows)
+                                self._save_rule_error_with_limit(rule_code_now, table_name, error_df, error_count_result, is_suspicious, total_rows)
                             else:
-                                print(f'      [WARN] {self.current_rule} ({table_name}): найдено {error_count_result:,} ошибок, но error_df пустой — детальный файл не будет создан')
-                                self.rule_errors[key] = {'rule_code': self.current_rule, 'table_name': table_name, 'error_df': pd.DataFrame(), 'error_count': error_count_result, 'is_suspicious': is_suspicious, 'total_rows': total_rows}
+                                print(f'      [WARN] {rule_code_now} ({table_name}): найдено {error_count_result:,} ошибок, но error_df пустой — детальный файл не будет создан')
+                                self.rule_errors[key] = {'rule_code': rule_code_now, 'table_name': table_name, 'error_df': pd.DataFrame(), 'error_count': error_count_result, 'is_suspicious': is_suspicious, 'total_rows': total_rows}
                 elif self._parallel_lock:
                     with self._parallel_lock:
                         self.skipped_rules += 1
@@ -1365,14 +1386,16 @@ class FastDataQualityChecker:
                     self.processed_rules += 1
             else:
                 self.processed_rules += 1
-            self.current_rule = rule.get('rule_code', 'UNKNOWN')
-            sys.stdout.write(f'\r    [{i:3d}/{total_rules:3d}] {self.current_rule:20} | ')
+            rule_code_now = rule.get('rule_code', 'UNKNOWN')
+            self.current_rule = rule_code_now
+            self._thread_rule_state.current_rule = rule_code_now
+            sys.stdout.write(f'\r    [{i:3d}/{total_rules:3d}] {rule_code_now:20} | ')
             sys.stdout.flush()
             rule_start_time = time.time()
             rule_df = df.copy() if str(table_name or '').strip().upper() == 'KNVV' else df
             error_count_result, total_rows = self._process_single_rule(rule, table_name, rule_df, timestamp, ausp_split=ausp_split)
             execution_time = time.time() - rule_start_time
-            is_suspicious = self._check_if_suspicious(self.current_rule, error_count_result, total_rows)
+            is_suspicious = self._check_if_suspicious(rule_code_now, error_count_result, total_rows)
             mass_error = error_count_result > self.MAX_ERRORS_TO_SAVE
             not_evaluated = total_rows == 0 and error_count_result == 0
             skip_reason = getattr(self._thread_rule_state, 'skip_reason', None)
@@ -1388,7 +1411,7 @@ class FastDataQualityChecker:
                 suspicious_count += 1
             else:
                 error_count += 1
-            self._print_rule_stats(self.current_rule, total_rows, error_count_result, execution_time, is_suspicious, mass_error, not_evaluated=not_evaluated)
+            self._print_rule_stats(rule_code_now, total_rows, error_count_result, execution_time, is_suspicious, mass_error, not_evaluated=not_evaluated)
         return (success_count, error_count, suspicious_count)
 
     def _process_single_rule_without_save(self, rule, table_name, df, timestamp):
@@ -1399,6 +1422,7 @@ class FastDataQualityChecker:
         self._last_rule_error = None
         self._last_rule_skip_reason = None
         self._thread_rule_state.skip_reason = None
+        self._thread_rule_state.save_result = save_result
         self._current_save_result = save_result
         rule_code_raw = str(rule.get('rule_code', 'UNKNOWN'))
         rule_code = re.sub('[^A-Za-z0-9._-]', '', rule_code_raw).upper()
@@ -1441,7 +1465,7 @@ class FastDataQualityChecker:
                         if save_result:
                             result['check_date'] = timestamp
                             result['table_name'] = table_name
-                            self.results.append(result)
+                            self._append_result(result)
                             if err > 0 and result.get('error_df') is not None:
                                 self._save_rule_error_with_limit(rule_code, table_name, result['error_df'], err, self._check_if_suspicious(rule_code, err, tot), tot)
                         return (err, tot)
@@ -1999,7 +2023,7 @@ class FastDataQualityChecker:
             if rule_code == 'RCCOMP_180.1' and str(table_name or '').strip().upper() == 'BUT0BK':
                 total_rows = len(df_to_validate)
                 result = {'rule_code': rule_code, 'rule_description': rule_description, 'quality_category': quality_category, 'table_name': table_name, 'column_checked': column_to_check, 'matched_column': matched_column, 'total_records': total_rows, 'passed': total_rows, 'failed': 0, 'success_rate_%': 100.0 if total_rows > 0 else 0, 'execution_time_sec': 0, 'check_date': timestamp, 'status': 'УСПЕШНО', 'status_color': 'green', 'error_file': 'Нет', 'comments': ''}
-                self.results.append(result)
+                self._append_result(result)
                 return (0, total_rows)
             if rule_code == 'RCCONF_143.7':
                 ref_table_name = self._get_reference_table_for_rule(rule_code, 'RCCONF_143.7_reference_table') or 'TVBVK'
@@ -2861,7 +2885,7 @@ class FastDataQualityChecker:
         elif filtered_adr2_addr_partner_df is not None and (not filtered_adr2_addr_partner_df.empty):
             result['filtered_adr2_count'] = len(filtered_adr2_addr_partner_df)
             result['filtered_adr2_file'] = ''
-        self.results.append(result)
+        self._append_result(result)
     ADR2_RULE_PARTNERS_TABLE = 'adr2_rule_partners'
     ADR2_RULE_ERRORS_TABLE = 'adr2_rule_errors'
 
@@ -4156,6 +4180,32 @@ class FastDataQualityChecker:
                     return c
         return None
 
+    def _append_result(self, result):
+        with self._results_lock:
+            self.results.append(result)
+
+    def _should_save_current_rule(self):
+        tls = getattr(self._thread_rule_state, 'save_result', None)
+        if tls is None:
+            return bool(getattr(self, '_current_save_result', True))
+        return bool(tls)
+
+    def _warmup_equipment_lookups(self):
+        if getattr(self, '_equipment_lookups_ready', False):
+            return
+        print('   [INFO] Equipment lookups: V_EQUI/INOB/AUSP_EQUIPMENT/JEST/TJ30T/MAKT (один раз, до правил)')
+        self._get_vequi_dm_frame()
+        self._get_inob_matnr_to_cuobj()
+        self._get_inob_cuobj_to_matnr()
+        self._get_ausp_equipment_char_by_cuobj('24', prefer_value_cols=('ATWRT', 'ATFLV', 'ATLFV'))
+        self._get_ausp_equipment_char_by_cuobj('52', prefer_value_cols=('ATLFV', 'ATFLV', 'ATWRT'))
+        self._get_vequi_equipment_attrs_lookup()
+        self._get_vequi_by_matnr_lookup()
+        self._get_jest_status_lookup()
+        self._get_tj30t_estat_txt04_map()
+        self._get_makt_english_by_matnr()
+        self._equipment_lookups_ready = True
+
     def _load_table_for_equipment(self, table_name):
         tn = str(table_name or '').strip().upper()
         df = None
@@ -4182,6 +4232,13 @@ class FastDataQualityChecker:
         cached = getattr(self, '_tj30t_estat_txt04_map', None)
         if cached is not None:
             return cached
+        with self._equipment_lookup_lock:
+            cached = getattr(self, '_tj30t_estat_txt04_map', None)
+            if cached is not None:
+                return cached
+            return self._build_tj30t_estat_txt04_map()
+
+    def _build_tj30t_estat_txt04_map(self) -> dict:
         physical = None
         try:
             if hasattr(self.memory_manager, '_find_tj30t_physical'):
@@ -4263,6 +4320,13 @@ class FastDataQualityChecker:
         cached = getattr(self, '_vequi_dm_frame', None)
         if cached is not None:
             return cached
+        with self._equipment_lookup_lock:
+            cached = getattr(self, '_vequi_dm_frame', None)
+            if cached is not None:
+                return cached
+            return self._build_vequi_dm_frame()
+
+    def _build_vequi_dm_frame(self) -> pd.DataFrame:
         vequi = self._load_table_for_equipment('V_EQUI')
         if vequi is None or vequi.empty:
             self._vequi_dm_frame = pd.DataFrame()
@@ -4340,6 +4404,13 @@ class FastDataQualityChecker:
         cached = getattr(self, '_inob_matnr_to_cuobj', None)
         if cached is not None:
             return cached
+        with self._equipment_lookup_lock:
+            cached = getattr(self, '_inob_matnr_to_cuobj', None)
+            if cached is not None:
+                return cached
+            return self._build_inob_matnr_to_cuobj()
+
+    def _build_inob_matnr_to_cuobj(self) -> dict:
         inob = self._load_table_for_equipment('INOB')
         out = {}
         if inob is None or inob.empty:
@@ -4371,6 +4442,14 @@ class FastDataQualityChecker:
         cached = getattr(self, cache_attr, None)
         if cached is not None:
             return cached
+        with self._equipment_lookup_lock:
+            cached = getattr(self, cache_attr, None)
+            if cached is not None:
+                return cached
+            built = self._build_ausp_equipment_char_by_cuobj(atinn_n, prefer, cache_attr)
+            return built
+
+    def _build_ausp_equipment_char_by_cuobj(self, atinn_n, prefer, cache_attr) -> dict:
         out = {}
         df = self._load_table_for_equipment(self.AUSP_EQUIPMENT_TABLE)
         if df is None or df.empty:
@@ -4411,6 +4490,13 @@ class FastDataQualityChecker:
         cached = getattr(self, '_vequi_equipment_attrs_lookup', None)
         if cached is not None:
             return cached
+        with self._equipment_lookup_lock:
+            cached = getattr(self, '_vequi_equipment_attrs_lookup', None)
+            if cached is not None:
+                return cached
+            return self._build_vequi_equipment_attrs_lookup()
+
+    def _build_vequi_equipment_attrs_lookup(self) -> dict:
         vequi = self._get_vequi_dm_frame()
         lookup = {}
         if vequi is None or vequi.empty:
@@ -4476,6 +4562,13 @@ class FastDataQualityChecker:
         cached = getattr(self, '_vequi_by_matnr_lookup', None)
         if cached is not None:
             return cached
+        with self._equipment_lookup_lock:
+            cached = getattr(self, '_vequi_by_matnr_lookup', None)
+            if cached is not None:
+                return cached
+            return self._build_vequi_by_matnr_lookup()
+
+    def _build_vequi_by_matnr_lookup(self) -> dict:
         by_key = self._get_vequi_equipment_attrs_lookup()
         out = {}
         for attrs in by_key.values():
@@ -4492,6 +4585,13 @@ class FastDataQualityChecker:
         cached = getattr(self, '_inob_cuobj_to_matnr', None)
         if cached is not None:
             return cached
+        with self._equipment_lookup_lock:
+            cached = getattr(self, '_inob_cuobj_to_matnr', None)
+            if cached is not None:
+                return cached
+            return self._build_inob_cuobj_to_matnr()
+
+    def _build_inob_cuobj_to_matnr(self) -> dict:
         inob = self._load_table_for_equipment('INOB')
         if inob is None or inob.empty:
             self._inob_cuobj_to_matnr = {}
@@ -4509,6 +4609,13 @@ class FastDataQualityChecker:
         cached = getattr(self, '_jest_cooler_status_lookup', None)
         if cached is not None:
             return cached
+        with self._equipment_lookup_lock:
+            cached = getattr(self, '_jest_cooler_status_lookup', None)
+            if cached is not None:
+                return cached
+            return self._build_jest_status_lookup()
+
+    def _build_jest_status_lookup(self) -> dict:
         jest = self._load_table_for_equipment('JEST')
         lookup = {}
         if jest is None or jest.empty:
@@ -5376,6 +5483,13 @@ class FastDataQualityChecker:
         cached = getattr(self, '_makt_en_by_matnr', None)
         if cached is not None:
             return cached
+        with self._equipment_lookup_lock:
+            cached = getattr(self, '_makt_en_by_matnr', None)
+            if cached is not None:
+                return cached
+            return self._build_makt_english_by_matnr()
+
+    def _build_makt_english_by_matnr(self) -> dict:
         mm = self.memory_manager
         if mm is not None and hasattr(mm, 'ensure_table_loaded'):
             mm.ensure_table_loaded('MAKT', reload_if_empty=True)
@@ -7982,14 +8096,14 @@ class FastDataQualityChecker:
     def _log_skipped_rule(self, rule, table_name, reason, timestamp):
         self._last_rule_skip_reason = reason
         self._thread_rule_state.skip_reason = reason
-        if not getattr(self, '_current_save_result', True):
+        if not self._should_save_current_rule():
             return
         rule_code = rule.get('rule_code', 'UNKNOWN')
-        self.results.append({'rule_code': rule_code, 'rule_description': rule.get('rule_description', 'Unknown rule'), 'quality_category': rule.get('quality_category', 'Unknown'), 'table_name': table_name, 'column_checked': rule.get('column_name_checked', ''), 'matched_column': '', 'total_records': 0, 'passed': 0, 'failed': 0, 'total_evaluated': 0, 'success_rate_%': 0, 'execution_time_sec': 0, 'check_date': timestamp, 'status': 'ПРОПУЩЕНО', 'status_color': 'gray', 'error_file': 'Нет', 'comments': f'Пропущено: {reason}'})
+        self._append_result({'rule_code': rule_code, 'rule_description': rule.get('rule_description', 'Unknown rule'), 'quality_category': rule.get('quality_category', 'Unknown'), 'table_name': table_name, 'column_checked': rule.get('column_name_checked', ''), 'matched_column': '', 'total_records': 0, 'passed': 0, 'failed': 0, 'total_evaluated': 0, 'success_rate_%': 0, 'execution_time_sec': 0, 'check_date': timestamp, 'status': 'ПРОПУЩЕНО', 'status_color': 'gray', 'error_file': 'Нет', 'comments': f'Пропущено: {reason}'})
 
     def _log_failed_rule(self, rule, table_name, error_message, timestamp):
         rule_code = rule.get('rule_code', 'UNKNOWN')
-        self.results.append({'rule_code': rule_code, 'rule_description': rule.get('rule_description', 'Unknown rule'), 'quality_category': rule.get('quality_category', 'Unknown'), 'table_name': table_name, 'column_checked': rule.get('column_name_checked', ''), 'matched_column': '', 'total_records': 0, 'passed': 0, 'failed': 0, 'total_evaluated': 0, 'success_rate_%': 0, 'execution_time_sec': 0, 'check_date': timestamp, 'status': 'ОШИБКА ВЫПОЛНЕНИЯ', 'status_color': 'dark_red', 'error_file': 'Нет', 'comments': f'Ошибка: {error_message}'})
+        self._append_result({'rule_code': rule_code, 'rule_description': rule.get('rule_description', 'Unknown rule'), 'quality_category': rule.get('quality_category', 'Unknown'), 'table_name': table_name, 'column_checked': rule.get('column_name_checked', ''), 'matched_column': '', 'total_records': 0, 'passed': 0, 'failed': 0, 'total_evaluated': 0, 'success_rate_%': 0, 'execution_time_sec': 0, 'check_date': timestamp, 'status': 'ОШИБКА ВЫПОЛНЕНИЯ', 'status_color': 'dark_red', 'error_file': 'Нет', 'comments': f'Ошибка: {error_message}'})
 
     def _sync_results_error_files(self):
         saved = getattr(self, 'saved_error_files', {}) or {}
@@ -8544,7 +8658,14 @@ class FastDataQualityChecker:
                 cell.font = self.colors['header_font']
                 cell.alignment = Alignment(horizontal='center', vertical='center')
             row_num = 7
-            for result in self.results:
+            ordered_results = sorted(
+                self.results,
+                key=lambda r: (
+                    str(r.get('table_name') or ''),
+                    str(r.get('rule_code') or ''),
+                ),
+            )
+            for result in ordered_results:
                 table_name = result.get('table_name', '')
                 if table_name in self.DFKKBPTAXNUM_ALIASES:
                     table_display = 'DFKKBPTAXNUM'
@@ -8611,13 +8732,13 @@ class FastDataQualityChecker:
                 ws.column_dimensions[column_letter].width = adjusted_width
             result_sheet_mode = 'failed'
             try:
-                self._create_result_score_sheet(wb, summary_sheet_title=ws.title, summary_last_row=row_num - 1, results=self.results)
+                self._create_result_score_sheet(wb, summary_sheet_title=ws.title, summary_last_row=row_num - 1, results=ordered_results)
                 result_sheet_mode = 'formulas'
             except Exception as result_err:
                 print(f'\n[WARN] Лист result (формулы): {result_err} — записываем значения без формул')
                 traceback.print_exc()
                 try:
-                    self._create_result_score_sheet_values_only(wb, results=self.results)
+                    self._create_result_score_sheet_values_only(wb, results=ordered_results)
                     result_sheet_mode = 'values'
                 except Exception as values_err:
                     print(f'\n[ERROR] Лист result не создан: {values_err}')
