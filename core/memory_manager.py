@@ -464,16 +464,24 @@ class MemoryManager:
                     match = self._find_table_in_db(ref, all_in_db)
                     if match:
                         to_load.add(match)
-            if requested & {'AUSP', 'AUSP_EQUIPMENT'}:
-                for ref in ('AUSP_EQUIPMENT', 'CABN', 'ZMDM_BPP_CODET', 'ZMDM_BPP_CODE'):
+            if requested & {'AUSP', 'AUSP_EQUIPMENT'} or any(
+                str(t).strip().upper() == 'AUSP' or str(t).strip().upper().startswith('AUSP_')
+                for t in requested
+            ):
+                for ref in ('AUSP', 'AUSP_EQUIPMENT', 'CABN', 'CAWN_M', 'CAWNT_M', 'ZMDM_BPP_CODET', 'ZMDM_BPP_CODE', 'CAWN', 'CAWNT'):
                     match = self._find_table_in_db(ref, all_in_db)
                     if match:
                         to_load.add(match)
+                derived = {str(x).strip().upper() for x in self.AUSP_DERIVED_NAMES}
+                for t in all_in_db:
+                    tu = str(t).strip().upper()
+                    if tu == 'AUSP' or (tu.startswith('AUSP_') and tu not in derived):
+                        to_load.add(t)
         eq_names = {'V_EQUI', 'JEST', 'AUSP_EQUIPMENT'}
         if self.load_profile != 'material' and (
             any(str(t).strip().upper() in eq_names for t in table_names) or self._needs_ausp_equipment_load(table_names)
         ):
-            for ref in ('V_EQUI', 'TJ30T', 'INOB', 'KNA1'):
+            for ref in ('V_EQUI', 'TJ30T', 'INOB', 'KNA1', 'MAKT'):
                 match = self._find_table_in_db(ref, all_in_db)
                 if match:
                     to_load.add(match)

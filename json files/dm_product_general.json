@@ -151,7 +151,11 @@
     "MAKT",
     "AUSP_EQUIPMENT",
     "CABN",
+    "CAWN_M",
+    "CAWNT_M",
     "ZMDM_BPP_CODET",
-    "ZMDM_BPP_CODE"
+    "ZMDM_BPP_CODE",
+    "CAWN",
+    "CAWNT"
   ]
 }

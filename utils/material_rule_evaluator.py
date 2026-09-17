@@ -20,12 +20,21 @@ MARA_RULE_CODES = frozenset({
 MAKT_RULE_CODES = frozenset({'RPCONF_225.4', 'RPCONF_225.5'})
 AUSP_RULE_CODES = frozenset({'RPCONF_53.1'})
 MATERIAL_RULE_CODES = MARA_RULE_CODES | MAKT_RULE_CODES | AUSP_RULE_CODES
-MATERIAL_AUSP_TABLES = frozenset({'AUSP', 'AUSP_EQUIPMENT'})
+MATERIAL_AUSP_TABLES = frozenset({
+    'AUSP',
+    'AUSP_EQUIPMENT',
+    'AUSP_MATERIAL',
+    'AUSP_CLASS',
+    'AUSP_CLASSIFICATION',
+})
+AUSP_TABLE_NAMES_SENTINEL = '__AUSP_TABLE_NAMES__'
+CUSTOMER_AUSP_SLICES = frozenset({'AUSP_143', 'AUSP_148', 'AUSP_151', 'AUSP_604'})
 
 FINISHED_GOODS_TYPES = frozenset({'ZFG', 'ZFGS', 'ZFGC', 'ZFGM', 'ZFGA', 'ZNVM'})
 BPP_ATNAM = 'CCHBC_BPP_CODE'
 BPP_ATINN_CODES = frozenset({'829', '868'})
 EQUIPMENT_ATINN_CODES = frozenset({'24', '27', '30', '52'})
+CUSTOMER_ATINN_CODES = frozenset({'143', '148', '151', '604'})
 MATERIAL_AUSP_ATINN_BY_RULE = {
     'RPCONF_53.1': BPP_ATINN_CODES,
 }
@@ -328,6 +337,86 @@ def _bpp_reference_codes(reference: pd.DataFrame) -> set[str]:
     return set(_codes(reference[code_col])) - {''}
 
 
+def _bpp_codes_from_cawn(cawn: pd.DataFrame, atinn_needed) -> set[str]:
+    if cawn is None or cawn.empty:
+        return set()
+    code_col = find_col(cawn, ('ATWRT', 'BPP_CODE', 'CODE', 'VALUE'))
+    if not code_col:
+        return set()
+    work = cawn
+    atinn_col = find_col(cawn, ('ATINN',))
+    if atinn_col and atinn_needed:
+        work = work.loc[_atinn_codes(work[atinn_col]).isin(atinn_needed)]
+    spras_col = find_col(work, ('SPRAS', 'LANGU', 'LANGUAGE'))
+    if spras_col:
+        lang = _codes(work[spras_col])
+        english = work.loc[lang.eq('E') | lang.eq('EN')]
+        if not english.empty:
+            work = english
+    return set(_codes(work[code_col])) - {''}
+
+
+def _bpp_codes_from_cawn_pair(cawn: pd.DataFrame, cawnt: pd.DataFrame, atinn_needed) -> tuple[set[str], str]:
+    cawn_codes = _bpp_codes_from_cawn(cawn, atinn_needed)
+    if cawnt is None or cawnt.empty:
+        if cawn_codes:
+            return cawn_codes, 'CAWN_M'
+        return set(), ''
+    atwrt_col = find_col(cawn, ('ATWRT', 'BPP_CODE', 'CODE', 'VALUE')) if cawn is not None and not cawn.empty else None
+    atinn_c = find_col(cawn, ('ATINN',)) if cawn is not None and not cawn.empty else None
+    atzhl_c = find_col(cawn, ('ATZHL',)) if cawn is not None and not cawn.empty else None
+    atinn_t = find_col(cawnt, ('ATINN',))
+    atzhl_t = find_col(cawnt, ('ATZHL',))
+    atwtb = find_col(cawnt, ('ATWTB', 'ATWRT', 'BPP_CODE'))
+    if atwrt_col and atinn_c and atzhl_c and atinn_t and atzhl_t and atwtb:
+        work = cawn
+        if atinn_needed:
+            work = work.loc[_atinn_codes(work[atinn_c]).isin(atinn_needed)]
+        texts = cawnt
+        spras = find_col(texts, ('SPRAS', 'LANGU', 'LANGUAGE'))
+        if spras:
+            lang = _codes(texts[spras])
+            english = texts.loc[lang.eq('E') | lang.eq('EN')]
+            if not english.empty:
+                texts = english
+        texts = texts.loc[_filled(texts[atwtb])]
+        named = set(zip(_atinn_codes(texts[atinn_t]).tolist(), _atinn_codes(texts[atzhl_t]).tolist()))
+        if named and not work.empty:
+            keys = list(zip(_atinn_codes(work[atinn_c]).tolist(), _atinn_codes(work[atzhl_c]).tolist()))
+            mask = pd.Series([(k in named) for k in keys], index=work.index)
+            joined = set(_codes(work.loc[mask, atwrt_col])) - {''}
+            if joined:
+                return joined, 'CAWN_M+CAWNT_M'
+    t_codes = _bpp_codes_from_cawn(cawnt, atinn_needed)
+    if cawn_codes and t_codes:
+        both = cawn_codes & t_codes
+        if both:
+            return both, 'CAWN_M+CAWNT_M'
+    if cawn_codes:
+        return cawn_codes, 'CAWN_M'
+    if t_codes:
+        return t_codes, 'CAWNT_M'
+    return set(), ''
+
+
+def _resolve_bpp_reference(
+    loader: Callable[[str], pd.DataFrame],
+    atinn_needed,
+) -> tuple[set[str], str]:
+    codes, source = _bpp_codes_from_cawn_pair(_load(loader, 'CAWN_M'), _load(loader, 'CAWNT_M'), atinn_needed)
+    if codes:
+        return codes, source
+    for name in ('ZMDM_BPP_CODET', 'ZMDM_BPP_CODE'):
+        zmdm = _bpp_reference_codes(_load(loader, name))
+        if zmdm:
+            return zmdm, name
+    for name in ('CAWN', 'CAWNT'):
+        fallback = _bpp_codes_from_cawn(_load(loader, name), atinn_needed)
+        if fallback:
+            return fallback, f'{name} ATINN={_format_atinn_list(atinn_needed)}'
+    return set(), ''
+
+
 def _cabn_filter_json_path() -> str:
     return os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'json files', 'ausp_cabn_filter.json'))
 
@@ -384,18 +473,114 @@ def resolve_bpp_atinn_codes(loader: Callable[[str], pd.DataFrame]) -> tuple[froz
     return frozenset(BPP_ATINN_CODES), 'fallback ATINN 829/868'
 
 
+def _is_material_ausp_table_name(name: str) -> bool:
+    u = str(name or '').strip().upper()
+    return u == 'AUSP' or u.startswith('AUSP_')
+
+
+def _sample_atinn_text(df: pd.DataFrame) -> str:
+    atinn_col = find_col(df, ('ATINN',))
+    if not atinn_col:
+        return 'нет ATINN'
+    present = {v for v in set(_atinn_codes(df[atinn_col])) if v}
+    return _format_atinn_list(present) or 'пусто'
+
+
+def _count_bpp_hits(df: pd.DataFrame, atinn_needed) -> int:
+    if df is None or df.empty or not atinn_needed:
+        return 0
+    atinn_col = find_col(df, ('ATINN',))
+    if not atinn_col:
+        return 0
+    atinn = _atinn_codes(df[atinn_col])
+    work = df.loc[atinn.isin(atinn_needed)]
+    if work.empty:
+        return 0
+    klart_col = find_col(work, ('KLART', 'CLASS_TYPE'))
+    if klart_col:
+        work = work.loc[_codes(work[klart_col]).eq('001')]
+    return int(len(work))
+
+
+def _ausp_pick_key(name: str, hits: int) -> tuple:
+    u = str(name or '').strip().upper()
+    if u == 'AUSP_EQUIPMENT':
+        prio = 0
+    elif u in ('AUSP_MATERIAL', 'AUSP_CLASS', 'AUSP_CLASSIFICATION'):
+        prio = 1
+    elif u == 'AUSP':
+        prio = 5
+    else:
+        prio = 4
+    return (-int(hits), prio, u)
+
+
+def _discover_ausp_table_names(table_name: str, loader: Callable[[str], pd.DataFrame]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(name) -> None:
+        u = str(name or '').strip().upper()
+        if not u or u in seen or u in CUSTOMER_AUSP_SLICES:
+            return
+        if not _is_material_ausp_table_name(u):
+            return
+        seen.add(u)
+        out.append(u)
+
+    add(table_name)
+    for name in ('AUSP_EQUIPMENT', 'AUSP_MATERIAL', 'AUSP_CLASS', 'AUSP_CLASSIFICATION', 'AUSP'):
+        add(name)
+    try:
+        extra = loader(AUSP_TABLE_NAMES_SENTINEL)
+    except Exception:
+        extra = None
+    if isinstance(extra, (list, tuple, set, frozenset)):
+        for name in extra:
+            add(name)
+    elif isinstance(extra, pd.DataFrame) and not extra.empty:
+        col = extra.columns[0]
+        for name in extra[col].tolist():
+            add(name)
+    return out
+
+
 def _pick_material_ausp_frame(
     ausp: pd.DataFrame,
     table_name: str,
     loader: Callable[[str], pd.DataFrame],
-) -> tuple[pd.DataFrame, str]:
-    equipment = _load(loader, 'AUSP_EQUIPMENT')
-    if equipment is not None and not equipment.empty:
-        return equipment, 'AUSP_EQUIPMENT'
-    tu = str(table_name or '').strip().upper()
-    if tu == 'AUSP_EQUIPMENT':
-        return ausp if ausp is not None else pd.DataFrame(), 'AUSP_EQUIPMENT'
-    return ausp if ausp is not None else pd.DataFrame(), tu or 'AUSP'
+    atinn_needed,
+) -> tuple[pd.DataFrame, str, list[tuple[str, str]]]:
+    samples: list[tuple[str, str]] = []
+    frames: dict[str, pd.DataFrame] = {}
+    requested = str(table_name or '').strip().upper() or 'AUSP'
+    if ausp is not None:
+        frames[requested] = ausp
+    for name in _discover_ausp_table_names(requested, loader):
+        if name in frames:
+            continue
+        loaded = _load(loader, name)
+        if loaded is not None and not loaded.empty:
+            frames[name] = loaded
+    scored = []
+    for name, df in frames.items():
+        samples.append((name, _sample_atinn_text(df)))
+        hits = _count_bpp_hits(df, atinn_needed)
+        if hits > 0:
+            scored.append((name, df, hits))
+    if scored:
+        scored.sort(key=lambda item: _ausp_pick_key(item[0], item[2]))
+        name, df, _hits = scored[0]
+        return df, name, samples
+    fallback = frames.get(requested)
+    if fallback is None:
+        fallback = frames.get('AUSP')
+    if fallback is None and frames:
+        name = next(iter(frames))
+        return frames[name], name, samples
+    if fallback is None:
+        fallback = ausp if ausp is not None else pd.DataFrame()
+    return fallback, requested, samples
 
 
 def evaluate_ausp_bpp_rule(
@@ -406,14 +591,15 @@ def evaluate_ausp_bpp_rule(
     table_name: str = 'AUSP_EQUIPMENT',
 ) -> dict:
     rc = str(rule_code).strip().upper()
-    ausp, ausp_table = _pick_material_ausp_frame(ausp, table_name, loader)
+    atinn_needed, atinn_source = resolve_bpp_atinn_codes(loader)
+    ausp, ausp_table, table_samples = _pick_material_ausp_frame(ausp, table_name, loader, atinn_needed)
     stats = {
-        'input': len(ausp),
+        'input': len(ausp) if ausp is not None else 0,
         'bpp_rows': 0,
         'evaluated': 0,
         'reference': '',
-        'bpp_atinn': '',
-        'bpp_atinn_source': '',
+        'bpp_atinn': _format_atinn_list(atinn_needed),
+        'bpp_atinn_source': atinn_source,
         'ausp_table': ausp_table,
     }
     atinn_col = find_col(ausp, ('ATINN',))
@@ -421,13 +607,10 @@ def evaluate_ausp_bpp_rule(
     if value_col not in (ausp.columns if ausp is not None else []):
         value_col = find_col(ausp, ('ATWRT', value_col or 'ATWRT')) or value_col
     if ausp is None or ausp.empty:
-        return _empty_result(f'{rc}: таблица {ausp_table} пуста (нужен classification AUSP, KLART=001)', stats)
+        return _empty_result(f'{rc}: таблица {ausp_table} пуста (нужен CCHBC_BPP_CODE в {ausp_table}, KLART=001)', stats)
     if not atinn_col or not objek_col or not value_col or value_col not in ausp.columns:
         return _empty_result(f'{rc}: {ausp_table}.ATINN/OBJEK/ATWRT не найдены', stats)
 
-    atinn_needed, atinn_source = resolve_bpp_atinn_codes(loader)
-    stats['bpp_atinn'] = _format_atinn_list(atinn_needed)
-    stats['bpp_atinn_source'] = atinn_source
     atinn = _atinn_codes(ausp[atinn_col])
     present = [v for v in set(atinn) if v]
     present_ordered = _format_atinn_list(present).split(',') if present else []
@@ -444,14 +627,18 @@ def evaluate_ausp_bpp_rule(
         present_set = set(present)
         if present_set and present_set <= EQUIPMENT_ATINN_CODES:
             extra = (
-                ' В таблице только equipment ATINN 24/27/30/52 — это не BPP. '
-                'Нужен classification AUSP (KLART=001, ATNAM=CCHBC_BPP_CODE) и CABN.'
+                ' В AUSP_EQUIPMENT сейчас только cooler ATINN 24/27/30/52. '
+                'CCHBC_BPP_CODE — не колонка, это CABN.ATNAM → ATINN (обычно 829/868), значение в ATWRT, KLART=001. '
+                'Догрузите в AUSP_EQUIPMENT строки BPP и таблицу CABN.'
             )
-        elif present_set and present_set <= {'143', '148', '151', '604'}:
+        elif present_set and present_set <= CUSTOMER_ATINN_CODES:
             extra = (
                 ' Это customer AUSP (143/148/151/604), не BPP. '
-                'Правило должно читать AUSP_EQUIPMENT.'
+                'RPCONF_53.1 читает AUSP_EQUIPMENT: ATWRT по ATINN из CABN.ATNAM=CCHBC_BPP_CODE.'
             )
+        other = [f'{name} ATINN={sample}' for name, sample in table_samples if name != ausp_table]
+        if other:
+            extra += ' Проверены также: ' + '; '.join(other) + '.'
         return _empty_result(
             f'{rc}: нет {BPP_ATNAM} в {ausp_table} (ATINN {{{stats["bpp_atinn"]}}} из {atinn_source}, KLART=001). '
             f'В таблице ATINN: {present_s}.{extra}',
@@ -487,20 +674,14 @@ def evaluate_ausp_bpp_rule(
     if scoped.empty:
         return _empty_result(f'{rc}: нет заполненных BPP-кодов для материалов MTART LIKE ZFG%', stats)
 
-    primary = _load(loader, 'ZMDM_BPP_CODET')
-    valid_codes = _bpp_reference_codes(primary)
-    if valid_codes:
-        stats['reference'] = 'ZMDM_BPP_CODET'
-    else:
-        fallback = _load(loader, 'ZMDM_BPP_CODE')
-        valid_codes = _bpp_reference_codes(fallback)
-        if valid_codes:
-            stats['reference'] = 'ZMDM_BPP_CODE'
+    valid_codes, reference_name = _resolve_bpp_reference(loader, atinn_needed)
     if not valid_codes:
         return _empty_result(
-            f'{rc}: ZMDM_BPP_CODET и fallback ZMDM_BPP_CODE отсутствуют или не содержат колонку кода',
+            f'{rc}: нет справочника BPP. Нет CAWN_M/CAWNT_M, ZMDM_BPP_CODET/ZMDM_BPP_CODE и CAWN/CAWNT '
+            f'с ATWRT для ATINN {{{stats["bpp_atinn"]}}}.',
             stats,
         )
+    stats['reference'] = reference_name
 
     scoped['LOOKUP_BPP_REFERENCE'] = stats['reference']
     ok = _codes(scoped[value_col]).isin(valid_codes)
@@ -521,6 +702,6 @@ def evaluate_material_rule(
         return evaluate_mara_rule(df, rc, value_col, _load(loader, 'MAKT'))
     if rc in MAKT_RULE_CODES and table == 'MAKT':
         return evaluate_makt_rule(df, rc, value_col)
-    if rc in AUSP_RULE_CODES and table in MATERIAL_AUSP_TABLES:
+    if rc in AUSP_RULE_CODES and _is_material_ausp_table_name(table):
         return evaluate_ausp_bpp_rule(df, rc, value_col, loader, table_name=table)
     return _empty_result(f'{rc}: неверная таблица {table} для material evaluator')

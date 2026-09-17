@@ -240,7 +240,7 @@
         "ELSE ''"
       ],
       "value_checked": "bpp_code",
-      "datamart_or_reference_table_used": "dm_product_general, ZMDM_BPP_CODET, ZMDM_BPP_CODE fallback",
+      "datamart_or_reference_table_used": "dm_product_general; CAWN_M + CAWNT_M (BPP catalog), CABN, AUSP_EQUIPMENT",
       "check_details_message": "",
       "quality_category": "Conformity",
       "domain": "Product",

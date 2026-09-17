@@ -46,6 +46,7 @@ try:
         norm_category_code,
         norm_cde_type,
         norm_equipment_status,
+        account_group_like_7pct,
         to_decimal_doors,
     )
     from utils.dm_customer_equipment import (
@@ -62,7 +63,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-09-15-material-ausp-equipment-bpp'
+    CHECKER_BUILD_ID = '2026-09-17-material-bpp-cawn-m'
     EQUIPMENT_COOLER_STATUS_MATRIX_RULES = frozenset({'RCCONF_342.1', 'RCCONF_342.2'})
     EQUIPMENT_DOOR_EQUIVALENT_MATRIX_RULES = frozenset({'RCCONF_278.1'})
     # Completeness only: field empty → fail; scope cooler+status (not format/matrix rules)
@@ -92,7 +93,11 @@ class FastDataQualityChecker:
         },
     }
     # Conformity Spelling: EQKTX special chars; empty → skip; cooler+status scope
-    EQUIPMENT_EQKTX_SPECIAL_CHARS_RULES = frozenset({'RCCONF_388.2'})
+    EQUIPMENT_SPELLING_SPECIAL_CHARS_RULES = {
+        'RCCONF_388.2': ('EQKTX', 'equipment_description'),
+        'RCCONF_389.2': ('TYPBZ', 'equipment_model'),
+    }
+    EQUIPMENT_EQKTX_VS_MAKT_RULES = frozenset({'RCCONF_388.3'})
     # Conformity: filled value must include letters or digits (TZ); empty → skip; cooler scope
     # Note: rule titles say "upper/capital" but technical_definition is alphanumeric content
     EQUIPMENT_ALPHANUMERIC_CONTENT_RULES = {
@@ -453,6 +458,54 @@ class FastDataQualityChecker:
     def _is_ausp_like_table(self, table_name) -> bool:
         tu = str(table_name or '').strip().upper()
         return tu in ('AUSP', self.AUSP_EQUIPMENT_TABLE) or tu.startswith('AUSP_')
+
+    def _list_material_ausp_table_names(self) -> list[str]:
+        from utils.material_rule_evaluator import CUSTOMER_AUSP_SLICES
+        names = []
+        seen = set()
+
+        def add(name):
+            u = str(name or '').strip().upper()
+            if not u or u in seen or u in CUSTOMER_AUSP_SLICES:
+                return
+            if u != 'AUSP' and not u.startswith('AUSP_'):
+                return
+            seen.add(u)
+            names.append(u)
+
+        add(self.AUSP_EQUIPMENT_TABLE)
+        add('AUSP_MATERIAL')
+        add('AUSP_CLASS')
+        add('AUSP_CLASSIFICATION')
+        add('AUSP')
+        cache = getattr(self.memory_manager, 'data_cache', {}) or {}
+        for key in cache:
+            add(key)
+        getter = getattr(self.memory_manager, '_get_all_table_names', None)
+        if callable(getter):
+            try:
+                for key in getter() or []:
+                    add(key)
+            except Exception:
+                pass
+        return names
+
+    def _first_available_material_ausp_table(self, missing_name, available_tables) -> Optional[str]:
+        skip = str(missing_name or '').strip().upper()
+        for name in self._list_material_ausp_table_names():
+            if name == skip:
+                continue
+            if hasattr(self.memory_manager, 'table_exists') and self.memory_manager.table_exists(name):
+                df = self.memory_manager.get_table(name)
+                if df is not None and not df.empty:
+                    return name
+            if name in (available_tables or []):
+                return name
+            if hasattr(self.memory_manager, 'ensure_table_loaded') and self.memory_manager.ensure_table_loaded(name):
+                df = self.memory_manager.get_table(name)
+                if df is not None and not df.empty:
+                    return name
+        return None
 
     def _build_ausp_split(self, df, table_name):
         tu = (table_name or '').strip().upper()
@@ -994,34 +1047,41 @@ class FastDataQualityChecker:
                 return True
             return False
         if not _table_available(table_name, available_tables):
-            in_sqlite = False
-            try:
-                in_sqlite = bool(hasattr(self.memory_manager, 'db_has_table') and self.memory_manager.db_has_table(table_name))
-            except Exception:
+            alt = None
+            if self.load_profile == 'material' and any(self._is_material_ausp_rule(r) for r in table_rules):
+                alt = self._first_available_material_ausp_table(table_name, available_tables)
+            if alt:
+                print(f'   [AUSP] таблица {table_name} недоступна — RPCONF_53.1 читает {alt}')
+                table_name = alt
+            else:
                 in_sqlite = False
-            if in_sqlite:
-                print(f"   \x1b[91m[ERROR]\x1b[0m Таблица '{table_name}' есть в SQLite, но не загружена в RAM")
-                skip_msg = 'Таблица есть в БД, но не загружена в память'
-            else:
-                print(f"   \x1b[91m[ERROR]\x1b[0m Таблица '{table_name}' НЕ НАЙДЕНА в SQLite и не в RAM")
-                skip_msg = 'Таблица не найдена в БД'
-            suffix = '...' if len(available_tables) > 10 else ''
-            print(f'   [DEBUG] Таблицы в RAM: {sorted(available_tables)[:10]}{suffix}')
-            print(f'   [DEBUG] Всего в RAM: {len(available_tables)}')
-            similar_tables = [t for t in available_tables if table_name.replace('/', '_') in t or t.replace('/', '_') == table_name.replace('/', '_')]
-            if similar_tables:
-                print(f'   [DEBUG] Найдены похожие таблицы: {similar_tables}')
-            if self._parallel_lock:
-                with self._parallel_lock:
-                    for _ in table_rules:
-                        self.skipped_rules += 1
+                try:
+                    in_sqlite = bool(hasattr(self.memory_manager, 'db_has_table') and self.memory_manager.db_has_table(table_name))
+                except Exception:
+                    in_sqlite = False
+                if in_sqlite:
+                    print(f"   \x1b[91m[ERROR]\x1b[0m Таблица '{table_name}' есть в SQLite, но не загружена в RAM")
+                    skip_msg = 'Таблица есть в БД, но не загружена в память'
+                else:
+                    print(f"   \x1b[91m[ERROR]\x1b[0m Таблица '{table_name}' НЕ НАЙДЕНА в SQLite и не в RAM")
+                    skip_msg = 'Таблица не найдена в БД'
+                suffix = '...' if len(available_tables) > 10 else ''
+                print(f'   [DEBUG] Таблицы в RAM: {sorted(available_tables)[:10]}{suffix}')
+                print(f'   [DEBUG] Всего в RAM: {len(available_tables)}')
+                similar_tables = [t for t in available_tables if table_name.replace('/', '_') in t or t.replace('/', '_') == table_name.replace('/', '_')]
+                if similar_tables:
+                    print(f'   [DEBUG] Найдены похожие таблицы: {similar_tables}')
+                if self._parallel_lock:
+                    with self._parallel_lock:
+                        for _ in table_rules:
+                            self.skipped_rules += 1
+                        for rule in table_rules:
+                            self._log_skipped_rule(rule, table_name, skip_msg, timestamp)
+                else:
                     for rule in table_rules:
+                        self.skipped_rules += 1
                         self._log_skipped_rule(rule, table_name, skip_msg, timestamp)
-            else:
-                for rule in table_rules:
-                    self.skipped_rules += 1
-                    self._log_skipped_rule(rule, table_name, skip_msg, timestamp)
-            return
+                return
         df_raw = self.memory_manager.get_table(table_name)
         if (df_raw is None or df_raw.empty) and str(table_name or '').strip().upper() == self.AUSP_EQUIPMENT_TABLE:
             # ещё раз: пустая физическая → fallback из AUSP
@@ -1127,7 +1187,7 @@ class FastDataQualityChecker:
                 self._debug_ausp_columns(df.columns, table_name)
         elif (table_name or '').strip().upper() == self.AUSP_EQUIPMENT_TABLE:
             if self.load_profile == 'material':
-                print(f'   [AUSP_EQUIPMENT] material RPCONF_53.1: classification AUSP (не customer 143/148/151/604)')
+                print(f'   [AUSP_EQUIPMENT] material RPCONF_53.1: ATWRT по ATINN из CABN.ATNAM=CCHBC_BPP_CODE (не колонка, не 24/27/30/52)')
             else:
                 print(f'   [AUSP_EQUIPMENT] обычная таблица оборудования (загрузка как JEST/V_EQUI, не customer AUSP)')
         if table_name in self.table_handlers:
@@ -1363,8 +1423,10 @@ class FastDataQualityChecker:
             return self._process_equipment_field_date_format(rule_code, df, table_name, rule, save_result, timestamp)
         if rule_code in self.EQUIPMENT_FIELD_DATE_PAST_RULES and tn == 'V_EQUI':
             return self._process_equipment_field_date_past(rule_code, df, table_name, rule, save_result, timestamp)
-        if rule_code in self.EQUIPMENT_EQKTX_SPECIAL_CHARS_RULES and tn == 'V_EQUI':
-            return self._process_equipment_eqktx_special_chars(rule_code, df, table_name, rule, save_result, timestamp)
+        if rule_code in self.EQUIPMENT_SPELLING_SPECIAL_CHARS_RULES and tn == 'V_EQUI':
+            return self._process_equipment_spelling_special_chars(rule_code, df, table_name, rule, save_result, timestamp)
+        if rule_code in self.EQUIPMENT_EQKTX_VS_MAKT_RULES and tn == 'V_EQUI':
+            return self._process_equipment_eqktx_vs_makt(rule_code, df, table_name, rule, save_result, timestamp)
         if rule_code in self.EQUIPMENT_ALPHANUMERIC_CONTENT_RULES and tn == 'V_EQUI':
             return self._process_equipment_alphanumeric_content(rule_code, df, table_name, rule, save_result, timestamp)
         if tn.startswith('DFKKBPTAXNUM'):
@@ -1849,6 +1911,9 @@ class FastDataQualityChecker:
                 return (0, 0)
 
             def _material_table_loader(requested_table):
+                from utils.material_rule_evaluator import AUSP_TABLE_NAMES_SENTINEL
+                if str(requested_table or '').strip() == AUSP_TABLE_NAMES_SENTINEL:
+                    return self._list_material_ausp_table_names()
                 cache_key = str(requested_table or '').strip().upper()
                 cached = self._material_rule_table_cache.get(cache_key)
                 if cached is not None:
@@ -3648,6 +3713,9 @@ class FastDataQualityChecker:
                 out.append(self.AUSP_EQUIPMENT_TABLE)
             if 'CABN' not in [str(x).strip().upper() for x in out]:
                 out.append('CABN')
+            for extra in ('CAWN_M', 'CAWNT_M', 'ZMDM_BPP_CODET', 'ZMDM_BPP_CODE', 'CAWN', 'CAWNT'):
+                if extra not in [str(x).strip().upper() for x in out]:
+                    out.append(extra)
         if needs_ausp and self.load_profile != 'material':
             if 'BUT000' not in [str(x).strip().upper() for x in out]:
                 out.append('BUT000')
@@ -3658,6 +3726,8 @@ class FastDataQualityChecker:
         ):
             if 'V_EQUI' not in [str(x).strip().upper() for x in out]:
                 out.append('V_EQUI')
+            if 'MAKT' not in [str(x).strip().upper() for x in out]:
+                out.append('MAKT')
         kna1_dependent = {'BUT0BK', 'BUT051', 'KNB1', 'KNVV', 'KNVP', 'KNVH', 'ADR2', 'ADRC', 'BUT050', 'LOTGC_ADR', '/LOT/GC_ADR', 'LOT_GC_ADR'}
         if any((str(t).strip().upper() in kna1_dependent or str(t).strip().upper().replace('/', '').replace('_', '') == 'LOTGCADR' for t in out)) and 'KNA1' not in out:
             out.append('KNA1')
@@ -5216,27 +5286,23 @@ class FastDataQualityChecker:
             return True
         return False
 
-    def _process_equipment_eqktx_special_chars(self, rule_code, df, table_name, rule, save_result, timestamp):
-        """
-        RCCONF_388.2 — Valid Equipment Description with no Special Characters.
-        IF EQKTX IS NULL OR not cooler-scope THEN '' (skip).
-        ELSE advanced special-char / quotes / brackets checks via conf_special_characters.
-        """
+    def _process_equipment_spelling_special_chars(self, rule_code, df, table_name, rule, save_result, timestamp):
+        col_hint, logical = self.EQUIPMENT_SPELLING_SPECIAL_CHARS_RULES[rule_code]
         work, skip = self._scope_vequi_cooler_population(df, rule_code)
         if skip:
             self._log_skipped_rule(rule, table_name, skip, timestamp)
             return (0, 0)
 
         upper_map = {str(c).strip().upper(): c for c in work.columns}
-        field_col = upper_map.get('EQKTX')
+        field_col = upper_map.get(str(col_hint).strip().upper())
         if not field_col:
             field_col = self._find_col_by_names(
-                work, ('EQKTX', 'equipment_description', rule.get('column_name_checked') or 'EQKTX')
+                work, (col_hint, logical, rule.get('column_name_checked') or col_hint)
             )
         if not field_col or field_col not in work.columns:
             self._log_skipped_rule(
                 rule, table_name,
-                f'{rule_code}: колонка EQKTX (equipment_description) не найдена (cols: {list(work.columns)[:12]})',
+                f'{rule_code}: колонка {col_hint} ({logical}) не найдена (cols: {list(work.columns)[:12]})',
                 timestamp,
             )
             return (0, 0)
@@ -5251,7 +5317,7 @@ class FastDataQualityChecker:
         if filled.empty:
             self._log_skipped_rule(
                 rule, table_name,
-                f'{rule_code}: в cooler scope нет заполненных EQKTX (пустые = skip по ТЗ)',
+                f'{rule_code}: в cooler scope нет заполненных {col_hint} (пустые = skip по ТЗ)',
                 timestamp,
             )
             return (0, 0)
@@ -5262,14 +5328,14 @@ class FastDataQualityChecker:
             'quality_category': 'Conformity',
             'table_name': table_name,
             'matched_column': field_col,
-            'original_column': 'EQKTX',
+            'original_column': col_hint,
         })
         total_rows, error_count, error_df = validator.validate(
             filled, field_col, technical_definition=rule.get('technical_definition'), rule_code=rule_code
         )
         total_rows = int(total_rows or 0)
         error_count = int(error_count or 0)
-        print(f'      [SPELL] {rule_code}: invalid={error_count:,} / evaluated={total_rows:,} (empty EQKTX not errors)')
+        print(f'      [SPELL] {rule_code}: invalid={error_count:,} / evaluated={total_rows:,} (empty {col_hint} not errors)')
 
         if error_df is not None and not error_df.empty:
             error_df = error_df.copy()
@@ -5278,8 +5344,8 @@ class FastDataQualityChecker:
             if 'equipment_status_code' in filled.columns:
                 error_df['LOOKUP_EQUIPMENT_STATUS'] = filled.loc[error_df.index, 'equipment_status_code'].map(norm_equipment_status).values
             error_df['DQ_RULE_CHECK_COLUMNS'] = (
-                'Spelling: V_EQUI.EQKTX special chars / consecutive / quotes / brackets '
-                '(cooler scope ATINN24+status). NULL/empty EQKTX → skip.'
+                f'Spelling: V_EQUI.[{field_col}] special chars / consecutive / quotes / brackets '
+                f'(cooler scope ATINN24+status). NULL/empty {col_hint} → skip.'
             )
 
         is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
@@ -5289,7 +5355,7 @@ class FastDataQualityChecker:
                 'rule_description': rule.get('rule_description', 'Unknown rule'),
                 'quality_category': 'Conformity',
                 'table_name': table_name,
-                'original_column': 'EQKTX',
+                'original_column': col_hint,
                 'matched_column': field_col,
             }
             if self._parallel_lock:
@@ -5304,6 +5370,142 @@ class FastDataQualityChecker:
         elif error_df is not None and not error_df.empty:
             self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
         print(f'      [RESULT] {rule_code}: evaluated={total_rows:,}, invalid_spelling={error_count:,}')
+        return (error_count, total_rows)
+
+    def _get_makt_english_by_matnr(self) -> dict:
+        cached = getattr(self, '_makt_en_by_matnr', None)
+        if cached is not None:
+            return cached
+        mm = self.memory_manager
+        if mm is not None and hasattr(mm, 'ensure_table_loaded'):
+            mm.ensure_table_loaded('MAKT', reload_if_empty=True)
+        makt = mm.get_table('MAKT') if mm is not None else None
+        out = {}
+        if makt is None or makt.empty:
+            print('      [WARN] MAKT пуста — RCCONF_388.3 не сможет сравнить EQKTX с MAKTX')
+            self._makt_en_by_matnr = out
+            return out
+        spras = self._find_col_by_names(makt, ('SPRAS', 'LANGU', 'LANGUAGE'))
+        maktx = self._find_col_by_names(makt, ('MAKTX', 'material_description'))
+        matnr = self._find_col_by_names(makt, ('MATNR', 'MATERIAL', 'material_code'))
+        if not maktx or not matnr:
+            print(f'      [WARN] MAKT: нет MATNR/MAKTX (cols: {list(makt.columns)[:12]})')
+            self._makt_en_by_matnr = out
+            return out
+        work = makt
+        if spras:
+            lang = work[spras].astype(str).str.strip().str.upper()
+            english = work.loc[lang.eq('E') | lang.eq('EN')]
+            if not english.empty:
+                work = english
+        for m, t in zip(work[matnr].tolist(), work[maktx].tolist()):
+            k = ltrim_zeros(m)
+            if not k or k in out:
+                continue
+            out[k] = '' if t is None else str(t).replace('\ufeff', '').replace('\xa0', ' ').strip()
+        self._makt_en_by_matnr = out
+        print(f'      [CACHE] MAKT SPRAS=E: {len(out):,} MATNR')
+        return out
+
+    def _process_equipment_eqktx_vs_makt(self, rule_code, df, table_name, rule, save_result, timestamp):
+        work, skip = self._scope_vequi_cooler_population(df, rule_code)
+        if skip:
+            self._log_skipped_rule(rule, table_name, skip, timestamp)
+            return (0, 0)
+        work = self._attach_equipment_vequi_kna1_attrs(work, table_name, rule_code, key_candidates=('EQUNR', 'OBJNR'))
+        model_col = self._find_col_by_names(work, ('equipment_model', 'TYPBZ', 'equimpment_model'))
+        if model_col:
+            work = work.loc[~work[model_col].map(self._equipment_text_is_empty)].copy()
+        ag_col = self._find_account_group_column(work)
+        if ag_col:
+            before_ag = len(work)
+            work = work.loc[~work[ag_col].map(account_group_like_7pct)].copy()
+            print(f'      [FILTER] {rule_code}: account_group NOT LIKE 7% -> {len(work):,}/{before_ag:,}')
+        if work.empty:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: нет cooler-строк после model/KTOKD 7%',
+                timestamp,
+            )
+            return (0, 0)
+
+        eqktx_col = self._find_col_by_names(
+            work, ('EQKTX', 'equipment_description', rule.get('column_name_checked') or 'EQKTX')
+        )
+        if not eqktx_col:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: колонка EQKTX не найдена (cols: {list(work.columns)[:12]})',
+                timestamp,
+            )
+            return (0, 0)
+        matnr_col = self._find_col_by_names(work, ('matnr', 'MATNR', 'MZATNR', 'MATERIAL'))
+        if not matnr_col:
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: нет MATNR на V_EQUI для join MAKT', timestamp)
+            return (0, 0)
+
+        makt_map = self._get_makt_english_by_matnr()
+        if not makt_map:
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: MAKT SPRAS=E пуста', timestamp)
+            return (0, 0)
+
+        work = work.copy()
+        work['LOOKUP_MATERIAL_DESCRIPTION'] = [
+            makt_map.get(ltrim_zeros(v)) or makt_map.get(str(v or '').strip()) or ''
+            for v in work[matnr_col].tolist()
+        ]
+        eq_txt = work[eqktx_col].map(lambda v: '' if self._equipment_text_is_empty(v) else str(v).replace('\ufeff', '').replace('\xa0', ' ').strip())
+        mat_txt = work['LOOKUP_MATERIAL_DESCRIPTION'].astype(str)
+        ok_mask = eq_txt.eq(mat_txt)
+        error_mask = ~ok_mask
+        total_rows = int(len(work))
+        error_count = int(error_mask.sum())
+        print(f'      [CHECK] {rule_code}: EQKTX vs MAKT.MAKTX evaluated={total_rows:,}, mismatch={error_count:,}')
+
+        validator = ConformityValidator({
+            'rule_code': rule_code,
+            'rule_description': rule.get('rule_description', ''),
+            'quality_category': 'Conformity',
+            'table_name': table_name,
+            'matched_column': eqktx_col,
+            'original_column': 'EQKTX',
+        })
+        err_desc = 'Equipment description (EQKTX) must equal material description (MAKT.MAKTX SPRAS=E).'
+        error_df = validator._prepare_error_dataframe(work, error_mask, 'CONFORMITY', err_desc) if error_count > 0 else None
+        if error_df is not None and not error_df.empty:
+            error_df = error_df.copy()
+            if 'cde_type' in work.columns:
+                error_df['LOOKUP_CDE_TYPE'] = work.loc[error_df.index, 'cde_type'].map(norm_cde_type).values
+            if 'equipment_status_code' in work.columns:
+                error_df['LOOKUP_EQUIPMENT_STATUS'] = work.loc[error_df.index, 'equipment_status_code'].map(norm_equipment_status).values
+            error_df['LOOKUP_MATERIAL_DESCRIPTION'] = work.loc[error_df.index, 'LOOKUP_MATERIAL_DESCRIPTION'].values
+            error_df['DQ_RULE_CHECK_COLUMNS'] = (
+                'Consistency: V_EQUI.EQKTX = MAKT.MAKTX (SPRAS=E) via V_EQUI.MATNR. '
+                'Cooler scope ATINN24+status, model filled, KTOKD not 7%.'
+            )
+
+        is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
+        if save_result:
+            rule_info = {
+                'rule_code': rule_code,
+                'rule_description': rule.get('rule_description', 'Unknown rule'),
+                'quality_category': 'Conformity',
+                'table_name': table_name,
+                'original_column': 'EQKTX',
+                'matched_column': eqktx_col,
+            }
+            if self._parallel_lock:
+                with self._parallel_lock:
+                    self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                    if error_df is not None and not error_df.empty:
+                        self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+            else:
+                self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                if error_df is not None and not error_df.empty:
+                    self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        elif error_df is not None and not error_df.empty:
+            self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        print(f'      [RESULT] {rule_code}: evaluated={total_rows:,}, mismatch={error_count:,}')
         return (error_count, total_rows)
 
     def _process_equipment_cooler_status_matrix(self, rule_code, df, table_name, rule, save_result, timestamp):
