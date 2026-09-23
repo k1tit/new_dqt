@@ -1,12 +1,15 @@
 from __future__ import annotations
+import glob
 import json
 import os
 import sqlite3
 import time
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 DEFAULT_DB_FILENAME = 'db_april.db'
 DB_CONFIG_REL = os.path.join('config', 'database.json')
 ENV_DB_VAR = 'DQ_DATABASE'
+DB_AUTOPICK_GLOB = 'db_*.db'
+SQLITE_FILE_MAGIC = b'SQLite format 3\x00'
 SQLITE_CONNECT_TIMEOUT_SEC = 120.0
 SQLITE_BUSY_TIMEOUT_MS = 120000
 
@@ -54,6 +57,50 @@ def load_database_config(project_root: str) -> dict:
     except (json.JSONDecodeError, OSError):
         return {}
 
+def _mtime(path: str) -> float:
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+def _is_sqlite_file(path: str) -> bool:
+    try:
+        with open(path, 'rb') as f:
+            return f.read(len(SQLITE_FILE_MAGIC)) == SQLITE_FILE_MAGIC
+    except OSError:
+        return False
+
+def discover_database_files(project_root: str) -> List[str]:
+    """Non-empty SQLite files matching db_*.db in the project root and its parent, newest first."""
+    parent = os.path.dirname(os.path.normpath(project_root))
+    found: List[Tuple[str, int]] = []
+    seen: set[str] = set()
+    for rank, directory in enumerate((project_root, parent)):
+        if not directory or not os.path.isdir(directory):
+            continue
+        for path in glob.glob(os.path.join(directory, DB_AUTOPICK_GLOB)):
+            path = os.path.normpath(path)
+            key = os.path.normcase(path)
+            if key in seen or not os.path.isfile(path):
+                continue
+            seen.add(key)
+            if _is_sqlite_file(path):
+                found.append((path, rank))
+    found.sort(key=lambda item: (_mtime(item[0]), -item[1], item[0]), reverse=True)
+    return [path for path, _ in found]
+
+def autopick_database_path(project_root: str) -> Optional[Tuple[str, str]]:
+    candidates = discover_database_files(project_root)
+    if not candidates:
+        return None
+    path = candidates[0]
+    stamp = time.strftime('%Y-%m-%d %H:%M', time.localtime(_mtime(path)))
+    source = f'авто-выбор {os.path.basename(path)} в {os.path.dirname(path)} (изменён {stamp})'
+    others = [os.path.basename(p) for p in candidates[1:4]]
+    if others:
+        source += f"; другие кандидаты: {', '.join(others)}"
+    return (path, source)
+
 def resolve_database_path(project_root: str, cli_path: Optional[str]=None, *, must_exist: bool=False) -> Tuple[str, str]:
     if cli_path and str(cli_path).strip():
         path = _normalize_db_spec(project_root, str(cli_path))
@@ -73,6 +120,12 @@ def resolve_database_path(project_root: str, cli_path: Optional[str]=None, *, mu
         else:
             path = _normalize_db_spec(project_root, DEFAULT_DB_FILENAME)
             source = f'запасной DEFAULT_DB_FILENAME ({DEFAULT_DB_FILENAME})'
+        if not os.path.isfile(path):
+            picked = autopick_database_path(project_root)
+            if picked is not None:
+                missing = os.path.basename(path)
+                path, autopick_source = picked
+                source = f'{autopick_source}; {missing} не найден ({source})'
     if must_exist and (not os.path.isfile(path)):
         raise FileNotFoundError(f'Файл базы данных не найден: {path}\nИсточник: {source}. Положите .db в корень проекта и обновите {DB_CONFIG_REL} (поле database) или задайте {ENV_DB_VAR} / --db.')
     return (path, source)
@@ -133,4 +186,4 @@ def probe_db_writable(db_path: str, *, retries: int=8, sleep_sec: float=1.5) -> 
 def is_lock_error(exc: BaseException) -> bool:
     s = str(exc).lower()
     return 'locked' in s or 'busy' in s
-__all__ = ['DEFAULT_DB_FILENAME', 'DB_CONFIG_REL', 'ENV_DB_VAR', 'connect_sqlite', 'resolve_database_path', 'load_database_config', 'find_project_root', 'find_dq_project_root', 'default_db_path', 'probe_db_writable', 'is_lock_error']
+__all__ = ['DEFAULT_DB_FILENAME', 'DB_CONFIG_REL', 'ENV_DB_VAR', 'DB_AUTOPICK_GLOB', 'connect_sqlite', 'resolve_database_path', 'load_database_config', 'find_project_root', 'find_dq_project_root', 'default_db_path', 'discover_database_files', 'autopick_database_path', 'probe_db_writable', 'is_lock_error']
