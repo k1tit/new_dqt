@@ -63,7 +63,7 @@ except ImportError as e:
     raise
 
 class FastDataQualityChecker:
-    CHECKER_BUILD_ID = '2026-09-17-equipment-stable-counts'
+    CHECKER_BUILD_ID = '2026-09-18-rpconf-53-ausp-class'
     EQUIPMENT_COOLER_STATUS_MATRIX_RULES = frozenset({'RCCONF_342.1', 'RCCONF_342.2'})
     EQUIPMENT_DOOR_EQUIVALENT_MATRIX_RULES = frozenset({'RCCONF_278.1'})
     # Completeness only: field empty → fail; scope cooler+status (not format/matrix rules)
@@ -475,11 +475,11 @@ class FastDataQualityChecker:
             seen.add(u)
             names.append(u)
 
-        add(self.AUSP_EQUIPMENT_TABLE)
         add('AUSP_MATERIAL')
+        add('AUSP')
         add('AUSP_CLASS')
         add('AUSP_CLASSIFICATION')
-        add('AUSP')
+        add(self.AUSP_EQUIPMENT_TABLE)
         cache = getattr(self.memory_manager, 'data_cache', {}) or {}
         for key in cache:
             add(key)
@@ -1194,7 +1194,10 @@ class FastDataQualityChecker:
                     display_row_count = int(df[partner_col].nunique())
         self._print_table_header(table_name, len(table_rules), display_row_count)
         ausp_split = None
-        if (table_name or '').strip().upper() == 'AUSP' and self.load_profile != 'material':
+        tn_u = str(table_name or '').strip().upper()
+        if tn_u == 'AUSP' and self.load_profile == 'material':
+            print('   [AUSP] material RPCONF_53.1: ATWRT по CABN.ATNAM=CCHBC_BPP_CODE (ATINN 829/868, KLART=001), не cooler 24/27/30/52 и не customer 143/148/151/604')
+        elif tn_u == 'AUSP':
             ausp_split = self._build_ausp_split(df, table_name)
             if ausp_split:
                 total_slices = sum((len(s[0]) for s in ausp_split.values()))
@@ -1205,11 +1208,8 @@ class FastDataQualityChecker:
                 suffix = '...' if len(names) > 15 else ''
                 print(f'   [AUSP] Не удалось разбить по имени: колонки ATINN/ATWRT не найдены. Заголовки ({len(names)}): {names[:15]}{suffix}')
                 self._debug_ausp_columns(df.columns, table_name)
-        elif (table_name or '').strip().upper() == self.AUSP_EQUIPMENT_TABLE:
-            if self.load_profile == 'material':
-                print(f'   [AUSP_EQUIPMENT] material RPCONF_53.1: ATWRT по ATINN из CABN.ATNAM=CCHBC_BPP_CODE (не колонка, не 24/27/30/52)')
-            else:
-                print(f'   [AUSP_EQUIPMENT] обычная таблица оборудования (загрузка как JEST/V_EQUI, не customer AUSP)')
+        elif tn_u == self.AUSP_EQUIPMENT_TABLE:
+            print(f'   [AUSP_EQUIPMENT] обычная таблица оборудования (загрузка как JEST/V_EQUI, не customer AUSP)')
         if table_name in self.table_handlers:
             is_taxnum_table = str(table_name or '').strip().upper().startswith('DFKKBPTAXNUM')
             rule_codes_in_table = {str(r.get('rule_code') or '').strip() for r in table_rules or [] if r}
@@ -1942,10 +1942,14 @@ class FastDataQualityChecker:
                 cached = self._material_rule_table_cache.get(cache_key)
                 if cached is not None:
                     return cached
-                loaded = self.memory_manager.get_table(requested_table)
-                if (loaded is None or loaded.empty) and hasattr(self.memory_manager, 'ensure_table_loaded'):
-                    self.memory_manager.ensure_table_loaded(requested_table, reload_if_empty=True)
+                loaded = None
+                if cache_key == 'AUSP_MATERIAL' and hasattr(self.memory_manager, 'get_or_build_ausp_material_bpp'):
+                    loaded = self.memory_manager.get_or_build_ausp_material_bpp()
+                if loaded is None or (hasattr(loaded, 'empty') and loaded.empty):
                     loaded = self.memory_manager.get_table(requested_table)
+                    if (loaded is None or loaded.empty) and hasattr(self.memory_manager, 'ensure_table_loaded'):
+                        self.memory_manager.ensure_table_loaded(requested_table, reload_if_empty=True)
+                        loaded = self.memory_manager.get_table(requested_table)
                 if loaded is not None and not loaded.empty:
                     loaded = self._apply_rule_time_column_map(loaded.copy(), requested_table)
                     self._material_rule_table_cache[cache_key] = loaded

@@ -50,7 +50,7 @@ RULE_EXTRA_TABLES: dict[str, tuple[str, ...]] = {
     'RPCONF_253.4': ('MAKT',),
     'RPCONF_265.1': ('MAKT',),
     'RPCONF_371.1': ('MAKT',),
-    'RPCONF_53.1': ('AUSP_EQUIPMENT', 'MARA', 'CABN', 'CAWN_M', 'CAWNT_M', 'ZMDM_BPP_CODET', 'ZMDM_BPP_CODE', 'CAWN', 'CAWNT'),
+    'RPCONF_53.1': ('AUSP', 'AUSP_MATERIAL', 'MARA', 'CABN', 'CAWN_M', 'CAWNT_M', 'ZMDM_BPP_CODET', 'ZMDM_BPP_CODE', 'CAWN', 'CAWNT'),
 }
 
 MATERIAL_PRIMARY = frozenset({'MARA'})

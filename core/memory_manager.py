@@ -27,7 +27,9 @@ class MemoryManager:
     AUSP_DERIVED_NAMES = ('AUSP_143', 'AUSP_604', 'AUSP_148', 'AUSP_151')
     AUSP_ATINN_TO_COLUMN = {'143': 'CCAF', '604': 'RED_OUTLET', '148': 'ZGLOBAL_CUSTOMER', '151': 'ZTRADE_NAME'}
     AUSP_EQUIPMENT_TABLE = 'AUSP_EQUIPMENT'
+    AUSP_MATERIAL_TABLE = 'AUSP_MATERIAL'
     AUSP_EQUIPMENT_ATINN = frozenset({'24', '27', '30', '52'})
+    AUSP_CUSTOMER_SLICES = frozenset({'AUSP_143', 'AUSP_148', 'AUSP_151', 'AUSP_604'})
     # физические имена в SQLite (полный + обрезанные / сокращения)
     AUSP_EQUIPMENT_PHYSICAL_ALIASES = (
         'AUSP_EQUIPMENT',
@@ -604,6 +606,105 @@ class MemoryManager:
             f'   {_term("WARNING")} AUSP_EQUIPMENT в SQLite пуста (COUNT(*)={sqlite_n}). '
             f'Перезалейте дамп меню 1/3 (обычная таблица, не пункт 4 AUSP).'
         )
+
+    def _is_ausp_classification_source_name(self, name) -> bool:
+        u = str(name or '').strip().upper()
+        if not u or u == self.AUSP_MATERIAL_TABLE:
+            return False
+        if u in self.AUSP_CUSTOMER_SLICES:
+            return False
+        return u == 'AUSP' or u.startswith('AUSP_')
+
+    def _filter_df_by_atinn(self, df, atinn_needed):
+        if df is None or getattr(df, 'empty', True) or not atinn_needed:
+            return pd.DataFrame()
+        atinn_col, _atwrt = self._find_ausp_columns(df.columns)
+        if not atinn_col:
+            return pd.DataFrame()
+        mask = df[atinn_col].map(self._normalize_atinn_value).isin(atinn_needed)
+        if not bool(mask.any()):
+            return pd.DataFrame()
+        return df.loc[mask].copy()
+
+    def _bpp_atinn_needed(self):
+        try:
+            from utils.material_rule_evaluator import resolve_bpp_atinn_codes
+            codes, _src = resolve_bpp_atinn_codes(lambda n: self.get_table(n) if n != '__AUSP_TABLE_NAMES__' else [])
+            return {str(c) for c in codes if c}
+        except Exception:
+            return {'829', '868'}
+
+    def _sqlite_filter_ausp_atinn(self, table_name, atinn_needed):
+        physical = self._find_table_in_db(table_name)
+        if not physical:
+            return pd.DataFrame()
+        nums = []
+        for raw in atinn_needed or []:
+            try:
+                nums.append(int(str(raw).strip()))
+            except (TypeError, ValueError):
+                continue
+        if not nums:
+            return pd.DataFrame()
+        conn = connect_sqlite(self.db_path)
+        try:
+            cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{physical}")').fetchall()]
+            atinn_col = None
+            for c in cols:
+                if re.sub('[^A-Za-z0-9]', '', str(c).upper()) == 'ATINN':
+                    atinn_col = c
+                    break
+            if not atinn_col:
+                return pd.DataFrame()
+            in_list = ','.join(str(n) for n in sorted(set(nums)))
+            sql = f'SELECT * FROM "{physical}" WHERE CAST("{atinn_col}" AS INTEGER) IN ({in_list})'
+            df = pd.read_sql_query(sql, conn)
+            if df is None or df.empty:
+                return pd.DataFrame()
+            print(f'   {_term("INFO")} AUSP_MATERIAL: {len(df):,} строк ATINN {{{in_list}}} из SQLite {physical}')
+            return df
+        except Exception as e:
+            print(f'   {_term("WARNING")} AUSP_MATERIAL: SQLite {physical}: {e}')
+            return pd.DataFrame()
+        finally:
+            conn.close()
+
+    def get_or_build_ausp_material_bpp(self, atinn_needed=None):
+        needed = {self._normalize_atinn_value(v) for v in (atinn_needed or ())}
+        needed.discard('')
+        if not needed:
+            needed = self._bpp_atinn_needed()
+        cached = self.data_cache.get(self.AUSP_MATERIAL_TABLE)
+        if cached is not None and not cached.empty:
+            sliced = self._filter_df_by_atinn(cached, needed)
+            if sliced is not None and not sliced.empty:
+                return sliced
+        parts = []
+        for key, df in list(self.data_cache.items()):
+            if not self._is_ausp_classification_source_name(key):
+                continue
+            sl = self._filter_df_by_atinn(df, needed)
+            if sl is not None and not sl.empty:
+                parts.append(sl)
+        if not parts:
+            try:
+                sqlite_names = self._get_all_table_names() or []
+            except Exception:
+                sqlite_names = []
+            for t in sqlite_names:
+                if not self._is_ausp_classification_source_name(t):
+                    continue
+                sl = self._sqlite_filter_ausp_atinn(t, needed)
+                if sl is not None and not sl.empty:
+                    parts.append(sl)
+        if not parts:
+            empty = pd.DataFrame()
+            self.data_cache[self.AUSP_MATERIAL_TABLE] = empty
+            return empty
+        out = pd.concat(parts, ignore_index=True)
+        self.data_cache[self.AUSP_MATERIAL_TABLE] = out
+        print(f'   {_term("INFO")} AUSP_MATERIAL: {len(out):,} строк CCHBC_BPP ATINN={sorted(needed)}')
+        return out
 
     def _get_dfkkbptaxnum_taxtype_column(self, df):
         if df is None or df.empty or (not hasattr(df, 'columns')):

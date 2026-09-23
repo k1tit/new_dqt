@@ -361,6 +361,43 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         self.assertEqual('CAWN_M+CAWNT_M', result['stats']['reference'])
         self.assertEqual({'BPP_OK'}, set(result['df'].loc[result['ok_mask'], 'ATWRT']))
 
+    def test_rpc53_1_uses_ausp_material_when_customer_and_equipment_miss(self):
+        customer = pd.DataFrame({
+            'ATINN': ['143'],
+            'OBJEK': ['1'],
+            'ATWRT': ['CAF'],
+            'KLART': ['001'],
+        })
+        material = pd.DataFrame({
+            'ATINN': ['829'],
+            'OBJEK': ['000000000000000010'],
+            'ATWRT': ['BPP_OK'],
+            'KLART': ['1'],
+            'ATZHL': ['1'],
+        })
+        tables = {
+            'AUSP': customer,
+            'AUSP_EQUIPMENT': pd.DataFrame({
+                'ATINN': ['24'],
+                'OBJEK': ['9'],
+                'ATWRT': ['COOLER'],
+                'KLART': ['002'],
+            }),
+            'AUSP_MATERIAL': material,
+            'MARA': pd.DataFrame({'MATNR': ['10'], 'MTART': ['ZFG']}),
+            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_OK'], 'ATWTB': ['VALID']}),
+        }
+        result = evaluate_ausp_bpp_rule(
+            customer,
+            'RPCONF_53.1',
+            'ATWRT',
+            lambda name: tables.get(name, pd.DataFrame()),
+            table_name='AUSP',
+        )
+        self._assert_result(result, 1, 0)
+        self.assertEqual('AUSP_MATERIAL', result['stats']['ausp_table'])
+        self.assertEqual(['BPP_OK'], list(result['df']['ATWRT']))
+
 
 if __name__ == '__main__':
     unittest.main()

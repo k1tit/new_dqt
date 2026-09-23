@@ -486,7 +486,12 @@ def _sample_atinn_text(df: pd.DataFrame) -> str:
     return _format_atinn_list(present) or 'пусто'
 
 
-def _count_bpp_hits(df: pd.DataFrame, atinn_needed) -> int:
+def _klart_is_material_class(series: pd.Series) -> pd.Series:
+    codes = _codes(series)
+    return codes.eq('001') | codes.eq('01') | codes.eq('1')
+
+
+def _count_bpp_hits(df: pd.DataFrame, atinn_needed, *, require_klart: bool = False) -> int:
     if df is None or df.empty or not atinn_needed:
         return 0
     atinn_col = find_col(df, ('ATINN',))
@@ -496,20 +501,21 @@ def _count_bpp_hits(df: pd.DataFrame, atinn_needed) -> int:
     work = df.loc[atinn.isin(atinn_needed)]
     if work.empty:
         return 0
-    klart_col = find_col(work, ('KLART', 'CLASS_TYPE'))
-    if klart_col:
-        work = work.loc[_codes(work[klart_col]).eq('001')]
+    if require_klart:
+        klart_col = find_col(work, ('KLART', 'CLASS_TYPE'))
+        if klart_col:
+            work = work.loc[_klart_is_material_class(work[klart_col])]
     return int(len(work))
 
 
 def _ausp_pick_key(name: str, hits: int) -> tuple:
     u = str(name or '').strip().upper()
-    if u == 'AUSP_EQUIPMENT':
+    if u in ('AUSP_MATERIAL', 'AUSP_CLASS', 'AUSP_CLASSIFICATION'):
         prio = 0
-    elif u in ('AUSP_MATERIAL', 'AUSP_CLASS', 'AUSP_CLASSIFICATION'):
-        prio = 1
     elif u == 'AUSP':
-        prio = 5
+        prio = 1
+    elif u == 'AUSP_EQUIPMENT':
+        prio = 8
     else:
         prio = 4
     return (-int(hits), prio, u)
@@ -529,7 +535,7 @@ def _discover_ausp_table_names(table_name: str, loader: Callable[[str], pd.DataF
         out.append(u)
 
     add(table_name)
-    for name in ('AUSP_EQUIPMENT', 'AUSP_MATERIAL', 'AUSP_CLASS', 'AUSP_CLASSIFICATION', 'AUSP'):
+    for name in ('AUSP_MATERIAL', 'AUSP_CLASS', 'AUSP_CLASSIFICATION', 'AUSP', 'AUSP_EQUIPMENT'):
         add(name)
     try:
         extra = loader(AUSP_TABLE_NAMES_SENTINEL)
@@ -565,13 +571,26 @@ def _pick_material_ausp_frame(
     scored = []
     for name, df in frames.items():
         samples.append((name, _sample_atinn_text(df)))
-        hits = _count_bpp_hits(df, atinn_needed)
+        hits = _count_bpp_hits(df, atinn_needed, require_klart=False)
         if hits > 0:
             scored.append((name, df, hits))
+    if not scored:
+        extra = _load(loader, 'AUSP_MATERIAL')
+        extra_name = 'AUSP_MATERIAL'
+        if extra is not None and not extra.empty:
+            frames[extra_name] = extra
+            samples.append((extra_name, _sample_atinn_text(extra)))
+            hits = _count_bpp_hits(extra, atinn_needed, require_klart=False)
+            if hits > 0:
+                scored.append((extra_name, extra, hits))
     if scored:
         scored.sort(key=lambda item: _ausp_pick_key(item[0], item[2]))
-        name, df, _hits = scored[0]
-        return df, name, samples
+        if len(scored) == 1:
+            name, df, _hits = scored[0]
+            return df, name, samples
+        parts = [item[1] for item in scored]
+        names = [item[0] for item in scored]
+        return pd.concat(parts, ignore_index=True), '+'.join(names), samples
     fallback = frames.get(requested)
     if fallback is None:
         fallback = frames.get('AUSP')
@@ -588,7 +607,7 @@ def evaluate_ausp_bpp_rule(
     rule_code: str,
     value_col: str,
     loader: Callable[[str], pd.DataFrame],
-    table_name: str = 'AUSP_EQUIPMENT',
+    table_name: str = 'AUSP',
 ) -> dict:
     rc = str(rule_code).strip().upper()
     atinn_needed, atinn_source = resolve_bpp_atinn_codes(loader)
@@ -618,7 +637,7 @@ def evaluate_ausp_bpp_rule(
     work = ausp.loc[atinn.isin(atinn_needed)].copy()
     klart_col = find_col(work, ('KLART', 'CLASS_TYPE'))
     if klart_col:
-        work = work.loc[_codes(work[klart_col]).eq('001')].copy()
+        work = work.loc[_klart_is_material_class(work[klart_col])].copy()
     work = _dedupe_bpp_ausp(work, atinn_col, objek_col)
     stats['bpp_rows'] = len(work)
     if work.empty:
@@ -627,14 +646,14 @@ def evaluate_ausp_bpp_rule(
         present_set = set(present)
         if present_set and present_set <= EQUIPMENT_ATINN_CODES:
             extra = (
-                ' В AUSP_EQUIPMENT сейчас только cooler ATINN 24/27/30/52. '
-                'CCHBC_BPP_CODE — не колонка, это CABN.ATNAM → ATINN (обычно 829/868), значение в ATWRT, KLART=001. '
-                'Догрузите в AUSP_EQUIPMENT строки BPP и таблицу CABN.'
+                ' Это cooler AUSP_EQUIPMENT (ATINN 24/27/30/52), не BPP материала. '
+                'CCHBC_BPP_CODE — CABN.ATNAM → ATINN (обычно 829/868), ATWRT, KLART=001. '
+                'Нужен дамп классификации материалов в AUSP (не customer 143/148/151/604 и не cooler).'
             )
         elif present_set and present_set <= CUSTOMER_ATINN_CODES:
             extra = (
                 ' Это customer AUSP (143/148/151/604), не BPP. '
-                'RPCONF_53.1 читает AUSP_EQUIPMENT: ATWRT по ATINN из CABN.ATNAM=CCHBC_BPP_CODE.'
+                'RPCONF_53.1 читает AUSP классификации: ATWRT по ATINN из CABN.ATNAM=CCHBC_BPP_CODE.'
             )
         other = [f'{name} ATINN={sample}' for name, sample in table_samples if name != ausp_table]
         if other:
