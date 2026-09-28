@@ -15,13 +15,44 @@ Two distinct generations of damage are present, which means the same source text
 through two different broken conversions — one of them possibly on a second ingestion of an
 already damaged file.
 
-This report shows the byte-level derivation for each case, proves that the Data Quality
-loader cannot be the origin, and lists what is required from the source side.
+A full scan of the loaded August extract found **33 damaged `MAKTX` values out of 711,650
+rows**. 27 of them were produced by code pages the Data Quality loader never uses. The
+remaining 6 use code pages the loader does contain, but a whole-file misread is inconsistent
+with the other 711,617 rows staying intact, including valid Armenian and Greek text. The
+damage is therefore in the extract as delivered.
+
+This report shows the measured counts, the byte-level derivation, and what is required from
+the source side.
 
 ## 2. Evidence
 
-Byte-level derivation of the four confirmed patterns. `№` is U+2116, whose UTF-8
-representation is `E2 84 96`.
+Measured on `db_august.db`, table `MAKT`, column `MAKTX`, all 711,650 rows
+(`scripts/export_encoding_errors.py`). Counts by the conversion that reproduces the stored
+value:
+
+| Rows | Conversion | What it did to the original UTF-8 |
+| --- | --- | --- |
+| 13 | cp1252 | Western European misread, e.g. `Æ` (U+00C6) stored as `Ã†` |
+| 10 | cp866 | DOS/OEM Cyrillic misread, e.g. `РЗ` stored as `╨а╨Ч` |
+| 5 | cp1251 | Windows Cyrillic misread, e.g. `°` stored as `В°`, `£` stored as `ВЈ` |
+| 4 | cp1252, then cp866 | the cp866 result above, re-read a second time |
+| 1 | latin-1 | single-byte misread that kept C1 control characters |
+
+Representative reversals from that scan (byte-correct, not a business rewrite):
+
+| Value as delivered | Reconstructed original | Conversion |
+| --- | --- | --- |
+| `Hour satko Ã† 15` | `Hour satko Æ 15` | cp1252 |
+| `Hour Glass Ã† 8 mm` | `Hour Glass Æ 8 mm` | cp1252 |
+| `DICOLUBE ╨Т.╨Р. (PROD.)` | `DICOLUBE В.А. (PROD.)` | cp866 |
+| `╨а╨Ч-STABISIP NA` | `РЗ-STABISIP NA` | cp866 |
+| `POSTER В°1` | `POSTER °1` | cp1251 |
+| `UMBRELLA 4*4ВЈ SPRITE` | `UMBRELLA 4*4£ SPRITE` | cp1251 |
+| `Silicate reagent Ñ‚Ð”Ð¦ 2429600` | `Silicate reagent № 2429600` | cp1252, then cp866 |
+
+The full `MANDT` / `MATNR` / `SPRAS` list is the CSV written by the same run.
+
+Byte-level derivation of the double-encoded `№` case. `№` is U+2116, UTF-8 `E2 84 96`.
 
 | Value as delivered | Original text | Conversion that produced it |
 | --- | --- | --- |
@@ -54,33 +85,43 @@ Generation 2 — the UTF-8 bytes of the already damaged `тДЦ` (`D1 82 D0 94 D
 
 Only **cp1252** reproduces the delivered value `Ñ‚Ð”Ð¦`.
 
-## 3. Why the Data Quality pipeline is not the origin
+## 3. Why this is not a whole-table misread by the Data Quality pipeline
 
-The DQ CSV loader attempts exactly four code pages, in this order:
-`utf-8-sig`, `utf-8`, `cp1251`, `latin-1`.
+The DQ CSV loader attempts exactly four code pages, in this order, and keeps the first one
+that decodes the **whole file**: `utf-8-sig`, `utf-8`, `cp1251`, `latin-1`. It never uses
+cp866 or cp1252.
 
-Neither cp866, nor cp1125, nor cp1252 is among them:
-
-* Generation 1 requires cp866 or cp1125 — the loader never uses either, so it cannot
-  produce `тДЦ` from a correct UTF-8 file.
-* Generation 2 requires cp1252 specifically — the loader's `latin-1` yields C1 control
-  characters (U+0082, U+0094) instead of `‚` and `”`, and its `cp1251` yields `С‚Р”Р¦`.
+* The 13 cp1252 rows, the 10 cp866 rows and the 4 double-encoded rows (27 of 33) cannot be
+  produced by that list. For the double-encoded `Ñ‚Ð”Ð¦` case specifically, the loader's
+  `latin-1` yields C1 control characters (U+0082, U+0094) and its `cp1251` yields `С‚Р”Р¦`.
   Neither matches what was delivered.
+* The 5 cp1251 rows and the 1 latin-1 row do use code pages the loader contains. Producing
+  them would require the UTF-8 decode of an entire file to fail, after which every non-ASCII
+  character in that file would be damaged the same way. That did not happen: 711,617 of
+  711,650 rows are intact, including Armenian (`Թարթիչ`) and Greek (`ΚΑΦΕΣ`) descriptions,
+  which a cp1251 or latin-1 read of a UTF-8 file would have destroyed.
+* Excel files are not a possible origin either: `.xlsx` is read through openpyxl, and the XML
+  payload inside an `.xlsx` container is always UTF-8, so no code page guessing takes place.
 
-Excel files are not a possible origin either: `.xlsx` is read through openpyxl, and the XML
-payload inside an `.xlsx` container is always UTF-8, so no code page guessing takes place.
-
-Conclusion: both generations of damage occurred upstream of the DQ pipeline.
+Conclusion: the 27 rows are upstream of the DQ pipeline. The other 6 are damaged the same
+way cell by cell and are not the result of the loader falling through on this table. The
+residual risk is a separate small file loaded through the fallback; the loader still should
+stop guessing and log the code page it chose.
 
 ## 4. Most likely root cause
 
-cp866 is the DOS/OEM Cyrillic code page. In practice it appears in exactly one common
-workflow: a correct UTF-8 file is opened in Excel and re-saved as **"CSV (MS-DOS)"** or
-**"Text (OEM)"** on a Cyrillic locale, or a download step is configured with an OEM code page
-instead of UTF-8.
+The three single-byte code pages point at three different save paths applied to correct UTF-8:
 
-The cp1252 layer on top indicates that an already damaged file was later processed again by a
-tool defaulting to Windows-1252.
+* **cp866** (10 rows) is DOS/OEM Cyrillic. It appears when a UTF-8 file is re-saved from Excel
+  as **"CSV (MS-DOS)"** or **"Text (OEM)"** on a Cyrillic locale, or a download step is set to
+  an OEM code page.
+* **cp1252** (13 rows, the largest group) is the Western European default. It appears when the
+  same file is opened or saved by a tool whose default is Windows-1252, which is what produces
+  `Æ` → `Ã†`.
+* **cp1251** (5 rows) is Windows Cyrillic, the same class of mistake on a Cyrillic locale
+  (`°` → `В°`, `£` → `ВЈ`).
+
+The 4 rows with `cp1252` on top of `cp866` mean an already damaged file was processed again.
 
 ## 5. What is required from the source side
 
@@ -126,8 +167,15 @@ print('тДЦ'.encode('utf-8').decode('cp1252'))  # Ñ‚Ð”Ð¦
 print('╨а╨Ч-STABISIP NA'.encode('cp866').decode('utf-8'))  # РЗ-STABISIP NA
 ```
 
-## 9. Open item
+## 9. Scope of this measurement
 
-The exact number of affected rows and the full `MATNR` list are not included yet: they
-require a query against the loaded monthly database, which was not available when this
-report was written. They will be attached as soon as the database is accessible.
+Counted on 23 Sep 2026 against `db_august.db`: 711,650 `MAKT` rows, 33 damaged `MAKTX`
+values, broken down in section 2. The per-material list (`MANDT`, `MATNR`, `SPRAS`, delivered
+value, reconstructed original, codec chain) is the export produced by:
+
+```text
+python scripts/export_encoding_errors.py --table MAKT --columns MAKTX --format xlsx
+```
+
+Other text columns in the same extract have not been scanned yet. Run the same script with
+`--all-tables` before treating `MAKT` as the only affected table.
