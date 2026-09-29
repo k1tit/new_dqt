@@ -304,6 +304,31 @@
       "is_field_mandatory": "Optional",
       "remediation_output": "",
       "exclude_from_score_calculation": false
+    },
+    {
+      "rule_code": "RPCONF_160.4",
+      "rule_description": "For MTART=ZNVM check value different than 02 -Individ.requirements, Z2 - Sensitive, KP - No check in MARC View",
+      "technical_definition": [
+        "For material_description NOT LIKE '%ABP%'",
+        "IF availability_checking_group IS NULL THEN ''",
+        "ELSE IF material_type_code = 'ZNVM' and  availability_checking_group IN ('02', 'Z2') THEN '1' ELSE IF",
+        "ELSE IF material_type_code = 'ZNVM' and  availability_checking_group NOT IN ('02', 'Z2') THEN '0' ELSE ''"  
+      ],
+      "value_checked": "availability_checking_group",
+      "datamart_or_reference_table_used": "dm_product_plant INNER JOIN dm_product_general",
+      "check_details_message": "Проверка заполненности поля procurement_type в таблице MARC",
+      "quality_category": "Completeness",
+      "domain": "Product",
+      "sub_domain": "Plant",
+      "type_of_check": "Availability",
+      "table_name_checked": "MARC",
+      "column_name_checked": "BESKZ",
+      "business_attribute_name": "Procurement Type",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
+      "exclude_from_score_calculation": false
     }
   ],
   "AUSP": [
