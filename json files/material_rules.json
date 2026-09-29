@@ -260,36 +260,13 @@
       "rule_description": "Missing DISMM in MARC View",
       "technical_definition": [
         "For material_description NOT LIKE '%ABP%'",
-        "IF material_type_code IN (ZWST, ZFGM, ZCDC, ZCDU, ZFGP, ZFG, ZSPF, ZFGS, ZKIT, ZAP, ZFGA, ZOT, ZMM, ZRWT, ZNVM, ZMMN, ZCDE, ZEM, ZPAL, ZCDS, ZSF, ZRW, ZNVL, ZSFT, ZSFB, ZSPS, ZFGC)  AND mrp_type IS NULL THEN '0'",
-        "ELSE IF"
-        "IF material_type_code IN (ZWST, ZFGM, ZCDC, ZCDU, ZFGP, ZFG, ZSPF, ZFGS, ZKIT, ZAP, ZFGA, ZOT, ZMM, ZRWT, ZNVM, ZMMN, ZCDE, ZEM, ZPAL, ZCDS, ZSF, ZRW, ZNVL, ZSFT, ZSFB, ZSPS, ZFGC)  AND mrp_type IS NOT NULL THEN '1'",
+        "IF material_type_code IN (ZWST, ZFGM, ZCDC, ZCDU, ZFGP, ZFG, ZSPF, ZFGS, ZKIT, ZAP, ZFGA, ZOT, ZMM, ZRWT, ZNVM, ZMMN, ZCDE, ZEM, ZPAL, ZCDS, ZSF, ZRW, ZNVL, ZSFT, ZSFB, ZSPS, ZFGC) AND mrp_type IS NULL THEN '0'",
+        "ELSE IF material_type_code IN (ZWST, ZFGM, ZCDC, ZCDU, ZFGP, ZFG, ZSPF, ZFGS, ZKIT, ZAP, ZFGA, ZOT, ZMM, ZRWT, ZNVM, ZMMN, ZCDE, ZEM, ZPAL, ZCDS, ZSF, ZRW, ZNVL, ZSFT, ZSFB, ZSPS, ZFGC) AND mrp_type IS NOT NULL THEN '1'",
         "ELSE ''"
       ],
       "value_checked": "mrp_type",
       "datamart_or_reference_table_used": "dm_product_plant INNER JOIN dm_product_general",
       "check_details_message": "Проверка заполненности поля mrp_type в таблице MARC",
-      "quality_category": "Completeness",
-      "domain": "Product",
-      "sub_domain": "Plant",
-      "type_of_check": "Availability",
-      "table_name_checked": "MARC",
-      "column_name_checked": "DISMM",
-      "business_attribute_name": "MRP Type",
-      "is_active": 1,
-      "severity": 1,
-      "is_field_mandatory": "Optional",
-      "remediation_output": "",
-      "exclude_from_score_calculation": false
-    },
-        {
-      "rule_code": "",
-      "rule_description": "",
-      "technical_definition": [
-        
-      ],
-      "value_checked": " ",
-      "datamart_or_reference_table_used": "dm_product_plant INNER JOIN dm_product_general",
-      "check_details_message": " ",
       "quality_category": "Completeness",
       "domain": "Product",
       "sub_domain": "Plant",
