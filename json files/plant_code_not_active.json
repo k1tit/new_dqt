@@ -1,0 +1,1430 @@
+{
+  "description": "plant_code_not_active for dm_product_plant (alias pcna). Plants with is_active=0 are excluded. Plants with is_active=1 or absent from this list stay in the population.",
+  "columns": [
+    "plant_code",
+    "plant_name",
+    "is_active"
+  ],
+  "rows": [
+    {
+      "plant_code": "0000",
+      "plant_name": "Dummy for Empties BOM",
+      "is_active": 0
+    },
+    {
+      "plant_code": "0001",
+      "plant_name": "Dummy for Empties BOM",
+      "is_active": 0
+    },
+    {
+      "plant_code": "0CH1",
+      "plant_name": "SBV Pnt abroad - Vals DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "0CH2",
+      "plant_name": "SBV Pnt abroad - Zizers DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "0IE1",
+      "plant_name": "SBV Pnt abroad Knockmore",
+      "is_active": 0
+    },
+    {
+      "plant_code": "0LT4",
+      "plant_name": "SBV Pnt abroad - Varena",
+      "is_active": 0
+    },
+    {
+      "plant_code": "0PL1",
+      "plant_name": "SBV Pnt abroad - Staniatki PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "0RO3",
+      "plant_name": "SBV Pnt abroad - Brasov",
+      "is_active": 0
+    },
+    {
+      "plant_code": "11D1",
+      "plant_name": "SC Optimizer Plant",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1201",
+      "plant_name": "Elchim dummy plant",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1202",
+      "plant_name": "Tsakiris dummy plant",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1242",
+      "plant_name": "Aspropyrgos Chilled - 1 /dummy",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1295",
+      "plant_name": "Dummy Three Cents Greece",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1297",
+      "plant_name": "DO NOT USE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1350",
+      "plant_name": "Central Offices Group",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1351",
+      "plant_name": "Central Offices Group",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1352",
+      "plant_name": "COCA-COLA HBC SERVICES MEPE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1353",
+      "plant_name": "CCHBC MEPE THESSALONIKI BRANCH",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1401",
+      "plant_name": "CCHBC Finance BV",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1410",
+      "plant_name": "CC Beverages Holdings II",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1420",
+      "plant_name": "Coca-Cola HBC Holdings B.V",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1AT1",
+      "plant_name": "SBV Pnt abroad - Vienna PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1BG1",
+      "plant_name": "SBV Pnt abroad - Kostinbrod",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1BG2",
+      "plant_name": "SBV Pnt abroad - Targovishte",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1BG3",
+      "plant_name": "SBV Pnt abroad - Sofia",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1BG4",
+      "plant_name": "SBV Pnt abroad - Plovdiv",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1BG6",
+      "plant_name": "SBV Pnt abroad - Pleven",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1CH1",
+      "plant_name": "SBV Pnt abroad - Dietlikon PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1CH4",
+      "plant_name": "SBV Pnt abroad - Bolligen PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1CY0",
+      "plant_name": "SBV Pnt abroad - Nicosia",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1CZ0",
+      "plant_name": "SBV Pnt abroad - Praha",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1GR0",
+      "plant_name": "SBV Pnt abroad - Schimatari",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1GR1",
+      "plant_name": "SBV Pnt abroad - Volos",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1GR2",
+      "plant_name": "SBV Pnt abroad - Patra",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1GR3",
+      "plant_name": "SBV Pnt abroad - Thessaloniki",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1GR4",
+      "plant_name": "SBV Pnt abroad - Heraklion",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1GR5",
+      "plant_name": "SBV Pnt abroad - Aigio",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1GR6",
+      "plant_name": "SBV Pnt abroad - Malia",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1GR9",
+      "plant_name": "SBV Pnt abroad - Athens DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1HU0",
+      "plant_name": "SBV Pnt abroad - Dunaharaszti",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1IT0",
+      "plant_name": "SBV Pnt abroad - Nogara",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1IT1",
+      "plant_name": "SBV Pnt abroad - Gaglianico",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1IT2",
+      "plant_name": "SBV Pnt abroad - Oricola",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1IT3",
+      "plant_name": "SBV Pnt abroad - Corfinio",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1IT4",
+      "plant_name": "SBV Pnt abroad FDV Monticchio",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1IT5",
+      "plant_name": "SBV Pnt abroad - FDV Rionero",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1IT6",
+      "plant_name": "SBV Pnt abroad - STI Nogara DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1IT7",
+      "plant_name": "SBV Pnt abroad - Nogara SIT",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1IT8",
+      "plant_name": "SBV Pnt abroad - Maddaloni DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1IT9",
+      "plant_name": "SBV Pnt abroad - ORICOLA DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1LT0",
+      "plant_name": "SBV Pnt abroad - Alytus PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1PL8",
+      "plant_name": "SBV Pnt abroad -Radzymin PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1RO1",
+      "plant_name": "SBV Pnt abroad - Ploiesti",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1RO4",
+      "plant_name": "SBV Pnt abroad - Ploiesti-Parc",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1RO9",
+      "plant_name": "SBV Pnt abroad - BUCHAREST-TIT",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1SI4",
+      "plant_name": "SBV Pnt abroad - R - Selena DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "1SK1",
+      "plant_name": "SBV Pnt abroad - Luka",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2420",
+      "plant_name": "DO NOT USE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2580",
+      "plant_name": "Dummy water Cost Comp Split",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2590",
+      "plant_name": "DM Dummy plant Bambi",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2812",
+      "plant_name": "Dummy water Cost Comp Split",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2837",
+      "plant_name": "DO NOT USE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2BG0",
+      "plant_name": "SBV Pnt abroad - Bankia",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2BG2",
+      "plant_name": "SBV Pnt Abroad - Bankia ITD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2BG3",
+      "plant_name": "SBV Pnt Abroad - Bankia RM Plv",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2BG4",
+      "plant_name": "SBV Pnt Abroad - CCHBC ITD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2CH1",
+      "plant_name": "SBV Pnt abroad - Camion DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2CZ0",
+      "plant_name": "SBV Pnt abroad - CPS Prague",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2CZ3",
+      "plant_name": "SBV Pnt abroad - H.Pocernice",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2HR1",
+      "plant_name": "SBV Pnt abroad - Zagreb PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2HR2",
+      "plant_name": "SBV Pnt abroad - Rijeka DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2HU0",
+      "plant_name": "SBV Pnt abroad Zala Naturaqua",
+      "is_active": 0
+    },
+    {
+      "plant_code": "2HU6",
+      "plant_name": "SBV Pnt abroad - Zalaszentgrót",
+      "is_active": 0
+    },
+    {
+      "plant_code": "3143",
+      "plant_name": "Dummy Plant XB PL LV",
+      "is_active": 0
+    },
+    {
+      "plant_code": "3261",
+      "plant_name": "Dummy Plant XB PL EE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "3371",
+      "plant_name": "Dummy Plant XB PL LT",
+      "is_active": 0
+    },
+    {
+      "plant_code": "3970",
+      "plant_name": "Tver Dummy Plant",
+      "is_active": 0
+    },
+    {
+      "plant_code": "3971",
+      "plant_name": "Bochkari Dummy Plant",
+      "is_active": 0
+    },
+    {
+      "plant_code": "3972",
+      "plant_name": "Samko Dummy Plan",
+      "is_active": 0
+    },
+    {
+      "plant_code": "3CH0",
+      "plant_name": "SBV Pnt abroad - Rivella",
+      "is_active": 0
+    },
+    {
+      "plant_code": "3CY0",
+      "plant_name": "SBV Pnt abroad - Limassol",
+      "is_active": 0
+    },
+    {
+      "plant_code": "3CZ3",
+      "plant_name": "SBV Pnt abroad - Teplice PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "3IT0",
+      "plant_name": "SBV Pnt abroad - NOGARA STI CE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "3RO0",
+      "plant_name": "SBV Pl abroad-PloiestiSIPEX DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4021",
+      "plant_name": "Do not use",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4023",
+      "plant_name": "Istra XD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4027",
+      "plant_name": "Do not use",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4110",
+      "plant_name": "Bratislava CD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4111",
+      "plant_name": "LUKA PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4112",
+      "plant_name": "Banska Bystrica DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4113",
+      "plant_name": "Kosice CD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4114",
+      "plant_name": "Levice DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4115",
+      "plant_name": "Žilina XD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4116",
+      "plant_name": "CC HBC Slovakia",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4117",
+      "plant_name": "Poprad XD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4118",
+      "plant_name": "Nitra",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4119",
+      "plant_name": "Dummy Plant XB AT",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4120",
+      "plant_name": "Kosice DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4121",
+      "plant_name": "Senec DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4122",
+      "plant_name": "Piestany",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4401",
+      "plant_name": "Coca-Cola HBC AG",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4528",
+      "plant_name": "Dummy Plant XB AT",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4706",
+      "plant_name": "Qalioub PRD DUMMY",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4HR1",
+      "plant_name": "SBV Pnt abroad - Luka DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4HR2",
+      "plant_name": "SBV Pnt abroad -Zagreb Zitnjak",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4IT6",
+      "plant_name": "SBV Pnt abroad - RECOARO TF",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4IT7",
+      "plant_name": "SBV Pnt abroad - Trentofrutta",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4IT8",
+      "plant_name": "SBV Pnt abroad - MODENA CP",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4PL5",
+      "plant_name": "SBV Pnt abroad - Lodz PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4PL9",
+      "plant_name": "SBV Pnt abroad - Refresco",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4RO1",
+      "plant_name": "SBV Pnt abroad - Timisoara",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4RO7",
+      "plant_name": "SBV Pnt abroad - Bucharest-Urb",
+      "is_active": 0
+    },
+    {
+      "plant_code": "5020",
+      "plant_name": "Bankia PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "5021",
+      "plant_name": "Bankia RM in Sofia",
+      "is_active": 0
+    },
+    {
+      "plant_code": "5022",
+      "plant_name": "Bankia ITD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "5023",
+      "plant_name": "Bankia RM in Plovdiv",
+      "is_active": 0
+    },
+    {
+      "plant_code": "5050",
+      "plant_name": "CCHBC IT Shared Services",
+      "is_active": 0
+    },
+    {
+      "plant_code": "5112",
+      "plant_name": "XXX - Paphos DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "5113",
+      "plant_name": "XXX - Paralimini DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "5125",
+      "plant_name": "Dummy Three Cents Cyprus",
+      "is_active": 0
+    },
+    {
+      "plant_code": "5130",
+      "plant_name": "DO NOT USE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "5150",
+      "plant_name": "DO NOT USE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "5160",
+      "plant_name": "DO NOT USE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "5503",
+      "plant_name": "Valser dummy plant",
+      "is_active": 0
+    },
+    {
+      "plant_code": "5CH4",
+      "plant_name": "SBV Pnt abroad - Kestenholz DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "5PL0",
+      "plant_name": "SBV Pnt abroad - NATA Subcontr",
+      "is_active": 0
+    },
+    {
+      "plant_code": "6320",
+      "plant_name": "DO NOT USE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "6333",
+      "plant_name": "DO NOT USE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "6399",
+      "plant_name": "DO NOT USE !!!",
+      "is_active": 0
+    },
+    {
+      "plant_code": "6AT6",
+      "plant_name": "SBV Pnt abroad - Roemerquelle",
+      "is_active": 0
+    },
+    {
+      "plant_code": "6AT7",
+      "plant_name": "SBV Pnt abroad - Markusquelle",
+      "is_active": 0
+    },
+    {
+      "plant_code": "6CY0",
+      "plant_name": "SBV Pnt abroad - Limassol Port",
+      "is_active": 0
+    },
+    {
+      "plant_code": "6GR7",
+      "plant_name": "SBV CCH JUICE INDUSTRY ASPIS",
+      "is_active": 0
+    },
+    {
+      "plant_code": "6IT1",
+      "plant_name": "SBV Pnt abroad - ORICOLA EXT 2",
+      "is_active": 0
+    },
+    {
+      "plant_code": "6IT4",
+      "plant_name": "SBV Pnt abroad - R&L Bibite",
+      "is_active": 0
+    },
+    {
+      "plant_code": "6IT5",
+      "plant_name": "SBV Pnt abroad - CirculaRpet",
+      "is_active": 0
+    },
+    {
+      "plant_code": "6IT9",
+      "plant_name": "SBV Pnt abroad - Cagliari",
+      "is_active": 0
+    },
+    {
+      "plant_code": "6RO1",
+      "plant_name": "SBV Pnt abroad - Iasi",
+      "is_active": 0
+    },
+    {
+      "plant_code": "6RO3",
+      "plant_name": "SBV Pnt abroad - Floreni-Dorna",
+      "is_active": 0
+    },
+    {
+      "plant_code": "6RO4",
+      "plant_name": "SBV Pnt abroad - Poiana Negri",
+      "is_active": 0
+    },
+    {
+      "plant_code": "7891",
+      "plant_name": "DO NOT USE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "7903",
+      "plant_name": "DO NOT USE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "7911",
+      "plant_name": "DO NOT USE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "7912",
+      "plant_name": "DO NOT USE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "7CY0",
+      "plant_name": "SBV Pnt abroad - Kykkos",
+      "is_active": 0
+    },
+    {
+      "plant_code": "7IT1",
+      "plant_name": "SBV Pnt abroad - Marcianise/SA",
+      "is_active": 0
+    },
+    {
+      "plant_code": "7IT2",
+      "plant_name": "SBV Pnt abroad - Marcianise",
+      "is_active": 0
+    },
+    {
+      "plant_code": "7IT5",
+      "plant_name": "SBV Pnt abr-SANGUINETTO SIT 3P",
+      "is_active": 0
+    },
+    {
+      "plant_code": "7PL7",
+      "plant_name": "SBV Pnt abroad -Tylicz PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8000",
+      "plant_name": "Central Office SBV",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8121",
+      "plant_name": "Zagreb PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8122",
+      "plant_name": "Rijeka DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8123",
+      "plant_name": "Zagreb INAS DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8124",
+      "plant_name": "Požega DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8125",
+      "plant_name": "Solin DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8126",
+      "plant_name": "Metković DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8128",
+      "plant_name": "Baderna DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8129",
+      "plant_name": "Zadar DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8130",
+      "plant_name": "Gotalovec PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8131",
+      "plant_name": "Varazdin Crossdock",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8132",
+      "plant_name": "Bjelovar Crossdock",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8133",
+      "plant_name": "Osijek Crossdock",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8134",
+      "plant_name": "Dubrovnik Crossdock",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8135",
+      "plant_name": "Beverages Servis CDE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8136",
+      "plant_name": "Jordanic ZG",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8137",
+      "plant_name": "Metković Crossdock",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8140",
+      "plant_name": "Excise whs CCH Croatia",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8141",
+      "plant_name": "Luka DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8142",
+      "plant_name": "Zagreb Zitnjak DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8143",
+      "plant_name": "Jordanic Zadar",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8144",
+      "plant_name": "Jordanic Split",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8145",
+      "plant_name": "Jordanic Cavtat",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8146",
+      "plant_name": "Jordanic Osijek",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8147",
+      "plant_name": "Jordanic Varazdin",
+      "is_active": 0
+    },
+    {
+      "plant_code": "81D1",
+      "plant_name": "SC Optimizer Plant",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8611",
+      "plant_name": "DO NOT USE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8617",
+      "plant_name": "DO NOT USE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8GR4",
+      "plant_name": "SBV Pnt abroad - SARMED FG 3rd",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8IT9",
+      "plant_name": "SBV SABEL NOGARA CEDI - 3P",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8PL9",
+      "plant_name": "SBV Pnt abroad-Sroda Slaska DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "8RO3",
+      "plant_name": "SBV Pl abroad - Ploiesti RM DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "9000",
+      "plant_name": "CCH Business Service Org.",
+      "is_active": 0
+    },
+    {
+      "plant_code": "9148",
+      "plant_name": "DO NOT USE!!! Constanta CDE",
+      "is_active": 0
+    },
+    {
+      "plant_code": "9999",
+      "plant_name": "Third Party Stocks",
+      "is_active": 0
+    },
+    {
+      "plant_code": "AGR5",
+      "plant_name": "CPC Pnt abroad - MAKIOS DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "AT11",
+      "plant_name": "CPC Pnt abroad - Vienna PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "AT66",
+      "plant_name": "CPC Pnt abroad - Roemerquelle",
+      "is_active": 0
+    },
+    {
+      "plant_code": "AT67",
+      "plant_name": "CPC Pnt abroad - Markusquelle",
+      "is_active": 0
+    },
+    {
+      "plant_code": "BG11",
+      "plant_name": "CPC Pnt abroad - Kostinbrod",
+      "is_active": 0
+    },
+    {
+      "plant_code": "BG12",
+      "plant_name": "CPC Pnt abroad - Targovishte",
+      "is_active": 0
+    },
+    {
+      "plant_code": "BG13",
+      "plant_name": "CPC Pnt abroad - Sofia",
+      "is_active": 0
+    },
+    {
+      "plant_code": "BG14",
+      "plant_name": "CPC Pnt abroad - Plovdiv",
+      "is_active": 0
+    },
+    {
+      "plant_code": "BG16",
+      "plant_name": "CPC Pnt abroad - Pleven",
+      "is_active": 0
+    },
+    {
+      "plant_code": "BG20",
+      "plant_name": "CPC Pnt abroad - Bankia",
+      "is_active": 0
+    },
+    {
+      "plant_code": "BG22",
+      "plant_name": "CPC Pnt Abroad - Bankia ITD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "BG23",
+      "plant_name": "CPC Pnt Abroad - Bankia RM Plv",
+      "is_active": 0
+    },
+    {
+      "plant_code": "BG24",
+      "plant_name": "CPC Pnt Abroad - CCHBC ITD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "CH01",
+      "plant_name": "CPC Pnt abroad - Vals DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "CH02",
+      "plant_name": "CPC Pnt abroad - Zizers DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "CH11",
+      "plant_name": "CPC Pnt abroad - Dietlikon PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "CH14",
+      "plant_name": "CPC Pnt abroad - Bolligen PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "CH21",
+      "plant_name": "CPC Pnt abroad - Camion DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "CH30",
+      "plant_name": "CPC Pnt abroad - Rivella",
+      "is_active": 0
+    },
+    {
+      "plant_code": "CH54",
+      "plant_name": "CPC Pnt abroad - Kestenholz DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "CY10",
+      "plant_name": "CPC Pnt abroad - Nicosia",
+      "is_active": 0
+    },
+    {
+      "plant_code": "CY30",
+      "plant_name": "CPC Pnt abroad - Limassol",
+      "is_active": 0
+    },
+    {
+      "plant_code": "CY60",
+      "plant_name": "CPC Pnt abroad - Limassol Port",
+      "is_active": 0
+    },
+    {
+      "plant_code": "CY70",
+      "plant_name": "CPC Pnt abroad - Kykkos",
+      "is_active": 0
+    },
+    {
+      "plant_code": "CZ10",
+      "plant_name": "CPC Pnt abroad - Praha",
+      "is_active": 0
+    },
+    {
+      "plant_code": "CZ20",
+      "plant_name": "CPC Pnt abroad - CPS Prague",
+      "is_active": 0
+    },
+    {
+      "plant_code": "CZ23",
+      "plant_name": "CPC Pnt abroad - H.Pocernice",
+      "is_active": 0
+    },
+    {
+      "plant_code": "GR01",
+      "plant_name": "Greek Plant GR01",
+      "is_active": 0
+    },
+    {
+      "plant_code": "GR02",
+      "plant_name": "Greek Plant GR02-3RD PARTY",
+      "is_active": 0
+    },
+    {
+      "plant_code": "GR10",
+      "plant_name": "CPC Pnt abroad - Schimatari",
+      "is_active": 0
+    },
+    {
+      "plant_code": "GR11",
+      "plant_name": "CPC Pnt abroad - Volos",
+      "is_active": 0
+    },
+    {
+      "plant_code": "GR12",
+      "plant_name": "CPC Pnt abroad - Patra",
+      "is_active": 0
+    },
+    {
+      "plant_code": "GR13",
+      "plant_name": "CPC Pnt abroad - Thessaloniki",
+      "is_active": 0
+    },
+    {
+      "plant_code": "GR14",
+      "plant_name": "CPC Pnt abroad - Heraklion",
+      "is_active": 0
+    },
+    {
+      "plant_code": "GR15",
+      "plant_name": "CPC Pnt abroad - Aigio",
+      "is_active": 0
+    },
+    {
+      "plant_code": "GR16",
+      "plant_name": "CPC Pnt abroad - Malia",
+      "is_active": 0
+    },
+    {
+      "plant_code": "GR19",
+      "plant_name": "CPC Pnt abroad - Athens DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "GR67",
+      "plant_name": "HELLENIC JUICE INDUSTRY ASPIS",
+      "is_active": 0
+    },
+    {
+      "plant_code": "GR84",
+      "plant_name": "CPC Pnt abroad - SARMED FG 3rd",
+      "is_active": 0
+    },
+    {
+      "plant_code": "HR21",
+      "plant_name": "CPC Pnt abroad - Zagreb PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "HR22",
+      "plant_name": "CPC Pnt abroad - Rijeka DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "HR41",
+      "plant_name": "CPC Pnt abroad - Luka DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "HR42",
+      "plant_name": "CPC Pnt abroad -Zagreb Zitnjak",
+      "is_active": 0
+    },
+    {
+      "plant_code": "HU10",
+      "plant_name": "CPC Pnt abroad - Dunaharaszti",
+      "is_active": 0
+    },
+    {
+      "plant_code": "HU20",
+      "plant_name": "CPC Pnt abroad Zala Naturaqua",
+      "is_active": 0
+    },
+    {
+      "plant_code": "HU26",
+      "plant_name": "CPC Pnt abroad - Zalaszentgrót",
+      "is_active": 0
+    },
+    {
+      "plant_code": "IE01",
+      "plant_name": "CPC Pnt abroad Knockmore",
+      "is_active": 0
+    },
+    {
+      "plant_code": "IT10",
+      "plant_name": "CPC Pnt abroad - Nogara",
+      "is_active": 0
+    },
+    {
+      "plant_code": "IT11",
+      "plant_name": "CPC Pnt abroad - Gaglianico",
+      "is_active": 0
+    },
+    {
+      "plant_code": "IT12",
+      "plant_name": "CPC Pnt abroad - Oricola",
+      "is_active": 0
+    },
+    {
+      "plant_code": "IT13",
+      "plant_name": "CPC Pnt abroad - Corfinio",
+      "is_active": 0
+    },
+    {
+      "plant_code": "IT14",
+      "plant_name": "CPC Pnt abroad FDV Monticchio",
+      "is_active": 0
+    },
+    {
+      "plant_code": "IT15",
+      "plant_name": "CPC Pnt abroad - FDV Rionero",
+      "is_active": 0
+    },
+    {
+      "plant_code": "IT17",
+      "plant_name": "CPC Pnt abroad - Nogara SIT",
+      "is_active": 0
+    },
+    {
+      "plant_code": "IT18",
+      "plant_name": "CPC Pnt abroad - Maddaloni DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "IT46",
+      "plant_name": "CPC Pnt abroad - RECOARO TF",
+      "is_active": 0
+    },
+    {
+      "plant_code": "IT47",
+      "plant_name": "CPC Pnt abroad - Trentofrutta",
+      "is_active": 0
+    },
+    {
+      "plant_code": "IT48",
+      "plant_name": "CPC Pnt abroad - MODENA CP",
+      "is_active": 0
+    },
+    {
+      "plant_code": "IT69",
+      "plant_name": "CPC Pnt abroad - Cagliari",
+      "is_active": 0
+    },
+    {
+      "plant_code": "IT71",
+      "plant_name": "CPC Pnt abroad - Marcianise/SA",
+      "is_active": 0
+    },
+    {
+      "plant_code": "IT72",
+      "plant_name": "CPC Pnt abroad - Marcianise",
+      "is_active": 0
+    },
+    {
+      "plant_code": "LT04",
+      "plant_name": "CPC Pnt abroad - Varena",
+      "is_active": 0
+    },
+    {
+      "plant_code": "LT10",
+      "plant_name": "CPC Pnt abroad - Alytus PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "PL01",
+      "plant_name": "CPC Pnt abroad - Staniatki PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "PL18",
+      "plant_name": "CPC Pnt abroad -Radzymin PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "PL45",
+      "plant_name": "CPC Pnt abroad - Lodz PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "PL49",
+      "plant_name": "CPC Pnt abroad - Refresco",
+      "is_active": 0
+    },
+    {
+      "plant_code": "PL50",
+      "plant_name": "CPC Pnt abroad - NATA Subcontr",
+      "is_active": 0
+    },
+    {
+      "plant_code": "PL77",
+      "plant_name": "CPC Pnt abroad -Tylicz PRD",
+      "is_active": 0
+    },
+    {
+      "plant_code": "PL89",
+      "plant_name": "CPC Pnt abroad-Sroda Slaska DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "RO11",
+      "plant_name": "CPC Pnt abroad - Ploiesti",
+      "is_active": 0
+    },
+    {
+      "plant_code": "RO14",
+      "plant_name": "CPC Pnt abroad - Ploiesti-Parc",
+      "is_active": 0
+    },
+    {
+      "plant_code": "RO19",
+      "plant_name": "CPC Pnt abroad - BUCHAREST-TIT",
+      "is_active": 0
+    },
+    {
+      "plant_code": "RO30",
+      "plant_name": "CPC Pl abroad-PloiestiSIPEX DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "RO41",
+      "plant_name": "CPC Pnt abroad - Timisoara",
+      "is_active": 0
+    },
+    {
+      "plant_code": "RO47",
+      "plant_name": "CPC Pnt abroad - Bucharest-Urb",
+      "is_active": 0
+    },
+    {
+      "plant_code": "RO61",
+      "plant_name": "CPC Pnt abroad - Iasi",
+      "is_active": 0
+    },
+    {
+      "plant_code": "RO63",
+      "plant_name": "CPC Pnt abroad - Floreni-Dorna",
+      "is_active": 0
+    },
+    {
+      "plant_code": "RO64",
+      "plant_name": "CPC Pnt abroad - Poiana Negri",
+      "is_active": 0
+    },
+    {
+      "plant_code": "RO83",
+      "plant_name": "CPC Pl abroad - Ploiesti RM DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "SI14",
+      "plant_name": "CPC Pnt abroad - R - Selena DC",
+      "is_active": 0
+    },
+    {
+      "plant_code": "SK11",
+      "plant_name": "CPC Pnt abroad - Luka",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4708",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4709",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4713",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4714",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4727",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4729",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4741",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4742",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4743",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4744",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4745",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4746",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4747",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4748",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4749",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4750",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4751",
+      "plant_name": "",
+      "is_active": 0
+    },
+    {
+      "plant_code": "4777",
+      "plant_name": "",
+      "is_active": 0
+    }
+  ]
+}
