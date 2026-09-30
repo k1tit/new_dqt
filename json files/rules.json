@@ -2408,11 +2408,12 @@
     },
     {
       "rule_code": "RCCONF_384.3",
-      "rule_description": "Latitude is zero",
+      "rule_description": "Latitude must be within Russia bounds",
       "technical_definition_RU": [
-        "IF account_group_code LIKE '7%' OR latitude is NULL OR central_order_block_code",
+        "IF account_group_code LIKE '7%' OR latitude IS NULL OR central_order_block_code",
         "IN (S, SP, E, G, S2, S3, S4, S5, S9, R, U, M, NR) THEN '' ELSE IF",
-        "TO_INTEGER(latitude) = '0' THEN '0' ELSE '1'"
+        "latitude between 41°11′ N and 77°43′ N inclusive",
+        "(decimal 41.183333 .. 77.716667) THEN '1' ELSE '0'"
       ],
       "value_checked": "latitude",
       "datamart_or_reference_table_used": "dm_customer_general",
@@ -2425,11 +2426,12 @@
     },
     {
       "rule_code": "RCCONF_383.3",
-      "rule_description": "Longitude is Zero",
+      "rule_description": "Longitude must be within Russia bounds",
       "technical_definition_RU": [
-        "IF account_group_code LIKE '7%' OR longitude is NULL OR central_order_block_code",
+        "IF account_group_code LIKE '7%' OR longitude IS NULL OR central_order_block_code",
         "IN (S, SP, E, G, S2, S3, S4, S5, S9, R, U, M, NR) THEN '' ELSE IF",
-        "TO_INTEGER(longitude) = '0' THEN '0' ELSE '1'"
+        "longitude from 19°38′ E east to 169°40′ W inclusive, wrapping past 180",
+        "(decimal >= 19.633333 and <= 180, OR >= -180 and <= -169.666667) THEN '1' ELSE '0'"
       ],
       "value_checked": "longitude",
       "datamart_or_reference_table_used": "dm_customer_general",

@@ -346,6 +346,58 @@ class ConformityValidator(BaseValidator):
                 f'Invalid coordinate format in {column_name}. Expected (-)x.y… / (-)xx.y… / (-)xxx.y… with . or , and any number of fractional digits.',
             )
             return (total_rows, error_count, error_df)
+        if effective_rule_code in {'RCCONF_383.3', 'RCCONF_384.3'}:
+            from utils.ru_geo_bounds import (
+                RU_LAT_MAX,
+                RU_LAT_MIN,
+                RU_LON_EAST,
+                RU_LON_WEST,
+                RU_ORDER_BLOCK_SKIP,
+                latitude_inside_russia,
+                longitude_inside_russia,
+                parse_coord,
+            )
+            is_lon = effective_rule_code == 'RCCONF_383.3'
+            print(f'      [DEBUG] {effective_rule_code}: Russia bounds ({"longitude" if is_lon else "latitude"})')
+            s = df[column_name].astype(str).str.strip()
+            is_null_like = df[column_name].isna() | (s == '') | s.str.lower().isin(['none', 'null', 'nan', 'na'])
+            account_group_skip = pd.Series(False, index=df.index)
+            for c in df.columns:
+                cu = str(c).strip().lower()
+                if cu in ('account_group_code', 'b.account_group_code', 'ktokd', 'b.ktokd', 'kna.ktokd'):
+                    ag = df[c].astype(str).str.strip()
+                    account_group_skip = ag.str.startswith('7')
+                    break
+            order_block_skip = pd.Series(False, index=df.index)
+            for c in df.columns:
+                if str(c).strip().lower() in ('central_order_block_code', 'order_block_code', 'aufsd', 'orblk'):
+                    ob = df[c].astype(str).str.strip().str.upper()
+                    order_block_skip = ob.isin(RU_ORDER_BLOCK_SKIP)
+                    break
+            evaluated_mask = ~(is_null_like | account_group_skip | order_block_skip)
+            total_rows = int(evaluated_mask.sum())
+            if total_rows == 0:
+                return (0, 0, None)
+            num = parse_coord(df[column_name])
+            inside = longitude_inside_russia(num) if is_lon else latitude_inside_russia(num)
+            error_mask = evaluated_mask & ~inside
+            error_count = int(error_mask.sum())
+            print(f'      [DEBUG] {effective_rule_code}: evaluated={total_rows:,}, errors={error_count:,}')
+            if error_count == 0:
+                return (total_rows, 0, None)
+            if is_lon:
+                error_description = (
+                    f'Longitude in {column_name} is outside Russia bounds '
+                    f'(19°38′ E .. 169°40′ W; decimal >= {RU_LON_WEST} and <= 180, '
+                    f'or >= -180 and <= {RU_LON_EAST}).'
+                )
+            else:
+                error_description = (
+                    f'Latitude in {column_name} is outside Russia bounds '
+                    f'(41°11′ N .. 77°43′ N; decimal {RU_LAT_MIN} .. {RU_LAT_MAX}).'
+                )
+            error_df = self._prepare_error_dataframe(df, error_mask, 'CONFORMITY', error_description)
+            return (total_rows, error_count, error_df)
         if effective_rule_code == 'RCCONF_22.4':
             filled = _value_filled_mask(df[column_name])
             total_rows = int(filled.sum())
