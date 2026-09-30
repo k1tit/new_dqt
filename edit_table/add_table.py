@@ -186,14 +186,18 @@ print('МОДУЛЬ add_table_to_DB.py ЗАГРУЖЕН', file=sys.stderr)
 print('=' * 80, file=sys.stderr)
 sys.stderr.flush()
 
+def _sql_ident(name: str) -> str:
+    return '"' + str(name).replace('"', '""') + '"'
+
+
 def _dedup_table_in_db(conn, table_name):
-    escaped = f'"{table_name}"'
+    escaped = _sql_ident(table_name)
     cursor = conn.cursor()
     cursor.execute(f'SELECT COUNT(*) FROM {escaped}')
     before = cursor.fetchone()[0]
     if before == 0:
         return (before, 0, 0)
-    tmp = f'"{table_name}_dedup_tmp"'
+    tmp = _sql_ident(f'{table_name}_dedup_tmp')
     cursor.execute(f'CREATE TABLE {tmp} AS SELECT DISTINCT * FROM {escaped}')
     cursor.execute(f'SELECT COUNT(*) FROM {tmp}')
     after = cursor.fetchone()[0]
@@ -328,10 +332,12 @@ def _classify_flat_ausp_target(files: list[str]) -> str:
     if cust and not eq:
         return AUSP_TABLE_NAME
     if eq and cust:
-        print(f'  [WARN] в дампе смешаны customer {sorted(cust)} и equipment {sorted(eq)} ATINN — грузим в AUSP_EQUIPMENT только если папка AUSP_EQUIPMENT; иначе AUSP')
-    # по умолчанию: если есть equipment-only majority
-    if len(eq) >= len(cust):
-        return AUSP_EQUIPMENT_TABLE_NAME
+        print(f'  [WARN] в дампе смешаны customer {sorted(cust)} и equipment {sorted(eq)} ATINN')
+        if len(eq) > len(cust):
+            return AUSP_EQUIPMENT_TABLE_NAME
+        return AUSP_TABLE_NAME
+    sample = ','.join(sorted(found, key=lambda x: (not str(x).isdigit(), str(x)))[:12])
+    print(f'  [AUSP flat] ATINN {sample} не equipment (24/27/30/52) → {AUSP_TABLE_NAME}')
     return AUSP_TABLE_NAME
 
 
@@ -668,7 +674,7 @@ def merge_and_load_xlsx_files_fast(db_path=None, data_folder=None, target_table=
         conn.execute('PRAGMA temp_store = MEMORY')
         print('Оптимизации включены')
         print(f"Удаление старой таблицы '{target_table}'...")
-        cursor.execute(f"DROP TABLE IF EXISTS '{target_table}'")
+        cursor.execute(f'DROP TABLE IF EXISTS {_sql_ident(target_table)}')
         conn.commit()
         print('Старая таблица удалена')
     except Exception as e:
@@ -760,7 +766,7 @@ def merge_and_load_xlsx_files_fast(db_path=None, data_folder=None, target_table=
     conn.execute('PRAGMA journal_mode = WAL')
     conn.execute('PRAGMA synchronous = NORMAL')
     try:
-        cursor.execute(f"SELECT COUNT(*) FROM '{target_table}'")
+        cursor.execute(f'SELECT COUNT(*) FROM {_sql_ident(target_table)}')
         count = cursor.fetchone()[0]
     except sqlite3.OperationalError:
         count = 0
@@ -867,7 +873,7 @@ def merge_and_load_xlsx_files_ultra_fast(db_path=None, data_folder=None, target_
         conn.execute('PRAGMA temp_store = MEMORY')
         conn.execute('PRAGMA locking_mode = NORMAL')
         cursor = conn.cursor()
-        cursor.execute(f"DROP TABLE IF EXISTS '{target_table}'")
+        cursor.execute(f'DROP TABLE IF EXISTS {_sql_ident(target_table)}')
         first_file_columns = None
         total_rows = 0
         start_time = time.time()
@@ -906,7 +912,7 @@ def merge_and_load_xlsx_files_ultra_fast(db_path=None, data_folder=None, target_
                 col_defs = []
                 for col in df.columns:
                     col_defs.append(f'"{col}" TEXT')
-                create_sql = f'CREATE TABLE "{target_table}" (\n'
+                create_sql = f'CREATE TABLE {_sql_ident(target_table)} (\n'
                 create_sql += ',\n'.join(col_defs)
                 create_sql += '\n)'
                 cursor.execute(create_sql)
@@ -921,8 +927,8 @@ def merge_and_load_xlsx_files_ultra_fast(db_path=None, data_folder=None, target_
                 rows_per_stmt = max(1, SQLITE_MAX_VARS // num_cols)
                 one_row_ph = ','.join(['?' for _ in range(num_cols)])
                 multi_ph = ','.join([f'({one_row_ph})' for _ in range(rows_per_stmt)])
-                insert_sql_multi = f'INSERT INTO "{target_table}" VALUES {multi_ph}'
-                insert_sql_single = f'INSERT INTO "{target_table}" VALUES ({one_row_ph})'
+                insert_sql_multi = f'INSERT INTO {_sql_ident(target_table)} VALUES {multi_ph}'
+                insert_sql_single = f'INSERT INTO {_sql_ident(target_table)} VALUES ({one_row_ph})'
                 for batch_start in range(0, len(data_tuples), batch_size):
                     batch = data_tuples[batch_start:batch_start + batch_size]
                     for i in range(0, len(batch), rows_per_stmt):
@@ -954,7 +960,7 @@ def merge_and_load_xlsx_files_ultra_fast(db_path=None, data_folder=None, target_
         conn.execute('PRAGMA journal_mode = WAL')
         conn.execute('PRAGMA synchronous = NORMAL')
         conn.execute('PRAGMA locking_mode = NORMAL')
-        cursor.execute(f"SELECT COUNT(*) FROM '{target_table}'")
+        cursor.execute(f'SELECT COUNT(*) FROM {_sql_ident(target_table)}')
         count = cursor.fetchone()[0]
         total_time = time.time() - start_time
         conn.close()
@@ -1192,7 +1198,7 @@ def _load_ausp_pairs_split(db_path, file_atinn_pairs, skip_final_dedup=False, on
         customer = []
     results = []
     if customer:
-        print(f'   → {AUSP_TABLE_NAME}: {len(customer)} файл(ов) (ATINN 143/604/148/151) — equipment не трогаем')
+        print(f'   → {AUSP_TABLE_NAME}: {len(customer)} файл(ов) — equipment не трогаем')
         r = merge_and_load_ausp_from_file_list(
             db_path=db_path,
             file_atinn_pairs=customer,
@@ -1304,18 +1310,18 @@ def collect_db_load_groups(base_folder=None, rules_path=None) -> dict:
                 return hit
         return _infer_table_from_stem_fallback(stem_or_folder)
 
-    def _add_file(table: str, path: str, atinn: str | None = None):
-        # AUSP_* / ATINN → AUSP (customer) или AUSP_EQUIPMENT; никогда не смешивать
-        if table in _AUSP_DERIVED_TO_ATINN:
+    def _add_file(table: str, path: str, atinn: str | None = None, keep_name: bool = False):
+        # keep_name: имя папки в db/ = имя таблицы, без сведения к AUSP / rules.json
+        if not keep_name and table in _AUSP_DERIVED_TO_ATINN:
             atinn = atinn or _AUSP_DERIVED_TO_ATINN[table]
             table = _ausp_target_table_for_atinn(atinn)
         tu = str(table).strip().upper()
-        if atinn:
+        if not keep_name and atinn:
             table = _ausp_target_table_for_atinn(atinn)
             tu = str(table).strip().upper()
-        if tu == AUSP_EQUIPMENT_TABLE_NAME or tu in _AUSP_EQUIPMENT_ATINN_KEYS or _normalize_ausp_equipment_table_token(tu):
+        if not keep_name and (tu == AUSP_EQUIPMENT_TABLE_NAME or tu in _AUSP_EQUIPMENT_ATINN_KEYS or _normalize_ausp_equipment_table_token(tu)):
             table = AUSP_EQUIPMENT_TABLE_NAME
-        elif tu == AUSP_TABLE_NAME:
+        elif not keep_name and tu == AUSP_TABLE_NAME:
             table = AUSP_TABLE_NAME
         g = _ensure_files_group(table)
         if path not in g['files']:
@@ -1329,8 +1335,8 @@ def collect_db_load_groups(base_folder=None, rules_path=None) -> dict:
         if not os.path.isdir(path) or name.startswith('.') or name == '__pycache__':
             continue
         name_u = str(name).strip().upper()
-        table = _resolve_table_name(name) or name
-        if name_u in (AUSP_TABLE_NAME, AUSP_EQUIPMENT_TABLE_NAME) or str(table).strip().upper() in (AUSP_TABLE_NAME, AUSP_EQUIPMENT_TABLE_NAME):
+        # Подпапка db/<имя> грузится в таблицу с тем же именем. Сведение к AUSP только для папок AUSP и AUSP_EQUIPMENT.
+        if name_u in (AUSP_TABLE_NAME, AUSP_EQUIPMENT_TABLE_NAME):
             # Equipment: единый дамп без папок ATINN → сразу AUSP_EQUIPMENT
             if name_u == AUSP_EQUIPMENT_TABLE_NAME:
                 direct = _list_data_files(path)
@@ -1352,15 +1358,19 @@ def collect_db_load_groups(base_folder=None, rules_path=None) -> dict:
             direct = _list_data_files(path)
             if direct:
                 target = _classify_flat_ausp_target(direct)
-                print(f'  [AUSP flat] классификация дампа → {target}')
+                print(f'  [AUSP flat] {name} → {target}')
                 for p in direct:
                     _add_file(target, p, None)
+                if target in groups:
+                    groups[target]['folder'] = path
             continue
         files = _list_data_files(path)
         if not files:
             continue
         for p in files:
-            _add_file(table, p, None)
+            _add_file(name, p, None, keep_name=True)
+        if name in groups:
+            groups[name]['folder'] = path
 
     # AUSP / AUSP_EQUIPMENT вне db/ (корень проекта)
     for resolver, default_name in (
@@ -1507,7 +1517,7 @@ def merge_and_load_ausp_from_file_list(db_path=None, file_atinn_pairs=None, skip
         conn.execute('PRAGMA foreign_keys = OFF')
         conn.execute('PRAGMA temp_store = MEMORY')
         print(f"Удаление старой таблицы '{target_table}'...")
-        cursor.execute(f"DROP TABLE IF EXISTS '{target_table}'")
+        cursor.execute(f'DROP TABLE IF EXISTS {_sql_ident(target_table)}')
         conn.commit()
     except Exception as e:
         print(f'ОШИБКА при подготовке БД: {e}')
@@ -1568,7 +1578,7 @@ def merge_and_load_ausp_from_file_list(db_path=None, file_atinn_pairs=None, skip
         except Exception as e:
             print(f'WARN дедуп {target_table}: {e}')
     try:
-        cursor.execute(f"SELECT COUNT(*) FROM '{target_table}'")
+        cursor.execute(f'SELECT COUNT(*) FROM {_sql_ident(target_table)}')
         count = cursor.fetchone()[0]
     except Exception:
         count = total_rows_loaded
@@ -1745,11 +1755,21 @@ def load_all_tables_from_db_folders(db_path=None, base_folder=None, method='fast
     print('=' * 70)
     return results
 
+def _ausp_group_is_customer_atinn(info) -> bool:
+    """Папки ATINN 143/604/148/151 — пункт меню 4. Плоский material-дамп (829/861) сюда не входит."""
+    atinns = {str(v).strip() for v in (info or {}).get('file_atinn', {}).values() if str(v).strip()}
+    return bool(atinns) and atinns <= set(AUSP_KNOWN_ATINN)
+
+
 def _interactive_pick_table_name(exclude_ausp=True):
-    all_tables = get_table_folders()
-    # Пункт 4 — только customer AUSP по ATINN; AUSP_EQUIPMENT грузится как обычная таблица (1/3/6)
+    groups = collect_db_load_groups()
+    all_tables = sorted(groups.keys(), key=lambda s: str(s).upper())
+    # Пункт 4 — только customer AUSP по ATINN; material AUSP и AUSP_EQUIPMENT — обычный список
     if exclude_ausp:
-        pick_list = [t for t in all_tables if str(t).strip().upper() != AUSP_TABLE_NAME]
+        pick_list = [
+            t for t in all_tables
+            if not (str(t).strip().upper() == AUSP_TABLE_NAME and _ausp_group_is_customer_atinn(groups.get(t)))
+        ]
     else:
         pick_list = list(all_tables)
     eq_files = _discover_ausp_equipment_files()
@@ -1761,14 +1781,17 @@ def _interactive_pick_table_name(exclude_ausp=True):
             print(f'Но найдены файлы equipment AUSP — используйте пункт меню 6.')
         return None
     print('\nДоступные таблицы:')
-    print('  (пункт меню 1 только ОТКРЫВАЕТ этот список — выберите AUSP_EQUIPMENT отдельно)')
     for i, name in enumerate(pick_list, 1):
         mark = '  ← equipment AUSP' if str(name).strip().upper() == AUSP_EQUIPMENT_TABLE_NAME else ''
         print(f'  {i:2}. {name}{mark}')
-    if exclude_ausp and any(str(t).strip().upper() == AUSP_TABLE_NAME for t in all_tables):
-        print(f'  (для customer AUSP по папкам ATINN — пункт меню 4)')
+    hidden_customer = exclude_ausp and any(
+        str(t).strip().upper() == AUSP_TABLE_NAME and _ausp_group_is_customer_atinn(groups.get(t))
+        for t in all_tables
+    )
+    if hidden_customer:
+        print('  (customer AUSP по папкам ATINN 143/604/148/151 — пункт меню 4)')
     if not any(str(t).strip().upper() == AUSP_EQUIPMENT_TABLE_NAME for t in pick_list):
-        print(f'  (AUSP_EQUIPMENT не найден в db/ — пункт меню 6 или положите AUSP_EQUIPMENT.xlsx)')
+        print('  (AUSP_EQUIPMENT не найден в db/ — пункт меню 6 или положите AUSP_EQUIPMENT.xlsx)')
     raw = input('\nВведите номер или имя таблицы: ').strip()
     if not raw:
         return None
@@ -1815,12 +1838,12 @@ def _interactive_load_one_table(method='fast'):
     table_name = _interactive_pick_table_name(exclude_ausp=True)
     if not table_name:
         return None
-    if str(table_name).strip().upper() == AUSP_TABLE_NAME:
+    groups = collect_db_load_groups()
+    if str(table_name).strip().upper() == AUSP_TABLE_NAME and _ausp_group_is_customer_atinn(groups.get(table_name)):
         print('Для customer AUSP выберите пункт 4 меню.')
         return None
     if str(table_name).strip().upper() == AUSP_EQUIPMENT_TABLE_NAME:
         return _interactive_load_ausp_equipment(method=method)
-    groups = collect_db_load_groups()
     info = groups.get(table_name)
     if not info or not (info.get('files') or info.get('folder')):
         print(f"ОШИБКА: нет файлов для таблицы '{table_name}'")
