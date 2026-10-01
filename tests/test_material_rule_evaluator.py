@@ -398,6 +398,40 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         self.assertEqual('AUSP_MATERIAL', result['stats']['ausp_table'])
         self.assertEqual(['BPP_OK'], list(result['df']['ATWRT']))
 
+    def test_rpc53_1_uses_ausp_829_861(self):
+        dump = pd.DataFrame({
+            'ATINN': ['829'],
+            'OBJEK': ['000000000000000010'],
+            'ATWRT': ['BPP_OK'],
+            'KLART': ['001'],
+            'ATZHL': ['1'],
+        })
+        equipment = pd.DataFrame({
+            'ATINN': ['24'],
+            'OBJEK': ['9'],
+            'ATWRT': ['COOLER'],
+            'KLART': ['002'],
+            'ATZHL': ['1'],
+        })
+        tables = {
+            'AUSP 829.861': dump,
+            'AUSP': equipment,
+            'AUSP_EQUIPMENT': equipment,
+            'MARA': pd.DataFrame({'MATNR': ['10'], 'MTART': ['ZFG']}),
+            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_OK'], 'ATWTB': ['VALID']}),
+            'ZMDM_BPP_CODE': pd.DataFrame(),
+        }
+        result = evaluate_ausp_bpp_rule(
+            equipment,
+            'RPCONF_53.1',
+            'ATWRT',
+            lambda name: tables.get(name, pd.DataFrame()),
+            table_name='AUSP',
+        )
+        self._assert_result(result, 1, 0)
+        self.assertEqual('AUSP 829.861', result['stats']['ausp_table'])
+        self.assertEqual(['BPP_OK'], list(result['df']['ATWRT']))
+
 
 if __name__ == '__main__':
     unittest.main()

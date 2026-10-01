@@ -460,9 +460,19 @@ class MemoryManager:
                 if match:
                     to_load.add(match)
         if self.load_profile == 'material':
+            from utils.material_rule_evaluator import MATERIAL_BPP_AUSP_TABLE, is_material_bpp_ausp_table
             requested = {str(t).strip().upper() for t in table_names}
-            if requested & {'MARA', 'MAKT', 'AUSP', 'AUSP_EQUIPMENT'}:
+            bpp_requested = any(is_material_bpp_ausp_table(t) for t in requested)
+            if requested & {'MARA', 'MAKT', 'AUSP', 'AUSP_EQUIPMENT'} or bpp_requested:
                 for ref in ('MARA', 'MAKT'):
+                    match = self._find_table_in_db(ref, all_in_db)
+                    if match:
+                        to_load.add(match)
+            if bpp_requested:
+                match = self._find_table_in_db(MATERIAL_BPP_AUSP_TABLE, all_in_db)
+                if match:
+                    to_load.add(match)
+                for ref in ('CABN', 'CAWN_M', 'CAWNT_M', 'ZMDM_BPP_CODET', 'ZMDM_BPP_CODE', 'CAWN', 'CAWNT'):
                     match = self._find_table_in_db(ref, all_in_db)
                     if match:
                         to_load.add(match)
@@ -608,12 +618,13 @@ class MemoryManager:
         )
 
     def _is_ausp_classification_source_name(self, name) -> bool:
+        from utils.material_rule_evaluator import is_material_bpp_ausp_table
         u = str(name or '').strip().upper()
         if not u or u == self.AUSP_MATERIAL_TABLE:
             return False
         if u in self.AUSP_CUSTOMER_SLICES:
             return False
-        return u == 'AUSP' or u.startswith('AUSP_')
+        return u == 'AUSP' or u.startswith('AUSP_') or is_material_bpp_ausp_table(u)
 
     def _filter_df_by_atinn(self, df, atinn_needed):
         if df is None or getattr(df, 'empty', True) or not atinn_needed:

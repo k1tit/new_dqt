@@ -20,12 +20,14 @@ MARA_RULE_CODES = frozenset({
 MAKT_RULE_CODES = frozenset({'RPCONF_225.4', 'RPCONF_225.5'})
 AUSP_RULE_CODES = frozenset({'RPCONF_53.1'})
 MATERIAL_RULE_CODES = MARA_RULE_CODES | MAKT_RULE_CODES | AUSP_RULE_CODES
+MATERIAL_BPP_AUSP_TABLE = 'AUSP 829.861'
 MATERIAL_AUSP_TABLES = frozenset({
     'AUSP',
     'AUSP_EQUIPMENT',
     'AUSP_MATERIAL',
     'AUSP_CLASS',
     'AUSP_CLASSIFICATION',
+    MATERIAL_BPP_AUSP_TABLE,
 })
 AUSP_TABLE_NAMES_SENTINEL = '__AUSP_TABLE_NAMES__'
 CUSTOMER_AUSP_SLICES = frozenset({'AUSP_143', 'AUSP_148', 'AUSP_151', 'AUSP_604'})
@@ -473,9 +475,13 @@ def resolve_bpp_atinn_codes(loader: Callable[[str], pd.DataFrame]) -> tuple[froz
     return frozenset(BPP_ATINN_CODES), 'fallback ATINN 829/868'
 
 
+def is_material_bpp_ausp_table(name: str) -> bool:
+    return str(name or '').strip().upper() == MATERIAL_BPP_AUSP_TABLE.upper()
+
+
 def _is_material_ausp_table_name(name: str) -> bool:
     u = str(name or '').strip().upper()
-    return u == 'AUSP' or u.startswith('AUSP_')
+    return u == 'AUSP' or u.startswith('AUSP_') or is_material_bpp_ausp_table(u)
 
 
 def _sample_atinn_text(df: pd.DataFrame) -> str:
@@ -535,6 +541,7 @@ def _discover_ausp_table_names(table_name: str, loader: Callable[[str], pd.DataF
         out.append(u)
 
     add(table_name)
+    add(MATERIAL_BPP_AUSP_TABLE)
     for name in ('AUSP_MATERIAL', 'AUSP_CLASS', 'AUSP_CLASSIFICATION', 'AUSP', 'AUSP_EQUIPMENT'):
         add(name)
     try:
@@ -560,6 +567,11 @@ def _pick_material_ausp_frame(
     samples: list[tuple[str, str]] = []
     frames: dict[str, pd.DataFrame] = {}
     requested = str(table_name or '').strip().upper() or 'AUSP'
+    if is_material_bpp_ausp_table(requested) and ausp is not None and not getattr(ausp, 'empty', True):
+        return ausp, MATERIAL_BPP_AUSP_TABLE, [(MATERIAL_BPP_AUSP_TABLE, _sample_atinn_text(ausp))]
+    pinned = _load(loader, MATERIAL_BPP_AUSP_TABLE)
+    if pinned is not None and not pinned.empty:
+        return pinned, MATERIAL_BPP_AUSP_TABLE, [(MATERIAL_BPP_AUSP_TABLE, _sample_atinn_text(pinned))]
     if ausp is not None:
         frames[requested] = ausp
     for name in _discover_ausp_table_names(requested, loader):

@@ -458,23 +458,26 @@ class FastDataQualityChecker:
         return atinn_value
 
     def _is_ausp_like_table(self, table_name) -> bool:
+        from utils.material_rule_evaluator import is_material_bpp_ausp_table
         tu = str(table_name or '').strip().upper()
-        return tu in ('AUSP', self.AUSP_EQUIPMENT_TABLE) or tu.startswith('AUSP_')
+        return tu in ('AUSP', self.AUSP_EQUIPMENT_TABLE) or tu.startswith('AUSP_') or is_material_bpp_ausp_table(tu)
 
     def _list_material_ausp_table_names(self) -> list[str]:
-        from utils.material_rule_evaluator import CUSTOMER_AUSP_SLICES
+        from utils.material_rule_evaluator import CUSTOMER_AUSP_SLICES, MATERIAL_BPP_AUSP_TABLE, is_material_bpp_ausp_table
         names = []
         seen = set()
 
         def add(name):
-            u = str(name or '').strip().upper()
+            raw = str(name or '').strip()
+            u = raw.upper()
             if not u or u in seen or u in CUSTOMER_AUSP_SLICES:
                 return
-            if u != 'AUSP' and not u.startswith('AUSP_'):
+            if u != 'AUSP' and not u.startswith('AUSP_') and not is_material_bpp_ausp_table(u):
                 return
             seen.add(u)
-            names.append(u)
+            names.append(MATERIAL_BPP_AUSP_TABLE if is_material_bpp_ausp_table(u) else u)
 
+        add(MATERIAL_BPP_AUSP_TABLE)
         add('AUSP_MATERIAL')
         add('AUSP')
         add('AUSP_CLASS')
@@ -528,7 +531,8 @@ class FastDataQualityChecker:
         if df is None or df.empty:
             return (None, None, None)
         t = (table_name or '').strip().upper()
-        if t not in ('AUSP', self.AUSP_EQUIPMENT_TABLE) and not t.startswith('AUSP_'):
+        from utils.material_rule_evaluator import is_material_bpp_ausp_table
+        if t not in ('AUSP', self.AUSP_EQUIPMENT_TABLE) and not t.startswith('AUSP_') and not is_material_bpp_ausp_table(t):
             return (None, None, None)
         if self._is_material_ausp_rule(rule):
             atinn_col, atwrt_col = self._find_ausp_columns(df.columns, table_name)
@@ -1195,8 +1199,9 @@ class FastDataQualityChecker:
         self._print_table_header(table_name, len(table_rules), display_row_count)
         ausp_split = None
         tn_u = str(table_name or '').strip().upper()
-        if tn_u == 'AUSP' and self.load_profile == 'material':
-            print('   [AUSP] material RPCONF_53.1: ATWRT по CABN.ATNAM=CCHBC_BPP_CODE (ATINN 829/868, KLART=001), не cooler 24/27/30/52 и не customer 143/148/151/604')
+        from utils.material_rule_evaluator import MATERIAL_BPP_AUSP_TABLE, is_material_bpp_ausp_table
+        if (tn_u == 'AUSP' or is_material_bpp_ausp_table(tn_u)) and self.load_profile == 'material':
+            print(f'   [AUSP] material RPCONF_53.1: таблица {MATERIAL_BPP_AUSP_TABLE}, ATWRT по CABN.ATNAM=CCHBC_BPP_CODE (ATINN 829/868, KLART=001)')
         elif tn_u == 'AUSP':
             ausp_split = self._build_ausp_split(df, table_name)
             if ausp_split:
@@ -3721,9 +3726,14 @@ class FastDataQualityChecker:
         out = []
         needs_ausp = False
         needs_ausp_equipment = False
+        needs_bpp_dump = False
+        from utils.material_rule_evaluator import MATERIAL_BPP_AUSP_TABLE, is_material_bpp_ausp_table
         for t in table_names:
             tu = str(t or '').strip().upper()
-            if tu == 'AUSP' or tu in ausp_derived:
+            if is_material_bpp_ausp_table(tu):
+                needs_bpp_dump = True
+                out.append(MATERIAL_BPP_AUSP_TABLE)
+            elif tu == 'AUSP' or tu in ausp_derived:
                 needs_ausp = True
                 if tu in ausp_derived:
                     out.append(t)
@@ -3736,8 +3746,8 @@ class FastDataQualityChecker:
             out.append('AUSP')
         if needs_ausp_equipment and self.AUSP_EQUIPMENT_TABLE not in [str(x).strip().upper() for x in out]:
             out.append(self.AUSP_EQUIPMENT_TABLE)
-        if self.load_profile == 'material' and (needs_ausp or needs_ausp_equipment):
-            if self.AUSP_EQUIPMENT_TABLE not in [str(x).strip().upper() for x in out]:
+        if self.load_profile == 'material' and (needs_ausp or needs_ausp_equipment or needs_bpp_dump):
+            if (needs_ausp or needs_ausp_equipment) and self.AUSP_EQUIPMENT_TABLE not in [str(x).strip().upper() for x in out]:
                 out.append(self.AUSP_EQUIPMENT_TABLE)
             if 'CABN' not in [str(x).strip().upper() for x in out]:
                 out.append('CABN')
