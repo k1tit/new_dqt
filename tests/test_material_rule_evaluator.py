@@ -8,6 +8,9 @@ from utils.material_rule_evaluator import (
     evaluate_ausp_bpp_rule,
     evaluate_makt_rule,
     evaluate_mara_rule,
+    evaluate_rpconf_160_4,
+    evaluate_rpconf_284_1,
+    evaluate_rpconf_284_2,
 )
 
 
@@ -431,6 +434,78 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         self._assert_result(result, 1, 0)
         self.assertEqual('AUSP 829.861', result['stats']['ausp_table'])
         self.assertEqual(['BPP_OK'], list(result['df']['ATWRT']))
+
+    def test_rpc160_4_skips_empty_mtvfp(self):
+        marc = pd.DataFrame({
+            'MATNR': ['10', '11', '12', '13', '19'],
+            'MTVFP': ['02', None, 'KP', 'Z2', 'KP'],
+            'WERKS': ['1000', '1000', '1000', '1000', '1000'],
+        })
+        tables = {
+            'MARA': pd.DataFrame({
+                'MATNR': ['10', '11', '12', '13', '14', '19'],
+                'MTART': ['ZNVM', 'ZNVM', 'ZNVM', 'ZFG', 'ZNVM', 'ZNVM'],
+            }),
+            'MAKT': self.makt,
+        }
+        result = evaluate_rpconf_160_4(
+            marc,
+            'MTVFP',
+            lambda name: tables.get(name, pd.DataFrame()),
+        )
+        self._assert_result(result, 2, 1)
+        self.assertEqual(1, result['stats']['skipped_empty_mtvfp'])
+        self.assertEqual(['02', 'KP'], list(result['df']['MTVFP']))
+        self.assertEqual([True, False], list(result['ok_mask']))
+
+    def test_rpc284_1_skips_empty_dismm(self):
+        marc = pd.DataFrame({
+            'MATNR': ['10', '11', '12', '13', '14', '15'],
+            'DISMM': ['ND', None, 'PD', 'X0', 'ND', 'VB'],
+            'MMSTA': ['99', '99', '99', '99', '01', '99'],
+            'WERKS': ['1000'] * 6,
+        })
+        tables = {
+            'MARA': pd.DataFrame({
+                'MATNR': ['10', '11', '12', '13', '14', '15'],
+                'MTART': ['ZFG', 'ZFG', 'ZFG', 'ZFG', 'ZFG', 'ZPAL'],
+                'MSTAE': ['99', '99', '99', '01', '99', '99'],
+            }),
+            'MAKT': self.makt,
+        }
+        result = evaluate_rpconf_284_1(
+            marc,
+            'DISMM',
+            lambda name: tables.get(name, pd.DataFrame()),
+        )
+        self._assert_result(result, 3, 1)
+        self.assertEqual(1, result['stats']['skipped_empty_dismm'])
+        self.assertEqual(['ND', 'PD', 'X0'], list(result['df']['DISMM']))
+        self.assertEqual([True, False, True], list(result['ok_mask']))
+
+    def test_rpc284_2_skips_empty_dismm(self):
+        marc = pd.DataFrame({
+            'MATNR': ['10', '11', '12', '13', '14'],
+            'DISMM': ['ZB', None, 'X0', 'PD', 'ND'],
+            'MMSTA': ['99', '99', '99', '99', '01'],
+            'WERKS': ['1000'] * 5,
+        })
+        tables = {
+            'MARA': pd.DataFrame({
+                'MATNR': ['10', '11', '12', '13', '14'],
+                'MTART': ['ZSPS', 'ZSPS', 'ZSPS', 'ZFG', 'ZSPS'],
+            }),
+            'MAKT': self.makt,
+        }
+        result = evaluate_rpconf_284_2(
+            marc,
+            'DISMM',
+            lambda name: tables.get(name, pd.DataFrame()),
+        )
+        self._assert_result(result, 2, 1)
+        self.assertEqual(1, result['stats']['skipped_empty_dismm'])
+        self.assertEqual(['ZB', 'X0'], list(result['df']['DISMM']))
+        self.assertEqual([True, False], list(result['ok_mask']))
 
 
 if __name__ == '__main__':

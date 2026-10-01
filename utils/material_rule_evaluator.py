@@ -19,7 +19,8 @@ MARA_RULE_CODES = frozenset({
 })
 MAKT_RULE_CODES = frozenset({'RPCONF_225.4', 'RPCONF_225.5'})
 AUSP_RULE_CODES = frozenset({'RPCONF_53.1'})
-MATERIAL_RULE_CODES = MARA_RULE_CODES | MAKT_RULE_CODES | AUSP_RULE_CODES
+MARC_RULE_CODES = frozenset({'RPCONF_160.4', 'RPCONF_284.1', 'RPCONF_284.2'})
+MATERIAL_RULE_CODES = MARA_RULE_CODES | MAKT_RULE_CODES | AUSP_RULE_CODES | MARC_RULE_CODES
 MATERIAL_BPP_AUSP_TABLE = 'AUSP 829.861'
 MATERIAL_AUSP_TABLES = frozenset({
     'AUSP',
@@ -72,6 +73,9 @@ ERROR_DESCRIPTIONS = {
     'RPCONF_265.1': 'MHDRZ must be less than or equal to MHDHB for Finished Goods.',
     'RPCONF_371.1': 'GEWEI must be KG for MTART ZFG/ZFGS/ZFGC/ZFGM/ZFGA/ZNVM.',
     'RPCONF_53.1': 'BPP code assigned to a ZFG* material does not exist in the BPP reference.',
+    'RPCONF_160.4': 'MTVFP must be 02 or Z2 for MTART ZNVM. Empty MTVFP is out of scope.',
+    'RPCONF_284.1': 'DISMM must be ND when MARA.MSTAE=99, otherwise X0 or ND, for finished and semi-finished materials. Empty DISMM is out of scope.',
+    'RPCONF_284.2': 'DISMM must be ZB, PD or ND for MTART ZSPS. Empty DISMM is out of scope.',
 }
 
 
@@ -720,6 +724,171 @@ def evaluate_ausp_bpp_rule(
     return _result(scoped, ok, rc, stats)
 
 
+def _marc_with_material_context(marc: pd.DataFrame, loader: Callable[[str], pd.DataFrame], rule_code: str):
+    stats = {'input': len(marc) if marc is not None else 0}
+    if marc is None or marc.empty:
+        return None, stats, f'{rule_code}: MARC пуст'
+    matnr_col = find_col(marc, ('MATNR', 'material_code', 'MATERIAL'))
+    if not matnr_col:
+        return None, stats, f'{rule_code}: MARC.MATNR не найден'
+    mara = _load(loader, 'MARA')
+    exact_type, simple_type, mara_has_cluster = _material_type_lookup(mara)
+    if not simple_type:
+        return None, stats, f'{rule_code}: MARA.MATNR/MTART не найдены'
+    from utils.dm_product_plant import apply_is_basic_scope
+    work = apply_is_basic_scope(marc).copy()
+    stats['after_basic_scope'] = len(work)
+    work['_DQ_MATNR'] = _matnr(work[matnr_col])
+    cluster_col = find_col(work, ('SAP_CLUSTER', 'CLUSTER'))
+    if mara_has_cluster and cluster_col and exact_type:
+        clusters = _codes(work[cluster_col])
+        work['LOOKUP_MATERIAL_TYPE'] = [
+            exact_type.get((cluster, matnr), '')
+            for cluster, matnr in zip(clusters, work['_DQ_MATNR'])
+        ]
+    else:
+        work['LOOKUP_MATERIAL_TYPE'] = work['_DQ_MATNR'].map(simple_type).fillna('')
+    english, _spras = _english_makt(_load(loader, 'MAKT'))
+    makt_matnr = find_col(english, ('MATNR', 'material_code', 'MATERIAL'))
+    maktx_col = find_col(english, ('MAKTX', 'material_description'))
+    if english.empty or not makt_matnr or not maktx_col:
+        return None, stats, f'{rule_code}: MAKT.MAKTX (SPRAS=E) не найден — нельзя применить NOT LIKE %ABP%'
+    keys = _matnr(english[makt_matnr])
+    values = english[maktx_col]
+    valid = keys.ne('0') & _filled(values)
+    lookup = (
+        pd.DataFrame({'key': keys.loc[valid], 'value': values.loc[valid]})
+        .drop_duplicates('key', keep='first')
+        .set_index('key')['value']
+        .to_dict()
+    )
+    work['LOOKUP_MATERIAL_DESCRIPTION'] = work['_DQ_MATNR'].map(lookup)
+    desc = work['LOOKUP_MATERIAL_DESCRIPTION']
+    if int(_filled(desc).sum()) == 0:
+        return None, stats, f'{rule_code}: MARC не сджойнился с MAKT по MATNR'
+    work = work.loc[_filled(desc) & ~desc.astype(str).str.contains('ABP', case=False, na=False)].copy()
+    return work, stats, None
+
+
+def _mara_status_lookup(mara: pd.DataFrame) -> tuple[dict, dict, bool]:
+    matnr_col = find_col(mara, ('MATNR', 'material_code', 'MATERIAL'))
+    status_col = find_col(mara, ('MSTAE', 'material_status_code', 'CROSS_PLANT_MATERIAL_STATUS'))
+    cluster_col = find_col(mara, ('SAP_CLUSTER', 'CLUSTER'))
+    if not matnr_col or not status_col:
+        return {}, {}, False
+    exact = {}
+    simple = {}
+    for idx in mara.index:
+        matnr = _matnr(pd.Series([mara.at[idx, matnr_col]])).iloc[0]
+        status = _codes(pd.Series([mara.at[idx, status_col]])).iloc[0]
+        cluster = _codes(pd.Series([mara.at[idx, cluster_col]])).iloc[0] if cluster_col else ''
+        if matnr:
+            simple.setdefault(matnr, status)
+            if cluster:
+                exact.setdefault((cluster, matnr), status)
+    return exact, simple, bool(cluster_col)
+
+
+def _finished_or_semi(material_type: pd.Series) -> pd.Series:
+    types = material_type.astype(str).str.strip().str.upper()
+    listed = frozenset({'ZFG', 'ZFGS', 'ZFGM', 'ZFGA', 'ZFGC', 'ZNVM', 'ZSF', 'ZNVL', 'ZSFT', 'ZRWT'})
+    return types.isin(listed) | types.str.startswith('ZRW') | types.str.startswith('ZSF')
+
+
+def evaluate_rpconf_160_4(
+    marc: pd.DataFrame,
+    value_col: str,
+    loader: Callable[[str], pd.DataFrame],
+) -> dict:
+    rc = 'RPCONF_160.4'
+    work, stats, skip = _marc_with_material_context(marc, loader, rc)
+    stats['evaluated'] = 0
+    stats['skipped_empty_mtvfp'] = 0
+    if skip:
+        return _empty_result(skip, stats)
+    mtvfp_col = value_col if value_col in work.columns else find_col(work, ('MTVFP', 'availability_checking_group'))
+    if not mtvfp_col:
+        return _empty_result(f'{rc}: MARC.MTVFP не найден', stats)
+    znvm = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.upper().eq('ZNVM')
+    filled = _filled(work[mtvfp_col])
+    stats['skipped_empty_mtvfp'] = int((znvm & ~filled).sum())
+    scoped = work.loc[znvm & filled].copy()
+    if scoped.empty:
+        return _empty_result(f'{rc}: нет заполненного MTVFP для MTART=ZNVM', stats)
+    ok = _codes(scoped[mtvfp_col]).isin({'02', 'Z2'})
+    stats['evaluated'] = len(scoped)
+    return _result(scoped, ok, rc, stats)
+
+
+def evaluate_rpconf_284_1(
+    marc: pd.DataFrame,
+    value_col: str,
+    loader: Callable[[str], pd.DataFrame],
+) -> dict:
+    rc = 'RPCONF_284.1'
+    work, stats, skip = _marc_with_material_context(marc, loader, rc)
+    stats['evaluated'] = 0
+    stats['skipped_empty_dismm'] = 0
+    if skip:
+        return _empty_result(skip, stats)
+    dismm_col = value_col if value_col in work.columns else find_col(work, ('DISMM', 'mrp_type'))
+    mmsta_col = find_col(work, ('MMSTA', 'material_status_code'))
+    if not dismm_col or not mmsta_col:
+        return _empty_result(f'{rc}: MARC.DISMM/MMSTA не найдены', stats)
+    exact_status, simple_status, mara_has_cluster = _mara_status_lookup(_load(loader, 'MARA'))
+    if not simple_status and not exact_status:
+        return _empty_result(f'{rc}: MARA.MSTAE не найден', stats)
+    cluster_col = find_col(work, ('SAP_CLUSTER', 'CLUSTER'))
+    if mara_has_cluster and cluster_col and exact_status:
+        clusters = _codes(work[cluster_col])
+        work['LOOKUP_CROSS_PLANT_STATUS'] = [
+            exact_status.get((cluster, matnr), '')
+            for cluster, matnr in zip(clusters, work['_DQ_MATNR'])
+        ]
+    else:
+        work['LOOKUP_CROSS_PLANT_STATUS'] = work['_DQ_MATNR'].map(simple_status).fillna('')
+
+    filled = _filled(work[dismm_col])
+    plant_blocked = _codes(work[mmsta_col]).eq('99')
+    in_type = _finished_or_semi(work['LOOKUP_MATERIAL_TYPE'])
+    stats['skipped_empty_dismm'] = int((~filled).sum())
+    scoped = work.loc[filled & plant_blocked & in_type].copy()
+    if scoped.empty:
+        return _empty_result(f'{rc}: нет заполненного DISMM при MMSTA=99 для готовой и полуготовой продукции', stats)
+    dismm = _codes(scoped[dismm_col])
+    cross_blocked = _codes(scoped['LOOKUP_CROSS_PLANT_STATUS']).eq('99')
+    ok = (cross_blocked & dismm.eq('ND')) | (~cross_blocked & dismm.isin({'X0', 'ND'}))
+    stats['evaluated'] = len(scoped)
+    return _result(scoped, ok, rc, stats)
+
+
+def evaluate_rpconf_284_2(
+    marc: pd.DataFrame,
+    value_col: str,
+    loader: Callable[[str], pd.DataFrame],
+) -> dict:
+    rc = 'RPCONF_284.2'
+    work, stats, skip = _marc_with_material_context(marc, loader, rc)
+    stats['evaluated'] = 0
+    stats['skipped_empty_dismm'] = 0
+    if skip:
+        return _empty_result(skip, stats)
+    dismm_col = value_col if value_col in work.columns else find_col(work, ('DISMM', 'mrp_type'))
+    mmsta_col = find_col(work, ('MMSTA', 'material_status_code'))
+    if not dismm_col or not mmsta_col:
+        return _empty_result(f'{rc}: MARC.DISMM/MMSTA не найдены', stats)
+    filled = _filled(work[dismm_col])
+    plant_blocked = _codes(work[mmsta_col]).eq('99')
+    zsps = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.strip().str.upper().eq('ZSPS')
+    stats['skipped_empty_dismm'] = int((zsps & ~filled).sum())
+    scoped = work.loc[filled & plant_blocked & zsps].copy()
+    if scoped.empty:
+        return _empty_result(f'{rc}: нет заполненного DISMM при MMSTA=99 для MTART=ZSPS', stats)
+    ok = _codes(scoped[dismm_col]).isin({'ZB', 'PD', 'ND'})
+    stats['evaluated'] = len(scoped)
+    return _result(scoped, ok, rc, stats)
+
+
 def evaluate_material_rule(
     df: pd.DataFrame,
     table_name: str,
@@ -735,4 +904,10 @@ def evaluate_material_rule(
         return evaluate_makt_rule(df, rc, value_col)
     if rc in AUSP_RULE_CODES and _is_material_ausp_table_name(table):
         return evaluate_ausp_bpp_rule(df, rc, value_col, loader, table_name=table)
+    if rc in MARC_RULE_CODES and table == 'MARC':
+        if rc == 'RPCONF_284.1':
+            return evaluate_rpconf_284_1(df, value_col, loader)
+        if rc == 'RPCONF_284.2':
+            return evaluate_rpconf_284_2(df, value_col, loader)
+        return evaluate_rpconf_160_4(df, value_col, loader)
     return _empty_result(f'{rc}: неверная таблица {table} для material evaluator')
