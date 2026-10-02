@@ -657,7 +657,7 @@ def merge_and_load_xlsx_files_fast(db_path=None, data_folder=None, target_table=
     total_files = len(data_files)
     print(f'Найдено файлов: {total_files}')
     for i, f in enumerate(data_files[:10], 1):
-        print(f'  {i:2}. {os.path.basename(f)}')
+        print(f'  {i:2}. {os.path.abspath(f)}')
     if total_files > 10:
         print(f'  ... и еще {total_files - 10} файлов')
     print_step(current_step, total_steps, 'Подготовка базы данных...')
@@ -1852,7 +1852,7 @@ def _interactive_load_one_table(method='fast'):
     print(f'БД: {_resolve_db_path()}')
     files = info.get('files') or []
     for fp in files[:10]:
-        print(f'  - {os.path.basename(fp)}')
+        print(f'  - {os.path.abspath(fp)}')
     if len(files) > 10:
         print(f'  ... и ещё {len(files) - 10}')
     skip_dedup = input('Пропустить финальную дедупликацию? (y/n) [n]: ').strip().lower() == 'y'
