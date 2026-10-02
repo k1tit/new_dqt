@@ -130,8 +130,9 @@ def load_checker_module():
                     os.remove(os.path.join(cache_dir, name))
                 except OSError:
                     pass
-    for mod in ('core.checkиц2ууer', 'core'):
-        sys.modules.pop(mod, None)
+    for mod in list(sys.modules):
+        if mod == 'core' or mod.startswith('core.'):
+            sys.modules.pop(mod, None)
     try:
         print('Загружаем core.checker...')
         if current_dir not in sys.path:
@@ -145,13 +146,36 @@ def load_checker_module():
         traceback.print_exc()
         sys.exit(1)
 
+def db_table_names(db_path):
+    """Имена таблиц из файла SQLite. Правила отчёта сюда не входят."""
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name COLLATE NOCASE"
+        ).fetchall()
+    finally:
+        conn.close()
+    return [str(row[0]) for row in rows if row and str(row[0]).strip()]
+
+
 def list_tables(checker):
+    db_path = getattr(checker, 'db_path', None)
     print('\n' + '=' * 80)
     print('ТАБЛИЦЫ В БАЗЕ')
+    print(db_path or '(путь к БД не задан)')
     print('=' * 80)
-    tables = checker.list_available_tables()
+    if not db_path or not os.path.isfile(db_path):
+        print(f'[!] Файл базы не найден: {db_path}')
+        return []
+    tables = db_table_names(db_path)
     if not tables:
-        print('[!] Нет таблиц в базе')
+        print('[!] В базе нет таблиц')
+        return []
+    for i, table in enumerate(tables, 1):
+        print(f'{i:3}. {table}')
+    print('=' * 80)
+    print(f'Всего таблиц в БД: {len(tables)}')
     return tables
 
 def _recreate_checker_from(checker):
