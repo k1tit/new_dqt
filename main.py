@@ -147,18 +147,11 @@ def load_checker_module():
 
 def list_tables(checker):
     print('\n' + '=' * 80)
-    print('ДОСТУПНЫЕ ТАБЛИЦЫ ДЛЯ ПРОВЕРКИ')
+    print('ТАБЛИЦЫ В БАЗЕ')
     print('=' * 80)
     tables = checker.list_available_tables()
-    if tables:
-        print(f'Всего таблиц: {len(tables)}')
-        print('-' * 80)
-        for i, table in enumerate(tables, 1):
-            rules = checker.get_table_rules(table)
-            print(f'{i:3d}. {table:25} - {len(rules):3d} правил')
-        print('=' * 80)
-    else:
-        print('[!] Нет доступных таблиц для проверки')
+    if not tables:
+        print('[!] Нет таблиц в базе')
     return tables
 
 def _recreate_checker_from(checker):
@@ -367,7 +360,7 @@ def interactive_mode(checker, FastDataQualityChecker=None, checker_kwargs=None):
     while True:
         print('\nДоступные команды:')
         print('  [R] - Сменить тип отчёта (Customer / Material / All)')
-        print('  [L] - Список таблиц (по текущим правилам)')
+        print('  [L] - Список таблиц из базы')
         print('  [F] - Полная проверка всех таблиц текущего отчёта')
         print('  [1] - Проверить таблицу по номеру')
         print('  [N] - Проверить таблицу по имени')

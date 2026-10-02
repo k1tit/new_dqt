@@ -941,9 +941,17 @@ class FastDataQualityChecker:
                 self._save_totals_by_table()
                 return pd.DataFrame()
         elif table_list:
+            folded_rules = {str(k).strip().casefold(): k for k in rules_config}
+
+            def _rules_key(name):
+                if name in rules_config:
+                    return name
+                return folded_rules.get(str(name).strip().casefold())
+
             tables_to_process = []
             for t in table_list:
-                if t == 'AUSP':
+                key = _rules_key(t)
+                if t == 'AUSP' or key == 'AUSP':
                     direct = _filter_rules(rules_config.get('AUSP', []), only_rule_codes)
                     if direct:
                         tables_to_process.append(('AUSP', direct))
@@ -953,11 +961,11 @@ class FastDataQualityChecker:
                                 tr = _filter_rules(rules_config[a], only_rule_codes)
                                 if tr:
                                     tables_to_process.append((a, tr))
-                elif t in rules_config:
-                    tr = _filter_rules(rules_config[t], only_rule_codes)
+                elif key:
+                    tr = _filter_rules(rules_config[key], only_rule_codes)
                     if tr:
-                        tables_to_process.append((t, tr))
-            missing = [t for t in table_list if t != 'AUSP' and t not in rules_config]
+                        tables_to_process.append((key, tr))
+            missing = [t for t in table_list if _rules_key(t) is None and t != 'AUSP']
             if missing:
                 print(f'\n[WARN] Таблицы не найдены в конфигурации: {missing}')
             total_tables = len(tables_to_process)
@@ -3054,19 +3062,41 @@ class FastDataQualityChecker:
             print(f'\n[INFO] Нет результатов проверки')
 
     def list_available_tables(self):
-        rules_config = self.load_configuration()
-        if not rules_config:
-            print(f'\n[ERROR] Не удалось загрузить конфигурацию правил')
+        service = {str(getattr(self, 'ADR2_RULE_PARTNERS_TABLE', '')).strip().casefold()}
+        getter = getattr(getattr(self, 'memory_manager', None), '_get_all_table_names', None)
+        db_tables = []
+        if not callable(getter):
+            print('\n[ERROR] Нет доступа к списку таблиц SQLite')
             return []
-        tables = list(rules_config.keys())
-        print(f'\n[INFO] Доступные таблицы для проверки:')
-        print(f'=' * 50)
-        for i, table in enumerate(tables, 1):
-            rule_count = len(rules_config[table])
-            print(f'{i:3}. {table:25} - {rule_count:3} правил')
-        print(f'=' * 50)
-        print(f'[INFO] Всего таблиц: {len(tables)}')
-        return tables
+        try:
+            for name in getter() or []:
+                raw = str(name or '').strip()
+                key = raw.casefold()
+                if not raw or key in service or key.startswith('sqlite_') or key.endswith('_dedup_tmp'):
+                    continue
+                db_tables.append(raw)
+        except Exception as e:
+            print(f'[ERROR] не удалось прочитать таблицы SQLite: {e}')
+            return []
+        db_tables = sorted(db_tables, key=lambda s: s.casefold())
+        rules_config = self.load_configuration() or {}
+        folded = {str(k).strip().casefold(): k for k in rules_config}
+        db_path = getattr(getattr(self, 'memory_manager', None), 'db_path', None) or getattr(self, 'db_path', '')
+        print(f'\n[INFO] Таблицы в БД: {db_path}')
+        print('=' * 50)
+        if not db_tables:
+            print('[!] В базе нет таблиц')
+            print('=' * 50)
+            return []
+        for i, table in enumerate(db_tables, 1):
+            key = folded.get(table.casefold())
+            if key:
+                print(f'{i:3}. {table} - {len(rules_config.get(key) or [])} правил')
+            else:
+                print(f'{i:3}. {table}')
+        print('=' * 50)
+        print(f'[INFO] Всего таблиц в БД: {len(db_tables)}')
+        return db_tables
     DFKKBPTAXNUM_ALIASES = ('DFKKBPTAXNUM1', 'DFKKBPTAXNUM2', 'DFKKBPTAXNUM3', 'DFKKBPTAXNUM5')
     DFKKBPTAXNUM_SHARED_RULE_CODES = frozenset({'RCCONF_52.4', 'RCCONF_52.3', 'RCCONF_52.2', 'RCCOMP_52.2'})
     TAXNUM_SAME_ROW_RULES = frozenset({'RCCONF_50.11', 'RCCONF_52.11', 'RCCONF_54.9', 'RCCONF_63.7'})
