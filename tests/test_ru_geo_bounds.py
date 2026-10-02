@@ -8,6 +8,7 @@ from utils.ru_geo_bounds import (
     latitude_inside_russia,
     longitude_inside_russia,
     parse_coord,
+    pick_coord_column,
 )
 from validators.conformity import ConformityValidator
 
@@ -67,3 +68,30 @@ def test_validator_longitude_moscow_ok_zero_fail():
     assert total == 3
     assert errors == 1
     assert error_df['_LOT_GC_LONGITUD'].tolist() == ['0']
+
+
+def test_rules_keep_their_own_coordinate():
+    df = pd.DataFrame({
+        'Latitude': ['54.333752', '0.0', '13.747205', '51.109233'],
+        'Longitude': ['0.0', '0.0', '37.6173', '30.5'],
+        'Altitude': ['0.0', '0.0', '0.0', '0.0'],
+        'KTOKD': ['9038', '9038', '9038', '9038'],
+    })
+    assert pick_coord_column(df.columns, 'lon') == 'Longitude'
+    assert pick_coord_column(df.columns, 'lat') == 'Latitude'
+
+    lon = ConformityValidator({'rule_code': 'RCCONF_383.3', 'rule_description': 'lon'})
+    total, errors, error_df = lon.validate(df, 'Longitude')
+    assert total == 4
+    assert errors == 2
+    assert 'Latitude' not in error_df.columns
+    assert 'Altitude' not in error_df.columns
+    assert error_df['Longitude'].tolist() == ['0.0', '0.0']
+
+    lat = ConformityValidator({'rule_code': 'RCCONF_384.3', 'rule_description': 'lat'})
+    total, errors, error_df = lat.validate(df, 'Latitude')
+    assert total == 4
+    assert errors == 2
+    assert 'Longitude' not in error_df.columns
+    assert 'Altitude' not in error_df.columns
+    assert error_df['Latitude'].tolist() == ['0.0', '13.747205']

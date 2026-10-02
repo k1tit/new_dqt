@@ -353,6 +353,7 @@ class ConformityValidator(BaseValidator):
                 RU_LON_EAST,
                 RU_LON_WEST,
                 RU_ORDER_BLOCK_SKIP,
+                drop_other_coord_columns,
                 latitude_inside_russia,
                 longitude_inside_russia,
                 parse_coord,
@@ -397,6 +398,7 @@ class ConformityValidator(BaseValidator):
                     f'(41°11′ N .. 77°43′ N; decimal {RU_LAT_MIN} .. {RU_LAT_MAX}).'
                 )
             error_df = self._prepare_error_dataframe(df, error_mask, 'CONFORMITY', error_description)
+            error_df = drop_other_coord_columns(error_df, 'lon' if is_lon else 'lat')
             return (total_rows, error_count, error_df)
         if effective_rule_code == 'RCCONF_22.4':
             filled = _value_filled_mask(df[column_name])

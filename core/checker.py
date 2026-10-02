@@ -2552,6 +2552,20 @@ class FastDataQualityChecker:
                     print(f'      [ADR6] RCCOMP_375.1.2: подключена таблица ADR6 ({len(adr6_df):,} строк) для проверки e-mail')
                 else:
                     print('      [WARN] RCCOMP_375.1.2: таблица ADR6 не найдена — проверяется только TEL_NUMBER')
+            if rule_code in ('RCCONF_383.3', 'RCCONF_384.3'):
+                from utils.ru_geo_bounds import pick_coord_column
+                want_axis = 'lon' if rule_code == 'RCCONF_383.3' else 'lat'
+                picked = pick_coord_column(df_to_validate.columns, want_axis)
+                if not picked:
+                    label = 'долгота' if want_axis == 'lon' else 'широта'
+                    self._log_skipped_rule(rule, table_name, f'{rule_code}: колонка {label} не найдена', timestamp)
+                    return (0, 0)
+                if picked != matched_column:
+                    print(f"      [COL] {rule_code}: только {('долгота' if want_axis == 'lon' else 'широта')} '{picked}'")
+                matched_column = picked
+                rule_info['matched_column'] = picked
+                if getattr(validator, 'rule_info', None) is not None:
+                    validator.rule_info['matched_column'] = picked
             total_rows, error_count, error_df = validator.validate(df_to_validate, matched_column, **params)
             if taxnum_baseline_total is not None:
                 total_rows = taxnum_baseline_total
