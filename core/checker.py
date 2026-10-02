@@ -806,6 +806,7 @@ class FastDataQualityChecker:
                 cleaned[key] = rows
             total_tables = len(cleaned)
             total_rules = sum(len(cleaned[table]) for table in cleaned)
+            self._rules_cache = cleaned
             print(f'\n\x1b[1m[INFO]\x1b[0m Загружено {total_tables} таблиц, {total_rules} правил  ({os.path.basename(self.rules_file)} → {self.output_dir})')
             return cleaned
         except Exception as e:
@@ -859,6 +860,7 @@ class FastDataQualityChecker:
         if hasattr(self.memory_manager, 'load_all_data_to_ram'):
             if specific_table:
                 tables_to_load = self._expand_ausp_for_load([specific_table])
+                print(f'[INFO] К загрузке (таблица и зависимости правил): {tables_to_load}')
                 if self.use_async_load and hasattr(self.memory_manager, 'load_selected_tables_to_ram_async_sync'):
                     self.memory_manager.load_selected_tables_to_ram_async_sync(tables_to_load)
                 elif hasattr(self.memory_manager, 'load_selected_tables_to_ram'):
@@ -867,6 +869,7 @@ class FastDataQualityChecker:
                     self.memory_manager.load_all_data_to_ram()
             elif table_list:
                 tables_to_load = self._expand_ausp_for_load(list(table_list))
+                print(f'[INFO] К загрузке (таблицы и зависимости правил): {tables_to_load}')
                 if self.use_async_load and hasattr(self.memory_manager, 'load_selected_tables_to_ram_async_sync'):
                     self.memory_manager.load_selected_tables_to_ram_async_sync(tables_to_load)
                 elif hasattr(self.memory_manager, 'load_selected_tables_to_ram'):
@@ -3774,13 +3777,47 @@ class FastDataQualityChecker:
             if 'KNA1' not in [str(x).strip().upper() for x in out]:
                 out.append('KNA1')
         if self.load_profile != 'material' and any(
-            str(t).strip().upper() in self.EQUIPMENT_TABLES or str(t).strip().upper() == 'V_EQUI' for t in out
+            str(t).strip().upper() in self.EQUIPMENT_TABLES for t in out
         ):
-            if 'V_EQUI' not in [str(x).strip().upper() for x in out]:
-                out.append('V_EQUI')
-            if 'MAKT' not in [str(x).strip().upper() for x in out]:
-                out.append('MAKT')
-        kna1_dependent = {'BUT0BK', 'BUT051', 'KNB1', 'KNVV', 'KNVP', 'KNVH', 'ADR2', 'ADRC', 'BUT050', 'LOTGC_ADR', '/LOT/GC_ADR', 'LOT_GC_ADR'}
+            for extra in ('V_EQUI', 'JEST', 'AUSP_EQUIPMENT', 'TJ30T', 'INOB', 'KNA1', 'MAKT'):
+                if extra not in [str(x).strip().upper() for x in out]:
+                    out.append(extra)
+        if any(str(t).strip().upper() in ('MARC', 'MARA') for t in out):
+            for extra in ('MARA', 'MAKT'):
+                if extra not in [str(x).strip().upper() for x in out]:
+                    out.append(extra)
+        rule_extras = {
+            'RCCONF_388.3': ('MAKT',),
+            'RCCONF_143.7': ('TVBVK',),
+            'RCCONF_119.2': ('KNVV',),
+            'RPCONF_166.1': ('MAKT',),
+            'RPCONF_196.10': ('MAKT',),
+            'RPCONF_196.11': ('MAKT',),
+            'RPCONF_196.12': ('MAKT',),
+            'RPCONF_253.4': ('MAKT',),
+            'RPCONF_265.1': ('MAKT',),
+            'RPCONF_371.1': ('MAKT',),
+            'RPCONF_160.4': ('MARA', 'MAKT'),
+            'RPCONF_284.1': ('MARA', 'MAKT'),
+            'RPCONF_284.2': ('MARA', 'MAKT'),
+            'RPCONF_53.1': (
+                'MARA', 'CABN', 'CAWN_M', 'CAWNT_M',
+                'ZMDM_BPP_CODET', 'ZMDM_BPP_CODE', 'CAWN', 'CAWNT',
+            ),
+        }
+        rules_by_key = {
+            str(k).strip().upper(): v
+            for k, v in (getattr(self, '_rules_cache', None) or self.load_configuration() or {}).items()
+        }
+        present = {str(x).strip().upper() for x in out}
+        for table in list(out):
+            for rule in rules_by_key.get(str(table).strip().upper(), []) or []:
+                for extra in rule_extras.get(str(rule.get('rule_code') or '').strip(), ()):
+                    key = str(extra).strip().upper()
+                    if key not in present:
+                        out.append(extra)
+                        present.add(key)
+        kna1_dependent = {'BUT0BK', 'BUT051', 'KNB1', 'KNVV', 'KNVP', 'KNVH', 'ADR2', 'ADR6', 'ADRC', 'BUT050', 'LOTGC_ADR', '/LOT/GC_ADR', 'LOT_GC_ADR'}
         if any((str(t).strip().upper() in kna1_dependent or str(t).strip().upper().replace('/', '').replace('_', '') == 'LOTGCADR' for t in out)) and 'KNA1' not in out:
             out.append('KNA1')
         if any((str(t).strip().upper().replace('/', '').replace('_', '') == 'LOTGCADR' for t in out)) and 'BUT020' not in out:

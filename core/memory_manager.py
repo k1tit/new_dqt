@@ -463,7 +463,7 @@ class MemoryManager:
             from utils.material_rule_evaluator import MATERIAL_BPP_AUSP_TABLE, is_material_bpp_ausp_table
             requested = {str(t).strip().upper() for t in table_names}
             bpp_requested = any(is_material_bpp_ausp_table(t) for t in requested)
-            if requested & {'MARA', 'MAKT', 'AUSP', 'AUSP_EQUIPMENT'} or bpp_requested:
+            if requested & {'MARA', 'MAKT', 'MARC', 'AUSP', 'AUSP_EQUIPMENT'} or bpp_requested:
                 for ref in ('MARA', 'MAKT'):
                     match = self._find_table_in_db(ref, all_in_db)
                     if match:
@@ -493,7 +493,7 @@ class MemoryManager:
         if self.load_profile != 'material' and (
             any(str(t).strip().upper() in eq_names for t in table_names) or self._needs_ausp_equipment_load(table_names)
         ):
-            for ref in ('V_EQUI', 'TJ30T', 'INOB', 'KNA1', 'MAKT'):
+            for ref in ('V_EQUI', 'JEST', 'AUSP_EQUIPMENT', 'TJ30T', 'INOB', 'KNA1', 'MAKT'):
                 match = self._find_table_in_db(ref, all_in_db)
                 if match:
                     to_load.add(match)
