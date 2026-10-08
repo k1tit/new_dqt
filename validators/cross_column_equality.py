@@ -137,6 +137,7 @@ class CrossColumnEqualityCheckValidator(BaseValidator):
             error_df = df[errors_mask].copy()
             error_df['error_type'] = 'EQUAL_TO_OTHER_TAX'
             error_df['error_message'] = f"Значение в '{column1}' совпадает с одним из других полей tax (не должно повторяться)"
+            error_df['DQ_COLUMN_CHECKED'] = column1
             if self.error_saver:
                 self._save_errors_if_needed(error_df)
         return (int(evaluated_count), int(error_count), error_df)

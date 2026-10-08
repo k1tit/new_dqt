@@ -357,6 +357,7 @@ class ConformityValidator(BaseValidator):
                 latitude_inside_russia,
                 longitude_inside_russia,
                 parse_coord,
+                zero_forgiven_by_sibling,
             )
             is_lon = effective_rule_code == 'RCCONF_383.3'
             print(f'      [DEBUG] {effective_rule_code}: Russia bounds ({"longitude" if is_lon else "latitude"})')
@@ -381,7 +382,13 @@ class ConformityValidator(BaseValidator):
                 return (0, 0, None)
             num = parse_coord(df[column_name])
             inside = longitude_inside_russia(num) if is_lon else latitude_inside_russia(num)
-            error_mask = evaluated_mask & ~inside
+            partner = pd.Series('', index=df.index)
+            for c in df.columns:
+                if str(c).strip().upper() in ('PARTNER', 'KUNNR'):
+                    partner = df[c]
+                    break
+            forgiven = zero_forgiven_by_sibling(partner, inside, num)
+            error_mask = evaluated_mask & ~inside & ~forgiven
             error_count = int(error_mask.sum())
             print(f'      [DEBUG] {effective_rule_code}: evaluated={total_rows:,}, errors={error_count:,}')
             if error_count == 0:

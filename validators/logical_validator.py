@@ -84,6 +84,8 @@ class LogicalValidator:
                 return (total_rows, 0, None)
             error_df['error_type'] = 'RCCONF_15.1'
             error_df['error_message'] = f'{org4_column} заполнено, но длина {org3_column} < 34 символов (по полному значению, ведущий пробел считается)'
+            error_df['DQ_COLUMN_CHECKED_1'] = org3_column
+            error_df['DQ_COLUMN_CHECKED_2'] = org4_column
             print(f'      [RCCONF_15.1] Найдено ошибок: {error_count:,} (NAME_ORG4 заполнено, длина NAME_ORG3 по сырому полю < 34)')
         else:
             error_df = None

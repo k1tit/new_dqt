@@ -66,6 +66,8 @@ class CrossColumnEqualityValidator(BaseValidator):
             error_df = df[errors_mask].copy()
             error_df['error_type'] = 'DUPLICATE_VALUES'
             error_df['error_message'] = f'''Значения в колонках '{column1}' и '{second_column}' совпадают, хотя "cannot be the same"'''
+            error_df['DQ_COLUMN_CHECKED_1'] = column1
+            error_df['DQ_COLUMN_CHECKED_2'] = second_column
             print(f'\nПримеры ошибок (первые 3):')
             sample_errors = error_df.head(3)
             for idx, row in sample_errors.iterrows():

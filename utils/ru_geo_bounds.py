@@ -31,6 +31,18 @@ def longitude_inside_russia(num: pd.Series) -> pd.Series:
     return num.notna() & (in_main | in_wrap)
 
 
+def zero_forgiven_by_sibling(partner: pd.Series, inside: pd.Series, num: pd.Series) -> pd.Series:
+    """0.0 is allowed on a repeated customer when another row of that customer is inside Russia."""
+    key = partner.fillna('').astype(str).str.strip()
+    zero = num.notna() & num.eq(0)
+    work = pd.DataFrame({'key': key, 'inside': inside.fillna(False).astype(bool)}, index=partner.index)
+    known = work['key'].ne('')
+    stats = work.loc[known].groupby('key', sort=False).agg(n=('key', 'size'), has_inside=('inside', 'any'))
+    repeats = work['key'].map(stats['n']).fillna(0)
+    has_inside = work['key'].map(stats['has_inside']).eq(True)
+    return zero & known & repeats.gt(1) & has_inside
+
+
 def coord_axis(name: str) -> str | None:
     """lat / lon / alt. Altitude is neither rule."""
     n = re.sub(r'[^A-Z0-9]', '', str(name or '').upper())

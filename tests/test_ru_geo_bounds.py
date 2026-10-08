@@ -9,6 +9,7 @@ from utils.ru_geo_bounds import (
     longitude_inside_russia,
     parse_coord,
     pick_coord_column,
+    zero_forgiven_by_sibling,
 )
 from validators.conformity import ConformityValidator
 
@@ -95,3 +96,37 @@ def test_rules_keep_their_own_coordinate():
     assert 'Longitude' not in error_df.columns
     assert 'Altitude' not in error_df.columns
     assert error_df['Latitude'].tolist() == ['0.0', '13.747205']
+
+
+def test_repeated_customer_zero_ok_when_one_row_inside_russia():
+    df = pd.DataFrame({
+        '_LOT_GC_LONGITUD': ['37.6173', '0.0', '0', '10'],
+        'PARTNER': ['100', '100', '200', '200'],
+        'KTOKD': ['9038', '9038', '9038', '9038'],
+    })
+    validator = ConformityValidator({'rule_code': 'RCCONF_383.3', 'rule_description': 'lon'})
+    total, errors, error_df = validator.validate(df, '_LOT_GC_LONGITUD')
+    assert total == 4
+    assert errors == 2
+    assert error_df['PARTNER'].tolist() == ['200', '200']
+
+
+def test_single_customer_zero_still_fails():
+    df = pd.DataFrame({
+        '_LOT_GC_LATITUDE': ['0.0'],
+        'PARTNER': ['100'],
+        'KTOKD': ['9038'],
+    })
+    validator = ConformityValidator({'rule_code': 'RCCONF_384.3', 'rule_description': 'lat'})
+    total, errors, error_df = validator.validate(df, '_LOT_GC_LATITUDE')
+    assert total == 1
+    assert errors == 1
+    assert error_df['_LOT_GC_LATITUDE'].tolist() == ['0.0']
+
+
+def test_zero_forgiven_only_for_repeated_partner_with_inside_row():
+    partner = pd.Series(['A', 'A', 'B', 'B', 'C'])
+    num = parse_coord(pd.Series(['55.75', '0', '0', '0', '0']))
+    inside = latitude_inside_russia(num)
+    forgiven = zero_forgiven_by_sibling(partner, inside, num)
+    assert forgiven.tolist() == [False, True, False, False, False]

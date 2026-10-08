@@ -2566,6 +2566,13 @@ class FastDataQualityChecker:
                 rule_info['matched_column'] = picked
                 if getattr(validator, 'rule_info', None) is not None:
                     validator.rule_info['matched_column'] = picked
+                df_to_validate, geo_skip = self._filter_geo_rule_knvv_scope(df_to_validate, rule_code)
+                if geo_skip:
+                    self._log_skipped_rule(rule, table_name, geo_skip, timestamp)
+                    return (0, 0)
+                if df_to_validate.empty:
+                    self._log_skipped_rule(rule, table_name, f'{rule_code}: нет клиентов KNVV VTWEG/SPART 01/01 вне 04/01 и 04/02', timestamp)
+                    return (0, 0)
             total_rows, error_count, error_df = validator.validate(df_to_validate, matched_column, **params)
             if taxnum_baseline_total is not None:
                 total_rows = taxnum_baseline_total
@@ -3290,6 +3297,45 @@ class FastDataQualityChecker:
             f'[{vkorg_col}] -> {len(out):,}/{before:,} (исключено: {n_drop:,})'
         )
         return out
+
+    def _filter_geo_rule_knvv_scope(self, df, rule_code):
+        """RCCONF_383.3/384.3: keep customers with KNVV VTWEG/SPART 01/01, drop 04/01 and 04/02."""
+        if df is None or df.empty:
+            return df, None
+        partner_col = next((c for c in df.columns if str(c).strip().upper() == 'PARTNER'), None)
+        if not partner_col:
+            return df.iloc[0:0].copy(), f'{rule_code}: PARTNER не получен (LOT_GC_ADR→BUT020)'
+        knvv_df = self._get_table_for_rules('KNVV')
+        if knvv_df is None or knvv_df.empty:
+            try:
+                self.memory_manager.load_selected_tables_to_ram(['KNVV'], add_reference_tables=False)
+                knvv_df = self._get_table_for_rules('KNVV')
+            except Exception as e:
+                return df.iloc[0:0].copy(), f'{rule_code}: KNVV не загружена ({e})'
+        if knvv_df is None or knvv_df.empty:
+            return df.iloc[0:0].copy(), f'{rule_code}: KNVV пуста — VTWEG/SPART не определены'
+        vtweg_col = self._resolve_column_for_rule(knvv_df, 'VTWEG', 'KNVV')
+        spart_col = self._resolve_column_for_rule(knvv_df, 'SPART', 'KNVV')
+        if not vtweg_col or vtweg_col not in knvv_df.columns:
+            vtweg_col = next((c for c in knvv_df.columns if str(c).strip().upper() in ('VTWEG', 'DCHL')), None)
+        if not spart_col or spart_col not in knvv_df.columns:
+            spart_col = next((c for c in knvv_df.columns if str(c).strip().upper() in ('SPART', 'DV')), None)
+        kunnr_col = self._pick_best_kunnr_column(knvv_df, 'KNVV')
+        if not vtweg_col or not spart_col or not kunnr_col:
+            return df.iloc[0:0].copy(), f'{rule_code}: в KNVV нет KUNNR/VTWEG/SPART'
+        vt = self._norm_knvv_so_code_series(knvv_df[vtweg_col])
+        sp = self._norm_knvv_so_code_series(knvv_df[spart_col])
+        cust = knvv_df[kunnr_col].apply(self._norm_customer_partner_key)
+        known = cust.ne('')
+        keys_0101 = set(cust[known & (vt == '01') & (sp == '01')])
+        keys_out = set(cust[known & (vt == '04') & sp.isin(['01', '02'])])
+        row_key = df[partner_col].apply(self._norm_customer_partner_key)
+        keep = row_key.isin(keys_0101) & ~row_key.isin(keys_out)
+        print(
+            f"      [FILTER] {rule_code}: KNVV {vtweg_col}/{spart_col} 01/01, без 04/01 и 04/02 "
+            f"-> {int(keep.sum()):,}/{len(df):,} (клиентов 01/01: {len(keys_0101):,}, исключено 04/xx: {len(keys_out):,})"
+        )
+        return df.loc[keep].copy(), None
 
     def _apply_knvv_dm_sales_org_scope(self, df, rule_code, table_name):
         """dm_customer_sales_org scope: VTWEG=01 & SPART=01, exclude blocked OrBlk and KDGRP=ZIN.
@@ -8215,6 +8261,44 @@ class FastDataQualityChecker:
                 result['error_file'] = 'Нет'
                 result['error_file_path'] = ''
 
+    @staticmethod
+    def _checked_column_names(error_df):
+        names = []
+        if error_df is None or getattr(error_df, 'empty', True):
+            return names
+        for key in ('DQ_COLUMN_CHECKED', 'DQ_COLUMN_CHECKED_1', 'DQ_COLUMN_CHECKED_2'):
+            if key not in error_df.columns:
+                continue
+            series = error_df[key].dropna().astype(str).str.strip()
+            series = series[series.ne('') & ~series.str.startswith('[!]')]
+            if series.empty:
+                continue
+            for part in str(series.iloc[0]).split(','):
+                name = part.strip()
+                if name and name in error_df.columns and name not in names:
+                    names.append(name)
+        return names
+
+    @staticmethod
+    def _highlight_checked_columns_in_error_xlsx(filepath, error_df):
+        names = FastDataQualityChecker._checked_column_names(error_df)
+        if not names:
+            return
+        from openpyxl import load_workbook
+        wb = load_workbook(filepath)
+        ws = wb.active
+        headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+        yellow = PatternFill(start_color='FFFF99', end_color='FFFF99', fill_type='solid')
+        header_yellow = PatternFill(start_color='FFE599', end_color='FFE599', fill_type='solid')
+        for name in names:
+            if name not in headers:
+                continue
+            col_idx = headers.index(name) + 1
+            for row_idx in range(1, ws.max_row + 1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                cell.fill = header_yellow if row_idx == 1 else yellow
+        wb.save(filepath)
+
     def _save_rule_errors(self, timestamp=None):
         if not self.rule_errors:
             print(f'\n[INFO] Нет ошибок для сохранения')
@@ -8588,6 +8672,10 @@ class FastDataQualityChecker:
                     filename = f'{rule_code}_{safe_table_name}_errors_{timestamp}.xlsx'
                     filepath = os.path.join(errors_dir, filename)
                     error_df.to_excel(filepath, index=False, engine='openpyxl')
+                    try:
+                        self._highlight_checked_columns_in_error_xlsx(filepath, error_df)
+                    except Exception as paint_exc:
+                        print(f'   [WARN] {rule_code}: не удалось подсветить проверяемую колонку: {paint_exc}')
                     status_msg = f' ({original_error_count:,} всего, сохранено {len(error_df):,})' if is_truncated else f' ({len(error_df):,} строк)'
                     print(f'   [INFO] Сохранены ошибки в Excel: {filename}{status_msg}')
                 self.saved_error_files[key] = filepath
@@ -8902,6 +8990,8 @@ class InequalityValidator:
             error_df = df.loc[error_indices].copy()
             error_df['error_type'] = 'DUPLICATE_VALUES'
             error_df['error_message'] = f'{column_name} не должно быть равно {second_column}'
+            error_df['DQ_COLUMN_CHECKED_1'] = column_name
+            error_df['DQ_COLUMN_CHECKED_2'] = second_column
         else:
             error_df = pd.DataFrame()
         return (total_rows, error_count, error_df)

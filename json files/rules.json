@@ -2410,10 +2410,14 @@
       "rule_code": "RCCONF_384.3",
       "rule_description": "Latitude must be within Russia bounds",
       "technical_definition_RU": [
+        "Scope: KNVV.KUNNR = BUT020.PARTNER, VTWEG='01' AND SPART='01'.",
+        "Skip customer if any KNVV row is VTWEG/SPART 04/01 or 04/02.",
+        "01/01, 04/01 and 04/02 are VTWEG/SPART, not VKORG. KNA1 has neither.",
         "IF account_group_code LIKE '7%' OR latitude IS NULL OR central_order_block_code",
         "IN (S, SP, E, G, S2, S3, S4, S5, S9, R, U, M, NR) THEN '' ELSE IF",
-        "latitude between 41°11′ N and 77°43′ N inclusive",
-        "(decimal 41.183333 .. 77.716667) THEN '1' ELSE '0'"
+        "customer is repeated in LOT_GC_ADR AND latitude = 0 AND another row of the",
+        "same customer is inside Russia THEN '1' ELSE IF latitude between 41°11′ N",
+        "and 77°43′ N inclusive (decimal 41.183333 .. 77.716667) THEN '1' ELSE '0'"
       ],
       "value_checked": "latitude",
       "datamart_or_reference_table_used": "dm_customer_general",
@@ -2428,10 +2432,15 @@
       "rule_code": "RCCONF_383.3",
       "rule_description": "Longitude must be within Russia bounds",
       "technical_definition_RU": [
+        "Scope: KNVV.KUNNR = BUT020.PARTNER, VTWEG='01' AND SPART='01'.",
+        "Skip customer if any KNVV row is VTWEG/SPART 04/01 or 04/02.",
+        "01/01, 04/01 and 04/02 are VTWEG/SPART, not VKORG. KNA1 has neither.",
         "IF account_group_code LIKE '7%' OR longitude IS NULL OR central_order_block_code",
         "IN (S, SP, E, G, S2, S3, S4, S5, S9, R, U, M, NR) THEN '' ELSE IF",
-        "longitude from 19°38′ E east to 169°40′ W inclusive, wrapping past 180",
-        "(decimal >= 19.633333 and <= 180, OR >= -180 and <= -169.666667) THEN '1' ELSE '0'"
+        "customer is repeated in LOT_GC_ADR AND longitude = 0 AND another row of the",
+        "same customer is inside Russia THEN '1' ELSE IF longitude from 19°38′ E east",
+        "to 169°40′ W inclusive, wrapping past 180 (decimal >= 19.633333 and <= 180,",
+        "OR >= -180 and <= -169.666667) THEN '1' ELSE '0'"
       ],
       "value_checked": "longitude",
       "datamart_or_reference_table_used": "dm_customer_general",
