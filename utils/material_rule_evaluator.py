@@ -735,8 +735,14 @@ def _marc_with_material_context(marc: pd.DataFrame, loader: Callable[[str], pd.D
     exact_type, simple_type, mara_has_cluster = _material_type_lookup(mara)
     if not simple_type:
         return None, stats, f'{rule_code}: MARA.MATNR/MTART не найдены'
-    from utils.dm_product_plant import apply_is_basic_scope
-    work = apply_is_basic_scope(marc).copy()
+    from utils.dm_product_plant import apply_is_basic_scope, apply_ru_marc_plant_scope
+    work, plant_col, plant_skip = apply_ru_marc_plant_scope(marc)
+    if plant_skip:
+        return None, stats, f'{rule_code}: {plant_skip}'
+    stats['after_plant_scope'] = len(work)
+    if work.empty:
+        return None, stats, f'{rule_code}: нет строк MARC с Plnt/WERKS 36*/38*/39* ({plant_col})'
+    work = apply_is_basic_scope(work).copy()
     stats['after_basic_scope'] = len(work)
     work['_DQ_MATNR'] = _matnr(work[matnr_col])
     cluster_col = find_col(work, ('SAP_CLUSTER', 'CLUSTER'))

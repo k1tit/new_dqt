@@ -1383,6 +1383,21 @@ class FastDataQualityChecker:
         total_rules = len(table_rules)
         if self.load_profile != 'material':
             df = self._preenrich_table_for_kna1_joins(df, table_name, table_rules)
+        if str(table_name or '').strip().upper() == 'MARC':
+            from utils.dm_product_plant import apply_ru_marc_plant_scope
+            before_plant = len(df) if df is not None else 0
+            df, plant_col, plant_skip = apply_ru_marc_plant_scope(df)
+            if plant_skip or df is None or df.empty:
+                reason = plant_skip or f'нет строк с Plnt/WERKS LIKE 36%/38%/39% ({plant_col}, было {before_plant:,})'
+                print(f'   [WARN] {table_name}: {reason} — MARC rules skip')
+                for rule in table_rules or []:
+                    self.skipped_rules += 1
+                    self._log_skipped_rule(rule, table_name, f'{rule.get("rule_code")}: {reason}', timestamp)
+                return (0, 0, 0)
+            print(
+                f'   [FILTER] {table_name}: Plnt/WERKS LIKE 36*/38*/39* [{plant_col}] '
+                f'-> {len(df):,}/{before_plant:,}'
+            )
         if any(self._rule_is_equipment(r) for r in (table_rules or [])):
             before_eq = len(df) if df is not None else 0
             df = self._scope_df_equipment_swerk(df, table_name, f'PREFILTER:{table_name}')
@@ -2157,22 +2172,33 @@ class FastDataQualityChecker:
                         self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
                 return (error_count, total_rows)
             if rule_code == 'RCCONF_372.1':
-                print(f'      [REF] {rule_code}: ADR2.COUNTRY (ISO 3166) vs справочник T005 (SAP LAND1 = 2-симв. код, в выгрузке часто C/R)...')
+                print(f'      [REF] {rule_code}: ADR2.COUNTRY (ISO 3166) vs справочник T005 (LAND1 / C/R / ISO_Code / INTCA)...')
                 t005_df = self._get_table_for_rules('T005')
                 if t005_df is None or t005_df.empty:
                     print(f'      [WARN] Справочник T005 не найден или пуст для правила {rule_code}')
                     self._log_skipped_rule(rule, table_name, 'RCCONF_372.1: справочник T005 не найден (нужен для ADR2.COUNTRY)', timestamp)
                     return (0, 0)
+                country_code_names = ('LAND1', 'C/R', 'ISO_Code', 'INTCA')
+                by_upper = {}
+                for col in t005_df.columns:
+                    key = str(col).strip().upper()
+                    if key and key not in by_upper:
+                        by_upper[key] = col
                 land1_col = None
-                for ref_candidate in ('LAND1', 'C/R', 'ISO_Code'):
-                    land1_col = self._resolve_column_for_rule(t005_df, ref_candidate, 'T005')
-                    if land1_col:
+                for name in country_code_names:
+                    if name.upper() in by_upper:
+                        land1_col = by_upper[name.upper()]
                         break
+                if not land1_col:
+                    for ref_candidate in country_code_names:
+                        land1_col = self._resolve_column_for_rule(t005_df, ref_candidate, 'T005')
+                        if land1_col:
+                            break
                 if land1_col:
-                    print(f'      [REF] T005 — колонка кодов стран (LAND1): {land1_col}')
+                    print(f'      [REF] T005 — колонка кодов стран: {land1_col}')
                 else:
-                    print(f'      [WARN] В T005 не найдена колонка кодов стран (LAND1 / C/R / ISO_Code). Колонки: {list(t005_df.columns)[:12]}...')
-                    self._log_skipped_rule(rule, table_name, 'RCCONF_372.1: в справочнике T005 нет колонки кодов стран (LAND1, C/R, ISO_Code) для сравнения с ADR2.COUNTRY', timestamp)
+                    print(f'      [WARN] В T005 не найдена колонка кодов стран (LAND1 / C/R / ISO_Code / INTCA). Колонки: {list(t005_df.columns)[:12]}...')
+                    self._log_skipped_rule(rule, table_name, 'RCCONF_372.1: в справочнике T005 нет колонки кодов стран (LAND1, C/R, ISO_Code, INTCA) для сравнения с ADR2.COUNTRY', timestamp)
                     return (0, 0)
                 valid_countries = set()
                 for val in t005_df[land1_col].dropna():

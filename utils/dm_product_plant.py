@@ -11,6 +11,7 @@ BASIC_SCOPE_EXCLUDED_PLANTS = frozenset({
     '4110', '4111', '4112', '4113', '4114', '4115', '4116',
     '4117', '4118', '4119', '4120', '4121', '4122',
 })
+RU_MARC_PLANT_PREFIXES = ('36', '38', '39')
 
 
 def _json_path(name: str) -> str:
@@ -70,7 +71,7 @@ def is_basic_scope_mask(df: pd.DataFrame) -> pd.Series:
 
     lvorm_col = find_col(df, ('LVORM', 'DELETION_FLAG', 'LOEVM'))
     mmsta_col = find_col(df, ('MMSTA', 'MATERIAL_STATUS_CODE'))
-    plant_col = find_col(df, ('WERKS', 'PLANT_CODE', 'PLANT'))
+    plant_col = find_col(df, ('WERKS', 'PLNT', 'PLANT_CODE', 'PLANT', 'PLANTCODE'))
 
     material_ok = pd.Series(True, index=df.index)
     if lvorm_col:
@@ -81,6 +82,31 @@ def is_basic_scope_mask(df: pd.DataFrame) -> pd.Series:
         return material_ok
     outside = ~_norm(df[plant_col]).isin(BASIC_SCOPE_EXCLUDED_PLANTS)
     return material_ok | outside
+
+
+def plant_code_series(werks: pd.Series) -> pd.Series:
+    text = werks.astype(str).str.strip().str.upper()
+    text = text.str.replace(r'\.0+$', '', regex=True)
+    return text.replace({'NAN': '', 'NONE': '', 'NULL': '', 'NA': '', '<NA>': ''})
+
+
+def ru_marc_plant_mask(werks: pd.Series) -> pd.Series:
+    codes = plant_code_series(werks)
+    mask = pd.Series(False, index=werks.index)
+    for prefix in RU_MARC_PLANT_PREFIXES:
+        mask = mask | codes.str.startswith(prefix)
+    return mask
+
+
+def apply_ru_marc_plant_scope(df: pd.DataFrame):
+    """Keep MARC rows whose Plnt/WERKS is 36*, 38* or 39*."""
+    empty = df.iloc[0:0].copy() if df is not None else pd.DataFrame()
+    if df is None or df.empty:
+        return empty, None, None
+    plant_col = find_col(df, ('WERKS', 'PLNT', 'PLANT', 'PLANT_CODE', 'PLANTCODE'))
+    if not plant_col:
+        return empty, None, 'колонка Plnt/WERKS не найдена'
+    return df.loc[ru_marc_plant_mask(df[plant_col])].copy(), plant_col, None
 
 
 def apply_is_basic_scope(df: pd.DataFrame) -> pd.DataFrame:

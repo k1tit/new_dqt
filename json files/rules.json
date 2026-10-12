@@ -2077,7 +2077,8 @@
       "technical_definition_RU": [
         "IF country_code IS NULL THEN '' IF is_allowed_country_code = '1' THEN '1' ELSE",
         "'0' WHERE is_allowed_country_code = IF record found in T005 THEN '1' ELSE '0'",
-        "COMPARING: T005.LAND1 = ADR2.COUNTRY"
+        "COMPARING: T005.LAND1 = ADR2.COUNTRY",
+        "Колонка кодов в T005: LAND1, либо C/R, либо ISO_Code, либо INTCA"
       ],
       "value_checked": "country_code",
       "datamart_or_reference_table_used": "dm_customer_address_contact (source: ADRC.COUNTRY) Reference table: T005 (valid country codes)",
@@ -2089,7 +2090,7 @@
       "business_attribute_name": "Telephone Country",
       "exclude_from_score_calculation": false,
       "validation_logic": "Check if country code exists in standard ISO 3166 reference table T005",
-      "reference_comparison": "ADR2.COUNTRY (country_code) must match T005.LAND1"
+      "reference_comparison": "ADR2.COUNTRY (country_code) must match T005 country code column: LAND1, or C/R, or ISO_Code, or INTCA"
     },
     {
       "rule_code": "RCCONF_372.2",

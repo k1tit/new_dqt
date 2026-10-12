@@ -437,14 +437,14 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
 
     def test_rpc160_4_skips_empty_mtvfp(self):
         marc = pd.DataFrame({
-            'MATNR': ['10', '11', '12', '13', '19'],
-            'MTVFP': ['02', None, 'KP', 'Z2', 'KP'],
-            'WERKS': ['1000', '1000', '1000', '1000', '1000'],
+            'MATNR': ['10', '11', '12', '13', '15', '19'],
+            'MTVFP': ['02', None, 'KP', 'Z2', 'KP', 'KP'],
+            'WERKS': ['3600', '3800', '3900', '3610', '1000', '4100'],
         })
         tables = {
             'MARA': pd.DataFrame({
-                'MATNR': ['10', '11', '12', '13', '14', '19'],
-                'MTART': ['ZNVM', 'ZNVM', 'ZNVM', 'ZFG', 'ZNVM', 'ZNVM'],
+                'MATNR': ['10', '11', '12', '13', '14', '15', '19'],
+                'MTART': ['ZNVM', 'ZNVM', 'ZNVM', 'ZFG', 'ZNVM', 'ZNVM', 'ZNVM'],
             }),
             'MAKT': self.makt,
         }
@@ -457,13 +457,15 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         self.assertEqual(1, result['stats']['skipped_empty_mtvfp'])
         self.assertEqual(['02', 'KP'], list(result['df']['MTVFP']))
         self.assertEqual([True, False], list(result['ok_mask']))
+        self.assertNotIn('1000', set(result['df']['WERKS'].astype(str)))
+        self.assertNotIn('4100', set(result['df']['WERKS'].astype(str)))
 
     def test_rpc284_1_skips_empty_dismm(self):
         marc = pd.DataFrame({
             'MATNR': ['10', '11', '12', '13', '14', '15'],
             'DISMM': ['ND', None, 'PD', 'X0', 'ND', 'VB'],
             'MMSTA': ['99', '99', '99', '99', '01', '99'],
-            'WERKS': ['1000'] * 6,
+            'Plnt': ['3600', '3801', '3900', '36', '3899', '4100'],
         })
         tables = {
             'MARA': pd.DataFrame({
@@ -488,7 +490,7 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
             'MATNR': ['10', '11', '12', '13', '14'],
             'DISMM': ['ZB', None, 'X0', 'PD', 'ND'],
             'MMSTA': ['99', '99', '99', '99', '01'],
-            'WERKS': ['1000'] * 5,
+            'WERKS': ['3600.0', '3800', '3900', '3610', '49'],
         })
         tables = {
             'MARA': pd.DataFrame({
