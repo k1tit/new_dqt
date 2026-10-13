@@ -1,4 +1,9 @@
 pandas>=2.0
+numpy>=1.24
 openpyxl>=3.1
 pyarrow>=14.0
-aiosqlite>=0.19; platform_system!="Windows" or python_version>="3.8"
+fastparquet>=2023.10
+matplotlib>=3.7
+seaborn>=0.13
+aiosqlite>=0.19
+tqdm>=4.66
