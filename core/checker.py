@@ -3303,46 +3303,32 @@ class FastDataQualityChecker:
             if t not in wide.columns:
                 wide[t] = pd.NA
 
-        own_mask = (type_n == own) & tax_s.ne('') & partner_s.ne('')
+        own_scope = (type_n == own)
+        total_rows = int(own_scope.sum())
+        own_mask = own_scope & tax_s.ne('') & partner_s.ne('')
         own_df = source.loc[own_mask].copy()
-        if own_df.empty:
-            self._log_skipped_rule(
-                rule, table_name,
-                f'{rule_code}: нет заполненного TAXNUM{own}; пустые строки пропущены ({own_empty:,})',
-                timestamp,
-            )
-            return (0, 0)
-        own_df['_p'] = partner_s.loc[own_df.index]
-        own_df['_own'] = tax_s.loc[own_df.index]
-        compared = own_df.join(wide[other_types], on='_p')
-        ready = pd.Series(True, index=compared.index)
-        for t in other_types:
-            ready = ready & compared[t].notna() & compared[t].astype(str).str.strip().ne('')
-        evaluated = compared.loc[ready]
-        skipped_incomplete = int((~ready).sum())
-        print(
-            f'      [CHECK] {rule_code}: TAXNUM{own} против типов {other_types}; '
-            f'пропущено без полного набора номеров: {skipped_incomplete:,}'
-        )
-        if evaluated.empty:
-            self._log_skipped_rule(
-                rule, table_name,
-                f'{rule_code}: нет строк, где TAXNUM{own} и номера типов {other_types} все заполнены; пустые пропущены',
-                timestamp,
-            )
-            return (0, 0)
-        error_mask = pd.Series(False, index=evaluated.index)
-        matched_type = pd.Series('', index=evaluated.index, dtype=object)
-        matched_value = pd.Series('', index=evaluated.index, dtype=object)
-        for t in other_types:
-            hit = evaluated['_own'].astype(str) == evaluated[t].astype(str).str.strip()
-            new_hit = hit & ~error_mask
-            error_mask = error_mask | hit
-            matched_type = matched_type.where(~new_hit, str(t))
-            matched_value = matched_value.where(~new_hit, evaluated[t].astype(str))
-        total_rows = int(len(evaluated))
-        error_count = int(error_mask.sum())
-        print(f'      [CHECK] {rule_code}: evaluated={total_rows:,}, совпадений={error_count:,}, пустых пропущено={own_empty:,}')
+        error_mask = pd.Series(False, index=own_df.index)
+        matched_type = pd.Series('', index=own_df.index, dtype=object)
+        matched_value = pd.Series('', index=own_df.index, dtype=object)
+        if not own_df.empty:
+            own_df['_p'] = partner_s.loc[own_df.index]
+            own_df['_own'] = tax_s.loc[own_df.index]
+            compared = own_df.join(wide[other_types], on='_p')
+            for t in other_types:
+                other_val = compared[t]
+                filled_other = other_val.notna() & other_val.astype(str).str.strip().ne('') & ~other_val.astype(str).str.strip().str.lower().isin(['none', 'null', 'nan', 'na', '<na>'])
+                hit = filled_other & (compared['_own'].astype(str) == other_val.astype(str).str.strip())
+                new_hit = hit & ~error_mask.reindex(compared.index).fillna(False)
+                error_mask = error_mask.reindex(compared.index).fillna(False) | hit
+                matched_type = matched_type.reindex(compared.index).fillna('')
+                matched_value = matched_value.reindex(compared.index).fillna('')
+                matched_type = matched_type.where(~new_hit, str(t))
+                matched_value = matched_value.where(~new_hit, other_val.astype(str).str.strip())
+            own_df = compared
+        error_count = int(error_mask.sum()) if len(error_mask) else 0
+        print(f'      [CHECK] {rule_code}: строк TAXNUM{own}={total_rows:,}, пустых пропущено={own_empty:,}, совпадений={error_count:,}')
+        if error_count == 0:
+            print(f'      [CHECK] {rule_code}: ошибок нет')
 
         validator = ConformityValidator({
             'rule_code': rule_code,
@@ -3353,7 +3339,7 @@ class FastDataQualityChecker:
             'original_column': 'TAXNUM',
         })
         err_desc = f'TAXNUM{own} совпадает с другим налоговым номером того же клиента. Пустое значение пропущено.'
-        error_df = validator._prepare_error_dataframe(evaluated, error_mask, 'CONFORMITY', err_desc) if error_count else None
+        error_df = validator._prepare_error_dataframe(own_df, error_mask, 'CONFORMITY', err_desc) if error_count else None
         if error_df is not None and not error_df.empty:
             error_df = error_df.copy()
             error_df['LOOKUP_OTHER_TAX_TYPE'] = matched_type.loc[error_mask].values
@@ -3372,15 +3358,34 @@ class FastDataQualityChecker:
             if self._parallel_lock:
                 with self._parallel_lock:
                     self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                    if error_count == 0:
+                        self._mark_taxnum_same_as_other_no_errors(rule_code, table_name)
                     if error_df is not None and not error_df.empty:
                         self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
             else:
                 self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                if error_count == 0:
+                    self._mark_taxnum_same_as_other_no_errors(rule_code, table_name)
                 if error_df is not None and not error_df.empty:
                     self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
         elif error_df is not None and not error_df.empty:
             self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
         return (error_count, total_rows)
+
+    def _mark_taxnum_same_as_other_no_errors(self, rule_code, table_name):
+        for row in reversed(self.results):
+            if str(row.get('rule_code') or '') != rule_code or str(row.get('table_name') or '') != str(table_name):
+                continue
+            total = int(row.get('total_records') or 0)
+            row['status'] = 'УСПЕШНО'
+            row['status_color'] = 'green'
+            row['failed'] = 0
+            row['passed'] = total
+            row['error_file'] = 'Нет'
+            row['comments'] = 'Ошибок нет'
+            if total > 0:
+                row['success_rate_%'] = 100.0
+            return
 
     def _norm_knvv_so_code_val(self, value):
         if value is None or (isinstance(value, float) and pd.isna(value)):
