@@ -3282,51 +3282,62 @@ class FastDataQualityChecker:
         tax_s = tax_s.where(~tax_s.str.lower().isin({'', 'none', 'null', 'nan', 'na', '<na>', '-'}), '')
         partner_s = source[partner_col].map(self._norm_customer_partner_key)
 
-        present = sorted({int(v) for v in type_n.dropna().unique() if 0 <= int(v) <= 6})
-        other_types = [t for t in present if t != own]
-        own_empty = int(((type_n == own) & tax_s.eq('')).sum())
-        print(f'      [CHECK] {rule_code}: пустой TAXNUM{own} пропущен: {own_empty:,}')
-        if not other_types:
-            self._log_skipped_rule(
-                rule, table_name,
-                f'{rule_code}: в DFKKBPTAXNUM нет других типов 0-6 для сравнения с TAXNUM{own}',
-                timestamp,
-            )
-            return (0, 0)
+        required_types = [0, 1, 2, 3, 4, 5, 6]
+        other_types = [t for t in required_types if t != own]
+        own_scope = (type_n == own)
+        own_empty = int((own_scope & tax_s.eq('')).sum())
 
         filled = pd.DataFrame({'_p': partner_s, '_t': type_n, '_v': tax_s})
         filled = filled.loc[filled['_v'].ne('') & filled['_t'].notna() & filled['_p'].ne('')]
         filled['_t'] = filled['_t'].astype(int)
         filled = filled.drop_duplicates(['_p', '_t'], keep='first')
-        wide = filled.pivot(index='_p', columns='_t', values='_v')
-        for t in other_types:
+        wide = filled.pivot(index='_p', columns='_t', values='_v') if not filled.empty else pd.DataFrame(columns=required_types)
+        for t in required_types:
             if t not in wide.columns:
                 wide[t] = pd.NA
 
-        own_scope = (type_n == own)
-        total_rows = int(own_scope.sum())
-        own_mask = own_scope & tax_s.ne('') & partner_s.ne('')
-        own_df = source.loc[own_mask].copy()
+        own_df = source.loc[own_scope & partner_s.ne('')].copy()
         error_mask = pd.Series(False, index=own_df.index)
         matched_type = pd.Series('', index=own_df.index, dtype=object)
         matched_value = pd.Series('', index=own_df.index, dtype=object)
+        evaluated_count = 0
         if not own_df.empty:
             own_df['_p'] = partner_s.loc[own_df.index]
             own_df['_own'] = tax_s.loc[own_df.index]
             compared = own_df.join(wide[other_types], on='_p')
+
+            def _tax_filled(series):
+                text = series.astype(str).str.strip()
+                return series.notna() & text.ne('') & ~text.str.lower().isin(['none', 'null', 'nan', 'na', '<na>'])
+
+            ready = _tax_filled(compared['_own'])
             for t in other_types:
-                other_val = compared[t]
-                filled_other = other_val.notna() & other_val.astype(str).str.strip().ne('') & ~other_val.astype(str).str.strip().str.lower().isin(['none', 'null', 'nan', 'na', '<na>'])
-                hit = filled_other & (compared['_own'].astype(str) == other_val.astype(str).str.strip())
-                new_hit = hit & ~error_mask.reindex(compared.index).fillna(False)
-                error_mask = error_mask.reindex(compared.index).fillna(False) | hit
-                matched_type = matched_type.reindex(compared.index).fillna('')
-                matched_value = matched_value.reindex(compared.index).fillna('')
-                matched_type = matched_type.where(~new_hit, str(t))
-                matched_value = matched_value.where(~new_hit, other_val.astype(str).str.strip())
-            own_df = compared
-        error_count = int(error_mask.sum()) if len(error_mask) else 0
-        print(f'      [CHECK] {rule_code}: строк TAXNUM{own}={total_rows:,}, пустых пропущено={own_empty:,}, совпадений={error_count:,}')
+                ready = ready & _tax_filled(compared[t])
+            evaluated = compared.loc[ready]
+            evaluated_count = int(len(evaluated))
+            skipped_incomplete = int(len(compared) - evaluated_count)
+            print(
+                f'      [CHECK] {rule_code}: пропуск, пока любой из tax_0..tax_6 пустой: {skipped_incomplete:,}; '
+                f'к сравнению допущены: {evaluated_count:,}'
+            )
+            if not evaluated.empty:
+                for t in other_types:
+                    other_val = evaluated[t].astype(str).str.strip()
+                    hit = evaluated['_own'].astype(str) == other_val
+                    new_hit = hit & ~error_mask.reindex(evaluated.index).fillna(False)
+                    error_mask = error_mask.reindex(evaluated.index).fillna(False) | hit
+                    matched_type = matched_type.reindex(evaluated.index).fillna('')
+                    matched_value = matched_value.reindex(evaluated.index).fillna('')
+                    matched_type = matched_type.where(~new_hit, str(t))
+                    matched_value = matched_value.where(~new_hit, other_val)
+                own_df = evaluated
+                error_mask = error_mask.reindex(own_df.index).fillna(False)
+        total_rows = evaluated_count
+        error_count = int(error_mask.fillna(False).sum()) if len(error_mask) else 0
+        print(
+            f'      [CHECK] {rule_code}: TAXNUM{own} пустых={own_empty:,}, '
+            f'оценено при полном наборе={total_rows:,}, совпадений={error_count:,}'
+        )
         if error_count == 0:
             print(f'      [CHECK] {rule_code}: ошибок нет')
 
