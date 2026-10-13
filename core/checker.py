@@ -1480,6 +1480,8 @@ class FastDataQualityChecker:
         if rule_code in self.EQUIPMENT_ALPHANUMERIC_CONTENT_RULES and tn == 'V_EQUI':
             return self._process_equipment_alphanumeric_content(rule_code, df, table_name, rule, save_result, timestamp)
         if tn.startswith('DFKKBPTAXNUM'):
+            if rule_code in self.TAXNUM_SAME_ROW_RULES:
+                return self._process_taxnum_same_as_other(rule_code, df, table_name, rule, save_result, timestamp)
             handler_cls = self.table_handlers.get(table_name) or self.table_handlers.get(tn)
             if rule_code in self.TAXNUM_FORMAT_RULES and handler_cls is not None:
                 try:
@@ -2693,6 +2695,19 @@ class FastDataQualityChecker:
             'AUFSD',
             'KTOKD',
         ]
+        checked = []
+        for key in ('DQ_COLUMN_CHECKED', 'DQ_COLUMN_CHECKED_1', 'DQ_COLUMN_CHECKED_2'):
+            if key not in error_df.columns:
+                continue
+            raw = error_df[key].dropna().astype(str).str.strip()
+            raw = raw[raw.ne('') & ~raw.str.startswith('[!]')]
+            if raw.empty:
+                continue
+            for part in str(raw.iloc[0]).split(','):
+                name = part.strip()
+                if name and name in error_df.columns and name not in checked and name not in prefer:
+                    checked.append(name)
+        prefer = prefer + checked
         front = [c for c in prefer if c in error_df.columns]
         rest = [c for c in error_df.columns if c not in front]
         # остальные LOOKUP_/DQ_ сразу после prefer
@@ -3221,6 +3236,151 @@ class FastDataQualityChecker:
         else:
             print(f"      [FILTER] {table_name}: «всего записей» по Tax_Number_Category={want_ru}: {baseline:,}")
         return scoped, baseline
+
+    def _taxnum_same_as_other_source(self, df):
+        mm = self.memory_manager
+        if mm is not None:
+            for key in list(getattr(mm, 'data_cache', {}) or {}):
+                if str(key).strip().upper() == 'DFKKBPTAXNUM':
+                    full = mm.get_table(key)
+                    if full is not None and not full.empty:
+                        return full
+        return df
+
+    def _process_taxnum_same_as_other(self, rule_code, df, table_name, rule, save_result, timestamp):
+        own_by_rule = {'RCCONF_50.11': 1, 'RCCONF_52.11': 2, 'RCCONF_54.9': 3, 'RCCONF_63.7': 5}
+        own = own_by_rule.get(rule_code)
+        source = self._taxnum_same_as_other_source(df)
+        if own is None or source is None or source.empty:
+            self._log_skipped_rule(rule, table_name, f'{rule_code}: нет строк DFKKBPTAXNUM', timestamp)
+            return (0, 0)
+        type_col = self._find_dfkkbptaxnum_taxtype_column(source, 'DFKKBPTAXNUM')
+        tax_col = self._resolve_column_for_rule(source, 'TAXNUM', 'DFKKBPTAXNUM')
+        if not tax_col:
+            for cand in ('TAXNUM', 'Tax_Number', 'TAX_NUMBER'):
+                hit = next((c for c in source.columns if str(c).strip().upper() == cand.upper()), None)
+                if hit:
+                    tax_col = hit
+                    break
+        partner_col = self._find_partner_column(source, 'DFKKBPTAXNUM')
+        if partner_col is None:
+            partner_col = next((c for c in source.columns if str(c).strip().upper() == 'PARTNER'), None)
+        if not type_col or not tax_col or not partner_col:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: нет TAXTYPE/TAXNUM/PARTNER (cols: {list(source.columns)[:12]})',
+                timestamp,
+            )
+            return (0, 0)
+
+        type_raw = source[type_col].astype(str).str.strip().str.upper()
+        ru_num = type_raw.str.extract(r'^RU(\d)$', expand=False)
+        plain_num = pd.to_numeric(type_raw, errors='coerce')
+        type_n = plain_num.where(ru_num.isna(), pd.to_numeric(ru_num, errors='coerce'))
+        tax_s = source[tax_col].map(lambda v: '' if pd.isna(v) else str(v).strip())
+        tax_s = tax_s.str.replace(r'\.0$', '', regex=True)
+        tax_s = tax_s.where(~tax_s.str.lower().isin({'', 'none', 'null', 'nan', 'na', '<na>', '-'}), '')
+        partner_s = source[partner_col].map(self._norm_customer_partner_key)
+
+        present = sorted({int(v) for v in type_n.dropna().unique() if 0 <= int(v) <= 6})
+        other_types = [t for t in present if t != own]
+        own_empty = int(((type_n == own) & tax_s.eq('')).sum())
+        print(f'      [CHECK] {rule_code}: пустой TAXNUM{own} пропущен: {own_empty:,}')
+        if not other_types:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: в DFKKBPTAXNUM нет других типов 0-6 для сравнения с TAXNUM{own}',
+                timestamp,
+            )
+            return (0, 0)
+
+        filled = pd.DataFrame({'_p': partner_s, '_t': type_n, '_v': tax_s})
+        filled = filled.loc[filled['_v'].ne('') & filled['_t'].notna() & filled['_p'].ne('')]
+        filled['_t'] = filled['_t'].astype(int)
+        filled = filled.drop_duplicates(['_p', '_t'], keep='first')
+        wide = filled.pivot(index='_p', columns='_t', values='_v')
+        for t in other_types:
+            if t not in wide.columns:
+                wide[t] = pd.NA
+
+        own_mask = (type_n == own) & tax_s.ne('') & partner_s.ne('')
+        own_df = source.loc[own_mask].copy()
+        if own_df.empty:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: нет заполненного TAXNUM{own}; пустые строки пропущены ({own_empty:,})',
+                timestamp,
+            )
+            return (0, 0)
+        own_df['_p'] = partner_s.loc[own_df.index]
+        own_df['_own'] = tax_s.loc[own_df.index]
+        compared = own_df.join(wide[other_types], on='_p')
+        ready = pd.Series(True, index=compared.index)
+        for t in other_types:
+            ready = ready & compared[t].notna() & compared[t].astype(str).str.strip().ne('')
+        evaluated = compared.loc[ready]
+        skipped_incomplete = int((~ready).sum())
+        print(
+            f'      [CHECK] {rule_code}: TAXNUM{own} против типов {other_types}; '
+            f'пропущено без полного набора номеров: {skipped_incomplete:,}'
+        )
+        if evaluated.empty:
+            self._log_skipped_rule(
+                rule, table_name,
+                f'{rule_code}: нет строк, где TAXNUM{own} и номера типов {other_types} все заполнены; пустые пропущены',
+                timestamp,
+            )
+            return (0, 0)
+        error_mask = pd.Series(False, index=evaluated.index)
+        matched_type = pd.Series('', index=evaluated.index, dtype=object)
+        matched_value = pd.Series('', index=evaluated.index, dtype=object)
+        for t in other_types:
+            hit = evaluated['_own'].astype(str) == evaluated[t].astype(str).str.strip()
+            new_hit = hit & ~error_mask
+            error_mask = error_mask | hit
+            matched_type = matched_type.where(~new_hit, str(t))
+            matched_value = matched_value.where(~new_hit, evaluated[t].astype(str))
+        total_rows = int(len(evaluated))
+        error_count = int(error_mask.sum())
+        print(f'      [CHECK] {rule_code}: evaluated={total_rows:,}, совпадений={error_count:,}, пустых пропущено={own_empty:,}')
+
+        validator = ConformityValidator({
+            'rule_code': rule_code,
+            'rule_description': rule.get('rule_description', ''),
+            'quality_category': 'Conformity',
+            'table_name': table_name,
+            'matched_column': tax_col,
+            'original_column': 'TAXNUM',
+        })
+        err_desc = f'TAXNUM{own} совпадает с другим налоговым номером того же клиента. Пустое значение пропущено.'
+        error_df = validator._prepare_error_dataframe(evaluated, error_mask, 'CONFORMITY', err_desc) if error_count else None
+        if error_df is not None and not error_df.empty:
+            error_df = error_df.copy()
+            error_df['LOOKUP_OTHER_TAX_TYPE'] = matched_type.loc[error_mask].values
+            error_df['LOOKUP_OTHER_TAXNUM'] = matched_value.loc[error_mask].values
+            error_df['DQ_COLUMN_CHECKED'] = f'{tax_col},LOOKUP_OTHER_TAXNUM'
+        is_suspicious = self._check_if_suspicious(rule_code, error_count, total_rows)
+        if save_result:
+            rule_info = {
+                'rule_code': rule_code,
+                'rule_description': rule.get('rule_description', 'Unknown rule'),
+                'quality_category': 'Conformity',
+                'table_name': table_name,
+                'original_column': 'TAXNUM',
+                'matched_column': tax_col,
+            }
+            if self._parallel_lock:
+                with self._parallel_lock:
+                    self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                    if error_df is not None and not error_df.empty:
+                        self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+            else:
+                self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
+                if error_df is not None and not error_df.empty:
+                    self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        elif error_df is not None and not error_df.empty:
+            self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
+        return (error_count, total_rows)
 
     def _norm_knvv_so_code_val(self, value):
         if value is None or (isinstance(value, float) and pd.isna(value)):
@@ -5739,6 +5899,8 @@ class FastDataQualityChecker:
             if 'equipment_status_code' in work.columns:
                 error_df['LOOKUP_EQUIPMENT_STATUS'] = work.loc[error_df.index, 'equipment_status_code'].map(norm_equipment_status).values
             error_df['LOOKUP_MATERIAL_DESCRIPTION'] = work.loc[error_df.index, 'LOOKUP_MATERIAL_DESCRIPTION'].values
+            checked_cols = [c for c in (eqktx_col, 'LOOKUP_MATERIAL_DESCRIPTION') if c in error_df.columns]
+            error_df['DQ_COLUMN_CHECKED'] = ','.join(checked_cols)
             error_df['DQ_RULE_CHECK_COLUMNS'] = (
                 'Consistency: V_EQUI.EQKTX = MAKT.MAKTX (SPRAS=E) via V_EQUI.MATNR. '
                 'Cooler scope ATINN24+status, model filled, KTOKD not 7%.'
