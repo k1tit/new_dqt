@@ -3332,11 +3332,11 @@ class FastDataQualityChecker:
                     matched_value = matched_value.where(~new_hit, other_val)
                 own_df = evaluated
                 error_mask = error_mask.reindex(own_df.index).fillna(False)
-        total_rows = evaluated_count
+        total_rows = int(own_scope.sum())
         error_count = int(error_mask.fillna(False).sum()) if len(error_mask) else 0
         print(
-            f'      [CHECK] {rule_code}: TAXNUM{own} пустых={own_empty:,}, '
-            f'оценено при полном наборе={total_rows:,}, совпадений={error_count:,}'
+            f'      [CHECK] {rule_code}: строк TAXNUM{own}={total_rows:,}, пустых={own_empty:,}, '
+            f'с полным набором={evaluated_count:,}, совпадений={error_count:,}'
         )
         if error_count == 0:
             print(f'      [CHECK] {rule_code}: ошибок нет')
@@ -3369,34 +3369,15 @@ class FastDataQualityChecker:
             if self._parallel_lock:
                 with self._parallel_lock:
                     self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
-                    if error_count == 0:
-                        self._mark_taxnum_same_as_other_no_errors(rule_code, table_name)
                     if error_df is not None and not error_df.empty:
                         self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
             else:
                 self._save_rule_result(rule_info, total_rows, error_count, 0, timestamp, is_suspicious)
-                if error_count == 0:
-                    self._mark_taxnum_same_as_other_no_errors(rule_code, table_name)
                 if error_df is not None and not error_df.empty:
                     self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
         elif error_df is not None and not error_df.empty:
             self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
         return (error_count, total_rows)
-
-    def _mark_taxnum_same_as_other_no_errors(self, rule_code, table_name):
-        for row in reversed(self.results):
-            if str(row.get('rule_code') or '') != rule_code or str(row.get('table_name') or '') != str(table_name):
-                continue
-            total = int(row.get('total_records') or 0)
-            row['status'] = 'УСПЕШНО'
-            row['status_color'] = 'green'
-            row['failed'] = 0
-            row['passed'] = total
-            row['error_file'] = 'Нет'
-            row['comments'] = 'Ошибок нет'
-            if total > 0:
-                row['success_rate_%'] = 100.0
-            return
 
     def _norm_knvv_so_code_val(self, value):
         if value is None or (isinstance(value, float) and pd.isna(value)):
