@@ -603,7 +603,6 @@ class TaxNumHandler:
         return errors
 
     def _compare_with_other_taxnum_fast(self, column_name: str, other_df: pd.DataFrame, other_type: int) -> List[dict]:
-        max_errors = 100000
         errors = []
         target = f'TAXNUM{other_type}'
         other_column = None
@@ -624,14 +623,10 @@ class TaxNumHandler:
         cur_ser = self.df[column_name].astype(str).str.strip()
         mask = cur_ser.isin(other_set) & (cur_ser != '') & cur_ser.notna()
         hit_indices = self.df.index[mask].tolist()
-        for i, idx in enumerate(hit_indices):
-            if len(errors) >= max_errors:
-                break
+        for idx in hit_indices:
             current_value = self.df.at[idx, column_name]
             desc = f'TAXNUM{self.taxnum_type} совпадает с TAXNUM{other_type}'
             errors.append(self._build_full_error_row(idx, {'DQ_ERROR_DESCRIPTION': desc, 'DQ_OTHER_TAXNUM_TYPE': other_type, 'DQ_CURRENT_TAXNUM': current_value}))
-        if mask.sum() > max_errors:
-            print(f'      [INFO] Ограничение отчёта: показано {max_errors} из {mask.sum()} совпадений с TAXNUM{other_type}')
         return errors
 
     def _check_if_suspicious(self, rule_code: str, error_count: int, total_rows: int) -> bool:

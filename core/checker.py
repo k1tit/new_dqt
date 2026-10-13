@@ -194,7 +194,6 @@ class FastDataQualityChecker:
         self.use_async_load = bool(use_async_load)
         self.debug = bool(debug)
         self.reference_datetime = reference_datetime
-        # False (default): всегда лимит MAX_ERRORS_TO_SAVE. True / --save-all-errors: старое поведение.
         self.save_all_errors = bool(save_all_errors)
         self.use_parquet_cache = bool(use_parquet_cache)
         self.rebuild_parquet_cache = bool(rebuild_parquet_cache)
@@ -260,10 +259,7 @@ class FastDataQualityChecker:
         return False
 
     def _error_save_limit(self, rule_code, table_name):
-        """None = без лимита (писать все строки ошибок)."""
-        if self._saves_all_errors(rule_code, table_name):
-            return None
-        return self.MAX_ERRORS_TO_SAVE
+        return None
 
     def _load_column_map(self):
         column_map_path = os.path.join(parent_dir, 'json files', 'column_map.json')
@@ -852,8 +848,7 @@ class FastDataQualityChecker:
             print(f'[INFO] Проверяем все таблицы')
         if only_rule_codes:
             print(f'[INFO] Изолированный режим: только правила {sorted(only_rule_codes)}')
-        print(f'[INFO] Настройки: Сохраняется максимум {self.MAX_ERRORS_TO_SAVE:,} ошибок на правило'
-              f'{" (SAVE-ALL включён)" if getattr(self, "save_all_errors", False) else " (SAVE-ALL выкл — лимит всегда)"}')
+        print(f'[INFO] Настройки: все ошибки пишутся в Excel (лист до {self.EXCEL_MAX_ROWS - 1:,} строк, дальше следующий лист)')
         print(f'[INFO] parallel_tables={self.parallel_tables}, async_load={self.use_async_load}')
         print(f'\n[INFO] Загружаем данные из базы...')
         load_start = time.time()
@@ -3084,7 +3079,7 @@ class FastDataQualityChecker:
             print(f'[INFO] Проверяем все таблицы')
         if only_rule_codes:
             print(f'[INFO] Изолированный режим: только правила {sorted(only_rule_codes)}')
-        print(f'[INFO] Настройки: Сохраняется максимум {self.MAX_ERRORS_TO_SAVE:,} ошибок на правило')
+        print(f'[INFO] Настройки: все ошибки пишутся в Excel (лист до {self.EXCEL_MAX_ROWS - 1:,} строк, дальше следующий лист)')
         print(f'=' * 100)
         results_df = self.run_quality_checks_fast(specific_table=specific_table, table_list=table_list, only_rule_codes=only_rule_codes)
         if not results_df.empty:
@@ -8312,17 +8307,17 @@ class FastDataQualityChecker:
             return
         from openpyxl import load_workbook
         wb = load_workbook(filepath)
-        ws = wb.active
-        headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
         yellow = PatternFill(start_color='FFFF99', end_color='FFFF99', fill_type='solid')
         header_yellow = PatternFill(start_color='FFE599', end_color='FFE599', fill_type='solid')
-        for name in names:
-            if name not in headers:
-                continue
-            col_idx = headers.index(name) + 1
-            for row_idx in range(1, ws.max_row + 1):
-                cell = ws.cell(row=row_idx, column=col_idx)
-                cell.fill = header_yellow if row_idx == 1 else yellow
+        for ws in wb.worksheets:
+            headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+            for name in names:
+                if name not in headers:
+                    continue
+                col_idx = headers.index(name) + 1
+                for row_idx in range(1, ws.max_row + 1):
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    cell.fill = header_yellow if row_idx == 1 else yellow
         wb.save(filepath)
 
     def _save_rule_errors(self, timestamp=None):
@@ -8681,29 +8676,35 @@ class FastDataQualityChecker:
                 if is_truncated and len(error_df) > 0 and limit_save is not None:
                     warning_row = pd.DataFrame([{col: f'[!] ВНИМАНИЕ: Всего ошибок {original_error_count:,}, показано только первые {limit_save:,}' if col == error_df.columns[0] else '' for col in error_df.columns}])
                     error_df = pd.concat([warning_row, error_df], ignore_index=True)
-                use_csv = no_100k_limit or original_error_count > self.EXCEL_MAX_ROWS or (limit_save is not None and (total_errors > limit_save or len(error_df) > limit_save)) or len(error_df) > 100000
                 safe_table_name = self._safe_filename_token(table_name)
                 if str(table_name or '').strip().upper() == 'KNB1' and self._normalize_rule_code(rule_code) in self.RULES_ERROR_EXPORT_KNA1_KTOKD:
                     error_df = self._enrich_error_df_kna1_ktokd(error_df, table_name, rule_code)
                     if 'KTOKD' not in error_df.columns:
                         error_df.insert(0, 'KTOKD', '')
                         error_df.insert(1, 'KTOKD_SOURCE', 'KNA1')
-                if use_csv:
-                    filename = f'{rule_code}_{safe_table_name}_errors_{timestamp}.csv'
-                    filepath = os.path.join(errors_dir, filename)
-                    error_df.to_csv(filepath, index=False, encoding='utf-8-sig', sep=';')
-                    status_msg = f' ({original_error_count:,} всего, сохранено {len(error_df):,})' if is_truncated else f' ({len(error_df):,} строк)'
-                    print(f'   [INFO] Сохранены ошибки в CSV: {filename}{status_msg}')
-                else:
-                    filename = f'{rule_code}_{safe_table_name}_errors_{timestamp}.xlsx'
-                    filepath = os.path.join(errors_dir, filename)
+                filename = f'{rule_code}_{safe_table_name}_errors_{timestamp}.xlsx'
+                filepath = os.path.join(errors_dir, filename)
+                max_data_rows = self.EXCEL_MAX_ROWS - 1
+                if len(error_df) <= max_data_rows:
                     error_df.to_excel(filepath, index=False, engine='openpyxl')
-                    try:
-                        self._highlight_checked_columns_in_error_xlsx(filepath, error_df)
-                    except Exception as paint_exc:
-                        print(f'   [WARN] {rule_code}: не удалось подсветить проверяемую колонку: {paint_exc}')
-                    status_msg = f' ({original_error_count:,} всего, сохранено {len(error_df):,})' if is_truncated else f' ({len(error_df):,} строк)'
-                    print(f'   [INFO] Сохранены ошибки в Excel: {filename}{status_msg}')
+                    sheet_count = 1
+                else:
+                    sheet_count = 0
+                    start = 0
+                    with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+                        while start < len(error_df):
+                            sheet_count += 1
+                            chunk = error_df.iloc[start:start + max_data_rows]
+                            chunk.to_excel(writer, sheet_name=f'errors_{sheet_count}', index=False)
+                            start += max_data_rows
+                try:
+                    self._highlight_checked_columns_in_error_xlsx(filepath, error_df)
+                except Exception as paint_exc:
+                    print(f'   [WARN] {rule_code}: не удалось подсветить проверяемую колонку: {paint_exc}')
+                status_msg = f' ({original_error_count:,} всего, сохранено {len(error_df):,})' if is_truncated else f' ({len(error_df):,} строк)'
+                if sheet_count > 1:
+                    status_msg += f', листов: {sheet_count}'
+                print(f'   [INFO] Сохранены ошибки в Excel: {filename}{status_msg}')
                 self.saved_error_files[key] = filepath
                 saved_count += 1
             except Exception as e:
@@ -8836,7 +8837,7 @@ class FastDataQualityChecker:
             ws.title = 'Сводка проверок'
             ws['A1'] = 'СВОДКА ПРОВЕРОК КАЧЕСТВА ДАННЫХ'
             ws['A1'].font = Font(bold=True, size=14)
-            ws['A2'] = f'Настройки: Сохраняется максимум {self.MAX_ERRORS_TO_SAVE:,} ошибок на правило'
+            ws['A2'] = f'Настройки: все ошибки в Excel, до {self.EXCEL_MAX_ROWS - 1:,} строк на лист'
             ws['A2'].font = Font(size=10)
             ws['A5'] = 'Для таблицы ADR2: «Всего записей» считается по внутренним фильтрам (ADDRNUMBER+PARTNER) для правила, отдельный список записей сейчас не формируется автоматически.'
             ws['A5'].font = Font(size=9, italic=True)
