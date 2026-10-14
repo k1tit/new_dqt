@@ -545,121 +545,19 @@ def _klart_is_material_class(series: pd.Series) -> pd.Series:
     return codes.eq('001') | codes.eq('01') | codes.eq('1')
 
 
-def _count_bpp_hits(df: pd.DataFrame, atinn_needed, *, require_klart: bool = False) -> int:
-    if df is None or df.empty or not atinn_needed:
-        return 0
-    atinn_col = find_col(df, ('ATINN',))
-    if not atinn_col:
-        return 0
-    atinn = _atinn_codes(df[atinn_col])
-    work = df.loc[atinn.isin(atinn_needed)]
-    if work.empty:
-        return 0
-    if require_klart:
-        klart_col = find_col(work, ('KLART', 'CLASS_TYPE'))
-        if klart_col:
-            work = work.loc[_klart_is_material_class(work[klart_col])]
-    return int(len(work))
-
-
-def _ausp_pick_key(name: str, hits: int) -> tuple:
-    u = str(name or '').strip().upper()
-    if u in ('AUSP_MATERIAL', 'AUSP_CLASS', 'AUSP_CLASSIFICATION'):
-        prio = 0
-    elif u == 'AUSP':
-        prio = 1
-    elif u == 'AUSP_EQUIPMENT':
-        prio = 8
-    else:
-        prio = 4
-    return (-int(hits), prio, u)
-
-
-def _discover_ausp_table_names(table_name: str, loader: Callable[[str], pd.DataFrame]) -> list[str]:
-    out: list[str] = []
-    seen: set[str] = set()
-
-    def add(name) -> None:
-        u = str(name or '').strip().upper()
-        if not u or u in seen or u in CUSTOMER_AUSP_SLICES:
-            return
-        if not _is_material_ausp_table_name(u):
-            return
-        seen.add(u)
-        out.append(u)
-
-    add(table_name)
-    add(MATERIAL_BPP_AUSP_TABLE)
-    for name in ('AUSP_MATERIAL', 'AUSP_CLASS', 'AUSP_CLASSIFICATION', 'AUSP', 'AUSP_EQUIPMENT'):
-        add(name)
-    try:
-        extra = loader(AUSP_TABLE_NAMES_SENTINEL)
-    except Exception:
-        extra = None
-    if isinstance(extra, (list, tuple, set, frozenset)):
-        for name in extra:
-            add(name)
-    elif isinstance(extra, pd.DataFrame) and not extra.empty:
-        col = extra.columns[0]
-        for name in extra[col].tolist():
-            add(name)
-    return out
-
-
 def _pick_material_ausp_frame(
     ausp: pd.DataFrame,
     table_name: str,
     loader: Callable[[str], pd.DataFrame],
     atinn_needed,
 ) -> tuple[pd.DataFrame, str, list[tuple[str, str]]]:
-    samples: list[tuple[str, str]] = []
-    frames: dict[str, pd.DataFrame] = {}
-    requested = str(table_name or '').strip().upper() or 'AUSP'
+    requested = str(table_name or '').strip().upper() or MATERIAL_BPP_AUSP_TABLE
     if is_material_bpp_ausp_table(requested) and ausp is not None and not getattr(ausp, 'empty', True):
         return ausp, MATERIAL_BPP_AUSP_TABLE, [(MATERIAL_BPP_AUSP_TABLE, _sample_atinn_text(ausp))]
     pinned = _load(loader, MATERIAL_BPP_AUSP_TABLE)
-    if pinned is not None and not pinned.empty:
+    if pinned is not None and not getattr(pinned, 'empty', True):
         return pinned, MATERIAL_BPP_AUSP_TABLE, [(MATERIAL_BPP_AUSP_TABLE, _sample_atinn_text(pinned))]
-    if ausp is not None:
-        frames[requested] = ausp
-    for name in _discover_ausp_table_names(requested, loader):
-        if name in frames:
-            continue
-        loaded = _load(loader, name)
-        if loaded is not None and not loaded.empty:
-            frames[name] = loaded
-    scored = []
-    for name, df in frames.items():
-        samples.append((name, _sample_atinn_text(df)))
-        hits = _count_bpp_hits(df, atinn_needed, require_klart=False)
-        if hits > 0:
-            scored.append((name, df, hits))
-    if not scored:
-        extra = _load(loader, 'AUSP_MATERIAL')
-        extra_name = 'AUSP_MATERIAL'
-        if extra is not None and not extra.empty:
-            frames[extra_name] = extra
-            samples.append((extra_name, _sample_atinn_text(extra)))
-            hits = _count_bpp_hits(extra, atinn_needed, require_klart=False)
-            if hits > 0:
-                scored.append((extra_name, extra, hits))
-    if scored:
-        scored.sort(key=lambda item: _ausp_pick_key(item[0], item[2]))
-        if len(scored) == 1:
-            name, df, _hits = scored[0]
-            return df, name, samples
-        parts = [item[1] for item in scored]
-        names = [item[0] for item in scored]
-        return pd.concat(parts, ignore_index=True), '+'.join(names), samples
-    fallback = frames.get(requested)
-    if fallback is None:
-        fallback = frames.get('AUSP')
-    if fallback is None and frames:
-        name = next(iter(frames))
-        return frames[name], name, samples
-    if fallback is None:
-        fallback = ausp if ausp is not None else pd.DataFrame()
-    return fallback, requested, samples
+    return pd.DataFrame(), MATERIAL_BPP_AUSP_TABLE, [(MATERIAL_BPP_AUSP_TABLE, 'нет строк')]
 
 
 def evaluate_ausp_bpp_rule(
@@ -667,7 +565,7 @@ def evaluate_ausp_bpp_rule(
     rule_code: str,
     value_col: str,
     loader: Callable[[str], pd.DataFrame],
-    table_name: str = 'AUSP',
+    table_name: str = MATERIAL_BPP_AUSP_TABLE,
 ) -> dict:
     rc = str(rule_code).strip().upper()
     atinn_needed, atinn_source = resolve_bpp_atinn_codes(loader)

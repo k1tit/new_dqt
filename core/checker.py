@@ -1083,41 +1083,34 @@ class FastDataQualityChecker:
                 return True
             return False
         if not _table_available(table_name, available_tables):
-            alt = None
-            if self.load_profile == 'material' and any(self._is_material_ausp_rule(r) for r in table_rules):
-                alt = self._first_available_material_ausp_table(table_name, available_tables)
-            if alt:
-                print(f'   [AUSP] таблица {table_name} недоступна — RPCONF_53.1 читает {alt}')
-                table_name = alt
-            else:
+            in_sqlite = False
+            try:
+                in_sqlite = bool(hasattr(self.memory_manager, 'db_has_table') and self.memory_manager.db_has_table(table_name))
+            except Exception:
                 in_sqlite = False
-                try:
-                    in_sqlite = bool(hasattr(self.memory_manager, 'db_has_table') and self.memory_manager.db_has_table(table_name))
-                except Exception:
-                    in_sqlite = False
-                if in_sqlite:
-                    print(f"   \x1b[91m[ERROR]\x1b[0m Таблица '{table_name}' есть в SQLite, но не загружена в RAM")
-                    skip_msg = 'Таблица есть в БД, но не загружена в память'
-                else:
-                    print(f"   \x1b[91m[ERROR]\x1b[0m Таблица '{table_name}' НЕ НАЙДЕНА в SQLite и не в RAM")
-                    skip_msg = 'Таблица не найдена в БД'
-                suffix = '...' if len(available_tables) > 10 else ''
-                print(f'   [DEBUG] Таблицы в RAM: {sorted(available_tables)[:10]}{suffix}')
-                print(f'   [DEBUG] Всего в RAM: {len(available_tables)}')
-                similar_tables = [t for t in available_tables if table_name.replace('/', '_') in t or t.replace('/', '_') == table_name.replace('/', '_')]
-                if similar_tables:
-                    print(f'   [DEBUG] Найдены похожие таблицы: {similar_tables}')
-                if self._parallel_lock:
-                    with self._parallel_lock:
-                        for _ in table_rules:
-                            self.skipped_rules += 1
-                        for rule in table_rules:
-                            self._log_skipped_rule(rule, table_name, skip_msg, timestamp)
-                else:
-                    for rule in table_rules:
+            if in_sqlite:
+                print(f"   \x1b[91m[ERROR]\x1b[0m Таблица '{table_name}' есть в SQLite, но не загружена в RAM")
+                skip_msg = 'Таблица есть в БД, но не загружена в память'
+            else:
+                print(f"   \x1b[91m[ERROR]\x1b[0m Таблица '{table_name}' НЕ НАЙДЕНА в SQLite и не в RAM")
+                skip_msg = 'Таблица не найдена в БД'
+            suffix = '...' if len(available_tables) > 10 else ''
+            print(f'   [DEBUG] Таблицы в RAM: {sorted(available_tables)[:10]}{suffix}')
+            print(f'   [DEBUG] Всего в RAM: {len(available_tables)}')
+            similar_tables = [t for t in available_tables if table_name.replace('/', '_') in t or t.replace('/', '_') == table_name.replace('/', '_')]
+            if similar_tables:
+                print(f'   [DEBUG] Найдены похожие таблицы: {similar_tables}')
+            if self._parallel_lock:
+                with self._parallel_lock:
+                    for _ in table_rules:
                         self.skipped_rules += 1
+                    for rule in table_rules:
                         self._log_skipped_rule(rule, table_name, skip_msg, timestamp)
-                return
+            else:
+                for rule in table_rules:
+                    self.skipped_rules += 1
+                    self._log_skipped_rule(rule, table_name, skip_msg, timestamp)
+            return
         df_raw = self.memory_manager.get_table(table_name)
         if (df_raw is None or df_raw.empty) and str(table_name or '').strip().upper() == self.AUSP_EQUIPMENT_TABLE:
             # ещё раз: пустая физическая → fallback из AUSP
