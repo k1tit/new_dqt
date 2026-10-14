@@ -826,6 +826,7 @@ class FastDataQualityChecker:
         self._kna1_aufsd_lookup_df = None
         self._table_kna1_preenrich_done = set()
         self._material_rule_table_cache = {}
+        self._marc_matnr_keys = None
         self._vequi_swerk_lookup = None
         self._but000_mapped_df = None
         self._but000_partner_guid_lookup = None
@@ -1371,6 +1372,33 @@ class FastDataQualityChecker:
                     self._log_skipped_rule(rule, table_name, f'Ошибка обработчика: {str(e)}', timestamp)
         return (success_count, error_count, suspicious_count)
 
+    def _marc_material_numbers(self):
+        cached = getattr(self, '_marc_matnr_keys', None)
+        if cached is not None:
+            return cached
+        lock = getattr(self, '_equipment_lookup_lock', None)
+
+        def build():
+            from utils.material_rule_evaluator import marc_matnr_key_set
+            mm = self.memory_manager
+            marc = None
+            if mm is not None:
+                if hasattr(mm, 'ensure_table_loaded'):
+                    mm.ensure_table_loaded('MARC', reload_if_empty=True)
+                marc = mm.get_table('MARC')
+            keys = marc_matnr_key_set(marc if marc is not None else pd.DataFrame())
+            self._marc_matnr_keys = keys
+            print(f'   [FILTER] MARC.MATNR: {len(keys):,} материалов для материальных таблиц')
+            return keys
+
+        if lock is not None:
+            with lock:
+                cached = getattr(self, '_marc_matnr_keys', None)
+                if cached is not None:
+                    return cached
+                return build()
+        return build()
+
     def _process_with_standard_method(self, table_name, df, table_rules, timestamp, ausp_split=None):
         success_count = 0
         error_count = 0
@@ -1393,6 +1421,23 @@ class FastDataQualityChecker:
                 f'   [FILTER] {table_name}: Plnt/WERKS LIKE 36*/38*/39* [{plant_col}] '
                 f'-> {len(df):,}/{before_plant:,}'
             )
+        if self.load_profile == 'material':
+            from utils.material_rule_evaluator import filter_frame_to_marc_matnrs, material_table_uses_marc_matnr_scope
+            if material_table_uses_marc_matnr_scope(table_name):
+                before_matnr = len(df) if df is not None else 0
+                allowed = self._marc_material_numbers()
+                df, matnr_col, matnr_skip = filter_frame_to_marc_matnrs(df, table_name, allowed)
+                if matnr_skip or df is None or df.empty:
+                    reason = matnr_skip or f'нет MATNR из MARC ({matnr_col}, было {before_matnr:,})'
+                    print(f'   [WARN] {table_name}: {reason} — material rules skip')
+                    for rule in table_rules or []:
+                        self.skipped_rules += 1
+                        self._log_skipped_rule(rule, table_name, f'{rule.get("rule_code")}: {reason}', timestamp)
+                    return (0, 0, 0)
+                print(
+                    f'   [FILTER] {table_name}: MATNR in MARC.MATNR [{matnr_col}] '
+                    f'-> {len(df):,}/{before_matnr:,}'
+                )
         if any(self._rule_is_equipment(r) for r in (table_rules or [])):
             before_eq = len(df) if df is not None else 0
             df = self._scope_df_equipment_swerk(df, table_name, f'PREFILTER:{table_name}')
@@ -1980,6 +2025,11 @@ class FastDataQualityChecker:
                         loaded = self.memory_manager.get_table(requested_table)
                 if loaded is not None and not loaded.empty:
                     loaded = self._apply_rule_time_column_map(loaded.copy(), requested_table)
+                    from utils.material_rule_evaluator import filter_frame_to_marc_matnrs, material_table_uses_marc_matnr_scope
+                    if material_table_uses_marc_matnr_scope(requested_table):
+                        loaded, _, _ = filter_frame_to_marc_matnrs(
+                            loaded, requested_table, self._marc_material_numbers()
+                        )
                     self._material_rule_table_cache[cache_key] = loaded
                 return loaded
 

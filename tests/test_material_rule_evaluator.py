@@ -11,6 +11,8 @@ from utils.material_rule_evaluator import (
     evaluate_rpconf_160_4,
     evaluate_rpconf_284_1,
     evaluate_rpconf_284_2,
+    filter_frame_to_marc_matnrs,
+    marc_matnr_key_set,
 )
 
 
@@ -508,6 +510,25 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         self.assertEqual(1, result['stats']['skipped_empty_dismm'])
         self.assertEqual(['ZB', 'X0'], list(result['df']['DISMM']))
         self.assertEqual([True, False], list(result['ok_mask']))
+
+
+class MarcMatnrScopeTests(unittest.TestCase):
+    def test_keeps_only_materials_present_in_marc(self):
+        marc = pd.DataFrame({'MATNR': ['000000000000000010', '20', '000000000000000010']})
+        allowed = marc_matnr_key_set(marc)
+        mara = pd.DataFrame({'MATNR': ['10', '30', '000000000000000020'], 'MTART': ['ZFG', 'ZCDN', 'ZNVM']})
+        scoped, col, reason = filter_frame_to_marc_matnrs(mara, 'MARA', allowed)
+        self.assertEqual('MATNR', col)
+        self.assertIsNone(reason)
+        self.assertEqual(['10', '000000000000000020'], list(scoped['MATNR']))
+
+    def test_ausp_objek_uses_the_same_material_set(self):
+        allowed = marc_matnr_key_set(pd.DataFrame({'MATNR': ['15']}))
+        ausp = pd.DataFrame({'OBJEK': ['000000000000000015', '99'], 'ATWRT': ['A', 'B']})
+        scoped, col, reason = filter_frame_to_marc_matnrs(ausp, 'AUSP 829.861', allowed)
+        self.assertEqual('OBJEK', col)
+        self.assertIsNone(reason)
+        self.assertEqual(['000000000000000015'], list(scoped['OBJEK']))
 
 
 if __name__ == '__main__':
