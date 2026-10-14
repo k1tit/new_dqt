@@ -493,7 +493,7 @@ MATERIAL_MARC_MATNR_TABLES = frozenset({'MARA', 'MAKT', 'MARC'})
 
 def material_table_uses_marc_matnr_scope(table_name: str) -> bool:
     u = str(table_name or '').strip().upper()
-    return u in MATERIAL_MARC_MATNR_TABLES or _is_material_ausp_table_name(u)
+    return u in MATERIAL_MARC_MATNR_TABLES
 
 
 def marc_matnr_key_set(marc: pd.DataFrame) -> set[str]:
@@ -512,10 +512,7 @@ def filter_frame_to_marc_matnrs(df: pd.DataFrame, table_name: str, allowed: set[
         return df, None, None
     if df is None or df.empty:
         return empty, None, None
-    if str(table_name or '').strip().upper() in MATERIAL_MARC_MATNR_TABLES:
-        names = ('MATNR', 'material_code', 'MATERIAL', 'MATERIAL_NUMBER')
-    else:
-        names = ('OBJEK', 'MATNR', 'material_code', 'MATERIAL', 'MATERIAL_NUMBER')
+    names = ('MATNR', 'material_code', 'MATERIAL', 'MATERIAL_NUMBER')
     col = None
     for name in names:
         col = find_col(df, (name,))

@@ -522,13 +522,13 @@ class MarcMatnrScopeTests(unittest.TestCase):
         self.assertIsNone(reason)
         self.assertEqual(['10', '000000000000000020'], list(scoped['MATNR']))
 
-    def test_ausp_objek_uses_the_same_material_set(self):
+    def test_ausp_is_not_limited_to_marc_matnr(self):
         allowed = marc_matnr_key_set(pd.DataFrame({'MATNR': ['15']}))
         ausp = pd.DataFrame({'OBJEK': ['000000000000000015', '99'], 'ATWRT': ['A', 'B']})
         scoped, col, reason = filter_frame_to_marc_matnrs(ausp, 'AUSP 829.861', allowed)
-        self.assertEqual('OBJEK', col)
+        self.assertIsNone(col)
         self.assertIsNone(reason)
-        self.assertEqual(['000000000000000015'], list(scoped['OBJEK']))
+        self.assertEqual(['000000000000000015', '99'], list(scoped['OBJEK']))
 
 
 if __name__ == '__main__':
