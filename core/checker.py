@@ -704,6 +704,11 @@ class FastDataQualityChecker:
 
     def _apply_rule_time_column_map(self, df, table_name: str):
         try:
+            from utils.sap_fixed_headers import apply_fixed_sap_header
+            df = apply_fixed_sap_header(df, table_name)
+        except ImportError:
+            pass
+        try:
             from utils.column_map_resolver import apply_column_headers_for_rules
             return apply_column_headers_for_rules(df, table_name, self.column_map, parent_dir, log_renames=True)
         except ImportError:
@@ -4070,7 +4075,7 @@ class FastDataQualityChecker:
             for extra in ('V_EQUI', 'JEST', 'AUSP_EQUIPMENT', 'TJ30T', 'INOB', 'KNA1', 'MAKT'):
                 if extra not in [str(x).strip().upper() for x in out]:
                     out.append(extra)
-        if any(str(t).strip().upper() in ('MARC', 'MARA') for t in out):
+        if any(str(t).strip().upper() in ('MARC', 'MARA', 'MVKE') for t in out):
             for extra in ('MARA', 'MAKT'):
                 if extra not in [str(x).strip().upper() for x in out]:
                     out.append(extra)
@@ -4088,6 +4093,11 @@ class FastDataQualityChecker:
             'RPCONF_160.4': ('MARA', 'MAKT'),
             'RPCONF_284.1': ('MARA', 'MAKT'),
             'RPCONF_284.2': ('MARA', 'MAKT'),
+            'RPCOMP_149.1': ('MARA', 'MAKT'),
+            'RPCOMP_153.1': ('MARA', 'MAKT'),
+            'RPCOMP_199.1': ('MARA', 'MAKT'),
+            'RPCOMP_252.1': ('MARA', 'MAKT'),
+            'RPCOMP_262.1': ('MARA',),
             'RPCONF_53.1': (
                 'MARA', 'CABN', 'CAWN_M', 'CAWNT_M',
                 'ZMDM_BPP_CODET', 'ZMDM_BPP_CODE', 'CAWN', 'CAWNT',

@@ -20,7 +20,8 @@ MARA_RULE_CODES = frozenset({
 MAKT_RULE_CODES = frozenset({'RPCONF_225.4', 'RPCONF_225.5'})
 AUSP_RULE_CODES = frozenset({'RPCONF_53.1'})
 MARC_RULE_CODES = frozenset({'RPCONF_160.4', 'RPCONF_284.1', 'RPCONF_284.2'})
-MATERIAL_RULE_CODES = MARA_RULE_CODES | MAKT_RULE_CODES | AUSP_RULE_CODES | MARC_RULE_CODES
+MVKE_RULE_CODES = frozenset({'RPCOMP_149.1', 'RPCOMP_153.1', 'RPCOMP_199.1', 'RPCOMP_252.1', 'RPCOMP_262.1'})
+MATERIAL_RULE_CODES = MARA_RULE_CODES | MAKT_RULE_CODES | AUSP_RULE_CODES | MARC_RULE_CODES | MVKE_RULE_CODES
 MATERIAL_BPP_AUSP_TABLE = 'AUSP 829.861'
 MATERIAL_AUSP_TABLES = frozenset({
     'AUSP',
@@ -76,6 +77,11 @@ ERROR_DESCRIPTIONS = {
     'RPCONF_160.4': 'MTVFP must be 02 or Z2 for MTART ZNVM. Empty MTVFP is out of scope.',
     'RPCONF_284.1': 'DISMM must be ND when MARA.MSTAE=99, otherwise X0 or ND, for finished and semi-finished materials. Empty DISMM is out of scope.',
     'RPCONF_284.2': 'DISMM must be ZB, PD or ND for MTART ZSPS. Empty DISMM is out of scope.',
+    'RPCOMP_149.1': 'KTGRM must be filled for the listed material types when VKORG is not 0001 and MATKL is not 1110000.',
+    'RPCOMP_153.1': 'ZZ_KONDM must be filled for ZFG* on sales org 0001 and distribution channel 01 when the product hierarchy is in scope.',
+    'RPCOMP_199.1': 'MTPOS must be filled when MTART is not ZCDS.',
+    'RPCOMP_252.1': 'KONDM must be filled for ZFG* on sales org 0001 and distribution channel 01 when the product hierarchy is in scope.',
+    'RPCOMP_262.1': 'MVGR3 must be filled for finished-goods types, and for ZSF/ZNVL when MATKL is 1001009 or 1003012.',
 }
 
 
@@ -488,7 +494,7 @@ def _is_material_ausp_table_name(name: str) -> bool:
     return u == 'AUSP' or u.startswith('AUSP_') or is_material_bpp_ausp_table(u)
 
 
-MATERIAL_MARC_MATNR_TABLES = frozenset({'MARA', 'MAKT', 'MARC'})
+MATERIAL_MARC_MATNR_TABLES = frozenset({'MARA', 'MAKT', 'MARC', 'MVKE'})
 
 
 def material_table_uses_marc_matnr_scope(table_name: str) -> bool:
@@ -933,6 +939,281 @@ def evaluate_rpconf_284_2(
     return _result(scoped, ok, rc, stats)
 
 
+KTGRM_MATERIAL_TYPES = frozenset({
+    'ZFG', 'ZFGS', 'ZFGC', 'ZFGA', 'ZFGM', 'ZNVM', 'ZRE', 'ZSF', 'ZSV', 'ZSTL', 'ZRW',
+})
+SS_SM_HIERARCHY_L4 = frozenset({
+    '01010012001', '01010012015', '01010012117', '01010012123', '01010012031',
+    '01010012041', '01010012055', '01010022155', '01010012060', '01010032163',
+    '01010012069', '01010012083', '01010012093', '01010012097', '01010012107',
+    '01030042179', '01010032169', '01030052301', '01030052315', '01049882988',
+    '01049992999', '01010022133', '01010022145', '01010012137',
+})
+SS_SM_HIERARCHY_L5 = '010100120832085'
+SS_SM_HIERARCHY_L3 = '0206008'
+
+
+def _zfill_code(series: pd.Series, width: int) -> pd.Series:
+    codes = _codes(series)
+
+    def _one(value: str) -> str:
+        if not value:
+            return ''
+        if value.isdigit():
+            return value.zfill(width)
+        return value
+
+    return codes.map(_one)
+
+
+def _mara_code_lookup(mara: pd.DataFrame, column_names: Sequence[str]) -> dict:
+    matnr_col = find_col(mara, ('MATNR', 'material_code', 'MATERIAL'))
+    value_col = find_col(mara, column_names)
+    if mara is None or mara.empty or not matnr_col or not value_col:
+        return {}
+    keys = _matnr(mara[matnr_col])
+    values = _codes(mara[value_col])
+    out = {}
+    for key, value in zip(keys, values):
+        if key and key != '0' and value and key not in out:
+            out[key] = value
+    return out
+
+
+def _description_lookup(makt: pd.DataFrame) -> dict:
+    english, _spras = _english_makt(makt)
+    makt_matnr = find_col(english, ('MATNR', 'material_code', 'MATERIAL'))
+    maktx_col = find_col(english, ('MAKTX', 'material_description'))
+    if english.empty or not makt_matnr or not maktx_col:
+        return {}
+    keys = _matnr(english[makt_matnr])
+    values = english[maktx_col]
+    valid = keys.ne('0') & _filled(values)
+    frame = pd.DataFrame({'key': keys.loc[valid], 'value': values.loc[valid]})
+    return frame.drop_duplicates('key', keep='first').set_index('key')['value'].to_dict()
+
+
+def _mvke_with_material_context(
+    mvke: pd.DataFrame,
+    loader: Callable[[str], pd.DataFrame],
+    rule_code: str,
+    exclude_abp: bool = True,
+):
+    stats = {'input': len(mvke) if mvke is not None else 0}
+    if mvke is None or mvke.empty:
+        return None, stats, f'{rule_code}: MVKE пуст'
+    matnr_col = find_col(mvke, ('MATNR', 'material_code', 'MATERIAL'))
+    if not matnr_col:
+        return None, stats, f'{rule_code}: MVKE.MATNR не найден'
+    mara = _load(loader, 'MARA')
+    types = _mara_code_lookup(mara, ('MTART', 'material_type_code'))
+    groups = _mara_code_lookup(mara, ('MATKL', 'material_group_code'))
+    if not types:
+        return None, stats, f'{rule_code}: MARA.MATNR/MTART не найдены'
+    if not groups:
+        return None, stats, f'{rule_code}: MARA.MATKL не найден'
+    work = mvke.copy()
+    work['_DQ_MATNR'] = _matnr(work[matnr_col])
+    work['LOOKUP_MATERIAL_TYPE'] = work['_DQ_MATNR'].map(types).fillna('')
+    work['LOOKUP_MATERIAL_GROUP'] = work['_DQ_MATNR'].map(groups).fillna('')
+    if not exclude_abp:
+        stats['after_abp'] = len(work)
+        return work, stats, None
+    descriptions = _description_lookup(_load(loader, 'MAKT'))
+    if not descriptions:
+        return None, stats, f'{rule_code}: MAKT.MAKTX (SPRAS=E) не найден — нельзя применить NOT LIKE %ABP%'
+    work['LOOKUP_MATERIAL_DESCRIPTION'] = work['_DQ_MATNR'].map(descriptions)
+    desc = work['LOOKUP_MATERIAL_DESCRIPTION']
+    if int(_filled(desc).sum()) == 0:
+        return None, stats, f'{rule_code}: MVKE не сджойнился с MAKT по MATNR'
+    work = work.loc[_filled(desc) & ~desc.astype(str).str.contains('ABP', case=False, na=False)].copy()
+    stats['after_abp'] = len(work)
+    return work, stats, None
+
+
+def _product_hierarchy_scope(work: pd.DataFrame) -> tuple[Optional[pd.Series], Optional[str]]:
+    l4_col = find_col(work, ('product_hierarchy_l4_code', 'PRODH_L4'))
+    l5_col = find_col(work, ('product_hierarchy_l5_code', 'PRODH_L5'))
+    l3_col = find_col(work, ('product_hierarchy_l3_code', 'PRODH_L3'))
+    if l4_col or l5_col or l3_col:
+        hit = pd.Series(False, index=work.index)
+        if l4_col:
+            hit = hit | _codes(work[l4_col]).isin(SS_SM_HIERARCHY_L4)
+        if l5_col:
+            hit = hit | _codes(work[l5_col]).eq(SS_SM_HIERARCHY_L5)
+        if l3_col:
+            hit = hit | _codes(work[l3_col]).eq(SS_SM_HIERARCHY_L3)
+        return hit, None
+    prodh_col = find_col(work, ('PRODH', 'PRDHA', 'product_hierarchy', 'product_hierarchy_code'))
+    if not prodh_col:
+        return None, 'MVKE.PRODH не найден'
+    text = _codes(work[prodh_col])
+    hit = (
+        text.str[:11].isin(SS_SM_HIERARCHY_L4)
+        | text.str[:15].eq(SS_SM_HIERARCHY_L5)
+        | text.eq(SS_SM_HIERARCHY_L5)
+        | text.str[:7].eq(SS_SM_HIERARCHY_L3)
+        | text.eq(SS_SM_HIERARCHY_L3)
+    )
+    return hit, None
+
+
+def evaluate_rpcomp_149_1(
+    mvke: pd.DataFrame,
+    value_col: str,
+    loader: Callable[[str], pd.DataFrame],
+) -> dict:
+    rc = 'RPCOMP_149.1'
+    work, stats, skip = _mvke_with_material_context(mvke, loader, rc)
+    stats['evaluated'] = 0
+    if skip:
+        return _empty_result(skip, stats)
+    ktgrm_col = value_col if value_col in work.columns else find_col(work, ('KTGRM', 'account_assignmnet_group_code', 'account_assignment_group_code'))
+    vkorg_col = find_col(work, ('VKORG', 'sales_org_code', 'SALES_ORG'))
+    if not ktgrm_col or not vkorg_col:
+        return _empty_result(f'{rc}: MVKE.KTGRM/VKORG не найдены', stats)
+    material_type = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.strip().str.upper()
+    material_group = work['LOOKUP_MATERIAL_GROUP'].astype(str).str.strip().str.upper()
+    sales_org = _zfill_code(work[vkorg_col], 4)
+    scope = (
+        material_type.isin(KTGRM_MATERIAL_TYPES)
+        & sales_org.ne('')
+        & sales_org.ne('0001')
+        & material_group.ne('')
+        & material_group.ne('1110000')
+    )
+    scoped = work.loc[scope].copy()
+    stats['evaluated'] = len(scoped)
+    if scoped.empty:
+        return _empty_result(f'{rc}: нет строк MVKE в scope KTGRM', stats)
+    ok = _filled(scoped[ktgrm_col])
+    return _result(scoped, ok, rc, stats)
+
+
+def _technical_so_scope(work: pd.DataFrame):
+    vkorg_col = find_col(work, ('VKORG', 'sales_org_code', 'SALES_ORG'))
+    vtweg_col = find_col(work, ('VTWEG', 'distribution_channel_code', 'DCHL'))
+    if not vkorg_col or not vtweg_col:
+        return None, 'MVKE.VKORG/VTWEG не найдены'
+    hierarchy, hierarchy_skip = _product_hierarchy_scope(work)
+    if hierarchy_skip:
+        return None, hierarchy_skip
+    material_type = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.strip().str.upper()
+    material_group = work['LOOKUP_MATERIAL_GROUP'].astype(str).str.strip().str.upper()
+    sales_org = _zfill_code(work[vkorg_col], 4)
+    channel = _zfill_code(work[vtweg_col], 2)
+    scope = (
+        material_group.ne('1110000')
+        & material_type.str.startswith('ZFG')
+        & sales_org.eq('0001')
+        & channel.eq('01')
+        & hierarchy.eq(True)
+    )
+    return scope, None
+
+
+def evaluate_rpcomp_153_1(
+    mvke: pd.DataFrame,
+    value_col: str,
+    loader: Callable[[str], pd.DataFrame],
+) -> dict:
+    rc = 'RPCOMP_153.1'
+    work, stats, skip = _mvke_with_material_context(mvke, loader, rc)
+    stats['evaluated'] = 0
+    if skip:
+        return _empty_result(skip, stats)
+    flag_col = value_col if value_col in work.columns else find_col(work, ('ZZ_KONDM', 'ss_sm_flag'))
+    if not flag_col:
+        return _empty_result(f'{rc}: MVKE.ZZ_KONDM не найден', stats)
+    scope, scope_skip = _technical_so_scope(work)
+    if scope_skip:
+        return _empty_result(f'{rc}: {scope_skip}', stats)
+    scoped = work.loc[scope].copy()
+    stats['evaluated'] = len(scoped)
+    if scoped.empty:
+        return _empty_result(f'{rc}: нет строк MVKE в scope ZZ_KONDM', stats)
+    ok = _filled(scoped[flag_col])
+    return _result(scoped, ok, rc, stats)
+
+
+def evaluate_rpcomp_199_1(
+    mvke: pd.DataFrame,
+    value_col: str,
+    loader: Callable[[str], pd.DataFrame],
+) -> dict:
+    rc = 'RPCOMP_199.1'
+    work, stats, skip = _mvke_with_material_context(mvke, loader, rc)
+    stats['evaluated'] = 0
+    if skip:
+        return _empty_result(skip, stats)
+    mtpos_col = value_col if value_col in work.columns else find_col(work, ('MTPOS', 'item_category_group_code'))
+    if not mtpos_col:
+        return _empty_result(f'{rc}: MVKE.MTPOS не найден', stats)
+    material_type = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.strip().str.upper()
+    scope = material_type.ne('') & material_type.ne('ZCDS')
+    scoped = work.loc[scope].copy()
+    stats['evaluated'] = len(scoped)
+    if scoped.empty:
+        return _empty_result(f'{rc}: нет строк MVKE в scope MTPOS', stats)
+    ok = _filled(scoped[mtpos_col])
+    return _result(scoped, ok, rc, stats)
+
+
+def evaluate_rpcomp_252_1(
+    mvke: pd.DataFrame,
+    value_col: str,
+    loader: Callable[[str], pd.DataFrame],
+) -> dict:
+    rc = 'RPCOMP_252.1'
+    work, stats, skip = _mvke_with_material_context(mvke, loader, rc)
+    stats['evaluated'] = 0
+    if skip:
+        return _empty_result(skip, stats)
+    kondm_col = value_col if value_col in work.columns else find_col(work, ('KONDM', 'material_price_group_code'))
+    if not kondm_col:
+        return _empty_result(f'{rc}: MVKE.KONDM не найден', stats)
+    scope, scope_skip = _technical_so_scope(work)
+    if scope_skip:
+        return _empty_result(f'{rc}: {scope_skip}', stats)
+    scoped = work.loc[scope].copy()
+    stats['evaluated'] = len(scoped)
+    if scoped.empty:
+        return _empty_result(f'{rc}: нет строк MVKE в scope KONDM', stats)
+    ok = _filled(scoped[kondm_col])
+    return _result(scoped, ok, rc, stats)
+
+
+MVGR3_FINISHED_TYPES = frozenset({'ZFG', 'ZFGS', 'ZFGC', 'ZFGA', 'ZFGM', 'ZNVM'})
+MVGR3_SEMI_TYPES = frozenset({'ZSF', 'ZNVL'})
+MVGR3_SEMI_GROUPS = frozenset({'1001009', '1003012'})
+
+
+def evaluate_rpcomp_262_1(
+    mvke: pd.DataFrame,
+    value_col: str,
+    loader: Callable[[str], pd.DataFrame],
+) -> dict:
+    rc = 'RPCOMP_262.1'
+    work, stats, skip = _mvke_with_material_context(mvke, loader, rc, exclude_abp=False)
+    stats['evaluated'] = 0
+    if skip:
+        return _empty_result(skip, stats)
+    mvgr3_col = value_col if value_col in work.columns else find_col(work, ('MVGR3', 'pack_type_code'))
+    if not mvgr3_col:
+        return _empty_result(f'{rc}: MVKE.MVGR3 не найден', stats)
+    material_type = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.strip().str.upper()
+    material_group = work['LOOKUP_MATERIAL_GROUP'].astype(str).str.strip().str.upper()
+    scope = material_type.isin(MVGR3_FINISHED_TYPES) | (
+        material_type.isin(MVGR3_SEMI_TYPES) & material_group.isin(MVGR3_SEMI_GROUPS)
+    )
+    scoped = work.loc[scope].copy()
+    stats['evaluated'] = len(scoped)
+    if scoped.empty:
+        return _empty_result(f'{rc}: нет строк MVKE в scope MVGR3', stats)
+    ok = _filled(scoped[mvgr3_col])
+    return _result(scoped, ok, rc, stats)
+
+
 def evaluate_material_rule(
     df: pd.DataFrame,
     table_name: str,
@@ -954,4 +1235,14 @@ def evaluate_material_rule(
         if rc == 'RPCONF_284.2':
             return evaluate_rpconf_284_2(df, value_col, loader)
         return evaluate_rpconf_160_4(df, value_col, loader)
+    if rc in MVKE_RULE_CODES and table == 'MVKE':
+        if rc == 'RPCOMP_153.1':
+            return evaluate_rpcomp_153_1(df, value_col, loader)
+        if rc == 'RPCOMP_199.1':
+            return evaluate_rpcomp_199_1(df, value_col, loader)
+        if rc == 'RPCOMP_252.1':
+            return evaluate_rpcomp_252_1(df, value_col, loader)
+        if rc == 'RPCOMP_262.1':
+            return evaluate_rpcomp_262_1(df, value_col, loader)
+        return evaluate_rpcomp_149_1(df, value_col, loader)
     return _empty_result(f'{rc}: неверная таблица {table} для material evaluator')

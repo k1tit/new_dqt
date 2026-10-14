@@ -392,6 +392,134 @@
       "exclude_from_score_calculation": false
     }
   ],
+  "MVKE": [
+    {
+      "rule_code": "RPCOMP_149.1",
+      "rule_description": "Missing KTGRM in MVKE View",
+      "technical_definition": [
+        "For material_description NOT LIKE '%ABP%'",
+        "IF material_type_code IN (ZFG, ZFGS, ZFGC, ZFGA, ZFGM, ZNVM, ZRE, ZSF, ZSV, ZSTL, ZRW) AND sales_org_code != '0001' AND material_group_code != 1110000 AND account_assignmnet_group_code IS NULL THEN '0'",
+        "ELSE IF material_type_code IN (ZFG, ZFGS, ZFGC, ZFGA, ZFGM, ZNVM, ZRE, ZSF, ZSV, ZSTL, ZRW) AND sales_org_code != '0001' AND material_group_code != 1110000 AND account_assignmnet_group_code IS NOT NULL THEN '1'",
+        "ELSE ''"
+      ],
+      "value_checked": "account_assignmnet_group_code",
+      "datamart_or_reference_table_used": "dm_product_sales_org INNER JOIN dm_product_general",
+      "check_details_message": "Проверка заполненности поля account_assignmnet_group_code в таблице MVKE",
+      "quality_category": "Completeness",
+      "domain": "Product",
+      "sub_domain": "Sales",
+      "type_of_check": "Availability",
+      "table_name_checked": "MVKE",
+      "column_name_checked": "KTGRM",
+      "business_attribute_name": "Account Assignment Group",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
+      "exclude_from_score_calculation": false
+    },
+    {
+      "rule_code": "RPCOMP_153.1",
+      "rule_description": "Missing ZZ_KONDM in MVKE View",
+      "technical_definition": [
+        "For material_description NOT LIKE '%ABP%'",
+        "IF material_group_code = '1110000' THEN ''",
+        "IF material_type_code LIKE 'ZFG%' AND sales_org_code = '0001' AND distribution_channel_code = '01' AND (product_hierarchy_l4_code IN ('01010012001','01010012015','01010012117','01010012123','01010012031','01010012041','01010012055','01010022155','01010012060','01010032163','01010012069','01010012083','01010012093','01010012097','01010012107','01030042179','01010032169','01030052301','01030052315','01049882988','01049992999','01010022133','01010022145','01010012137') OR product_hierarchy_l5_code = '010100120832085' OR product_hierarchy_l3_code = '0206008') AND ss_sm_flag IS NULL THEN '0'",
+        "ELSE IF material_type_code LIKE 'ZFG%' AND sales_org_code = '0001' AND distribution_channel_code = '01' AND (product_hierarchy_l4_code IN ('01010012001','01010012015','01010012117','01010012123','01010012031','01010012041','01010012055','01010022155','01010012060','01010032163','01010012069','01010012083','01010012093','01010012097','01010012107','01030042179','01010032169','01030052301','01030052315','01049882988','01049992999','01010022133','01010022145','01010012137') OR product_hierarchy_l5_code = '010100120832085' OR product_hierarchy_l3_code = '0206008') AND ss_sm_flag IS NOT NULL THEN '1'",
+        "ELSE ''"
+      ],
+      "value_checked": "ss_sm_flag",
+      "datamart_or_reference_table_used": "dm_product_sales_org INNER JOIN dm_product_general",
+      "check_details_message": "Проверка заполненности поля ss_sm_flag для технической SO",
+      "quality_category": "Completeness",
+      "domain": "Product",
+      "sub_domain": "General",
+      "type_of_check": "Availability",
+      "table_name_checked": "MVKE",
+      "column_name_checked": "ZZ_KONDM",
+      "business_attribute_name": "Incr. SS/MS",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
+      "exclude_from_score_calculation": false
+    },
+    {
+      "rule_code": "RPCOMP_199.1",
+      "rule_description": "Missing MTPOS in MVKE View",
+      "technical_definition": [
+        "For material_description NOT LIKE '%ABP%'",
+        "IF material_type_code != 'ZCDS' AND item_category_group_code IS NULL THEN '0'",
+        "ELSE IF material_type_code != 'ZCDS' AND item_category_group_code IS NOT NULL THEN '1'",
+        "ELSE ''"
+      ],
+      "value_checked": "item_category_group_code",
+      "datamart_or_reference_table_used": "dm_product_sales_org INNER JOIN dm_product_general",
+      "check_details_message": "Проверка корректности значения в поле item category group в таблице MVKE",
+      "quality_category": "Completeness",
+      "domain": "Product",
+      "sub_domain": "Sales",
+      "type_of_check": "Availability",
+      "table_name_checked": "MVKE",
+      "column_name_checked": "MTPOS",
+      "business_attribute_name": "Item Category Group",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
+      "exclude_from_score_calculation": false
+    },
+    {
+      "rule_code": "RPCOMP_252.1",
+      "rule_description": "Missing KONDM in MVKE View",
+      "technical_definition": [
+        "For material_description NOT LIKE '%ABP%'",
+        "IF material_group_code = '1110000' THEN ''",
+        "IF material_type_code LIKE 'ZFG%' AND sales_org_code = '0001' AND distribution_channel_code = '01' AND (product_hierarchy_l4_code IN ('01010012001','01010012015','01010012117','01010012123','01010012031','01010012041','01010012055','01010022155','01010012060','01010032163','01010012069','01010012083','01010012093','01010012097','01010012107','01030042179','01010032169','01030052301','01030052315','01049882988','01049992999','01010022133','01010022145','01010012137') OR product_hierarchy_l5_code = '010100120832085' OR product_hierarchy_l3_code = '0206008') AND material_price_group_code IS NULL THEN '0'",
+        "ELSE IF material_type_code LIKE 'ZFG%' AND sales_org_code = '0001' AND distribution_channel_code = '01' AND (product_hierarchy_l4_code IN ('01010012001','01010012015','01010012117','01010012123','01010012031','01010012041','01010012055','01010022155','01010012060','01010032163','01010012069','01010012083','01010012093','01010012097','01010012107','01030042179','01010032169','01030052301','01030052315','01049882988','01049992999','01010022133','01010022145','01010012137') OR product_hierarchy_l5_code = '010100120832085' OR product_hierarchy_l3_code = '0206008') AND material_price_group_code IS NOT NULL THEN '1'",
+        "ELSE ''"
+      ],
+      "value_checked": "material_price_group_code",
+      "datamart_or_reference_table_used": "dm_product_sales_org INNER JOIN dm_product_general",
+      "check_details_message": "Проверка заполненности поля material_price_group_code в таблице MVKE для технической SO",
+      "quality_category": "Completeness",
+      "domain": "Product",
+      "sub_domain": "General",
+      "type_of_check": "Availability",
+      "table_name_checked": "MVKE",
+      "column_name_checked": "KONDM",
+      "business_attribute_name": "Material Pricing Group",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
+      "exclude_from_score_calculation": false
+    },
+    {
+      "rule_code": "RPCOMP_262.1",
+      "rule_description": "Missing MVGR3 in MVKE View",
+      "technical_definition": [
+        "IF (material_type_code IN (ZFG, ZFGS, ZFGC, ZFGA, ZFGM, ZNVM) OR (material_type_code IN ('ZSF', 'ZNVL') AND material_group_code IN ('1001009', '1003012'))) AND pack_type_code IS NULL THEN '0'",
+        "ELSE IF (material_type_code IN (ZFG, ZFGS, ZFGC, ZFGA, ZFGM, ZNVM) OR (material_type_code IN ('ZSF', 'ZNVL') AND material_group_code IN ('1001009', '1003012'))) AND pack_type_code IS NOT NULL THEN '1'",
+        "ELSE ''"
+      ],
+      "value_checked": "pack_type_code",
+      "datamart_or_reference_table_used": "dm_product_sales_org INNER JOIN dm_product_general",
+      "check_details_message": "Проверка заполненности поля pack_type_code в таблице MVKE",
+      "quality_category": "Completeness",
+      "domain": "Product",
+      "sub_domain": "Sales",
+      "type_of_check": "Availability",
+      "table_name_checked": "MVKE",
+      "column_name_checked": "MVGR3",
+      "business_attribute_name": "Material Group 3",
+      "is_active": 1,
+      "severity": 1,
+      "is_field_mandatory": "Optional",
+      "remediation_output": "",
+      "exclude_from_score_calculation": false
+    }
+  ],
   "AUSP 829.861": [
     {
       "rule_code": "RPCONF_53.1",

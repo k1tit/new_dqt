@@ -8,6 +8,11 @@ from utils.material_rule_evaluator import (
     evaluate_ausp_bpp_rule,
     evaluate_makt_rule,
     evaluate_mara_rule,
+    evaluate_rpcomp_149_1,
+    evaluate_rpcomp_153_1,
+    evaluate_rpcomp_199_1,
+    evaluate_rpcomp_252_1,
+    evaluate_rpcomp_262_1,
     evaluate_rpconf_160_4,
     evaluate_rpconf_284_1,
     evaluate_rpconf_284_2,
@@ -529,6 +534,108 @@ class MarcMatnrScopeTests(unittest.TestCase):
         self.assertIsNone(col)
         self.assertIsNone(reason)
         self.assertEqual(['000000000000000015', '99'], list(scoped['OBJEK']))
+
+
+class MvkeCompletenessTests(unittest.TestCase):
+    def setUp(self):
+        self.mara = pd.DataFrame({
+            'MATNR': ['10', '20', '30', '40'],
+            'MTART': ['ZFG', 'ZRW', 'ZFG', 'ZNVM'],
+            'MATKL': ['100', '100', '1110000', '100'],
+        })
+        self.makt = pd.DataFrame({
+            'MATNR': ['10', '20', '30', '40'],
+            'SPRAS': ['E', 'E', 'E', 'E'],
+            'MAKTX': ['COKE', 'WATER', 'ABP COKE', 'JUICE'],
+        })
+
+    def _load(self, name):
+        return {'MARA': self.mara, 'MAKT': self.makt}.get(name, pd.DataFrame())
+
+    def test_ktgrm_flags_empty_outside_technical_sales_org(self):
+        mvke = pd.DataFrame({
+            'MATNR': ['10', '10', '20', '30', '40'],
+            'VKORG': ['3600', '0001', '3900', '3600', '3600'],
+            'KTGRM': [None, None, '01', None, None],
+        })
+        result = evaluate_rpcomp_149_1(mvke, 'KTGRM', self._load)
+        self.assertIsNone(result['skip_reason'])
+        self.assertEqual(['10', '20', '40'], list(result['df']['MATNR']))
+        self.assertEqual([False, True, False], list(result['ok_mask']))
+
+    def test_zz_kondm_uses_hierarchy_prefix_on_technical_sales_org(self):
+        mvke = pd.DataFrame({
+            'MATNR': ['10', '10', '20', '30'],
+            'VKORG': ['0001', '0001', '0001', '3600'],
+            'VTWEG': ['01', '01', '01', '01'],
+            'PRODH': ['01010012001XXXX', '010100120832085', '0206008999', '01010012001'],
+            'ZZ_KONDM': [None, 'SS', None, None],
+        })
+        result = evaluate_rpcomp_153_1(mvke, 'ZZ_KONDM', self._load)
+        self.assertIsNone(result['skip_reason'])
+        self.assertEqual(['10', '10'], list(result['df']['MATNR']))
+        self.assertEqual([False, True], list(result['ok_mask']))
+
+    def test_mtpos_is_required_for_every_type_except_zcds(self):
+        mara = pd.DataFrame({
+            'MATNR': ['10', '30', '50'],
+            'MTART': ['ZFG', 'ZFG', 'ZCDS'],
+            'MATKL': ['100', '1110000', '100'],
+        })
+        makt = pd.DataFrame({
+            'MATNR': ['10', '30', '50'],
+            'SPRAS': ['E', 'E', 'E'],
+            'MAKTX': ['COKE', 'ABP COKE', 'SPARE'],
+        })
+        mvke = pd.DataFrame({
+            'MATNR': ['10', '10', '30', '50'],
+            'MTPOS': [None, 'NORM', None, None],
+        })
+
+        def load(name):
+            return {'MARA': mara, 'MAKT': makt}.get(name, pd.DataFrame())
+
+        result = evaluate_rpcomp_199_1(mvke, 'MTPOS', load)
+        self.assertIsNone(result['skip_reason'])
+        self.assertEqual(['10', '10'], list(result['df']['MATNR']))
+        self.assertEqual([False, True], list(result['ok_mask']))
+
+    def test_kondm_uses_the_same_technical_sales_org_scope(self):
+        mvke = pd.DataFrame({
+            'MATNR': ['10', '10', '20', '30'],
+            'VKORG': ['0001', '0001', '0001', '3600'],
+            'VTWEG': ['01', '01', '01', '01'],
+            'PRODH': ['01010012001XXXX', '010100120832085', '0206008999', '01010012001'],
+            'KONDM': [None, '01', None, None],
+        })
+        result = evaluate_rpcomp_252_1(mvke, 'KONDM', self._load)
+        self.assertIsNone(result['skip_reason'])
+        self.assertEqual(['10', '10'], list(result['df']['MATNR']))
+        self.assertEqual([False, True], list(result['ok_mask']))
+
+    def test_mvgr3_covers_finished_goods_and_listed_semi_groups(self):
+        mara = pd.DataFrame({
+            'MATNR': ['10', '20', '30', '40'],
+            'MTART': ['ZFG', 'ZSF', 'ZNVL', 'ZSTL'],
+            'MATKL': ['100', '1001009', '999', '1003012'],
+        })
+        makt = pd.DataFrame({
+            'MATNR': ['10', '20', '30', '40'],
+            'SPRAS': ['E', 'E', 'E', 'E'],
+            'MAKTX': ['ABP COKE', 'SEMI', 'OTHER', 'SERVICE'],
+        })
+        mvke = pd.DataFrame({
+            'MATNR': ['10', '20', '30', '40'],
+            'MVGR3': [None, None, 'CAN', None],
+        })
+
+        def load(name):
+            return {'MARA': mara, 'MAKT': makt}.get(name, pd.DataFrame())
+
+        result = evaluate_rpcomp_262_1(mvke, 'MVGR3', load)
+        self.assertIsNone(result['skip_reason'])
+        self.assertEqual(['10', '20'], list(result['df']['MATNR']))
+        self.assertEqual([False, False], list(result['ok_mask']))
 
 
 if __name__ == '__main__':
