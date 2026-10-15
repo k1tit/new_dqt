@@ -149,6 +149,14 @@ def _result(df: pd.DataFrame, ok_mask: pd.Series, rule_code: str, stats: dict) -
     }
 
 
+_RU_REGION = re.compile(r'(?<![A-Za-z0-9])RU(?![A-Za-z0-9])')
+
+
+def description_has_ru_region(series: pd.Series) -> pd.Series:
+    text = series.astype(str)
+    return series.notna() & text.str.contains(_RU_REGION, na=False)
+
+
 def _english_makt(makt: pd.DataFrame) -> tuple[pd.DataFrame, Optional[str]]:
     if makt is None or makt.empty:
         return pd.DataFrame(), None
@@ -197,6 +205,11 @@ def _scope_mara_not_abp(mara: pd.DataFrame, makt: pd.DataFrame, rule_code: str) 
             f'{rule_code}: MARA не сджойнилась с MAKT по MATNR — '
             'проверьте колонки MATNR/MATERIAL_NUMBER и формат ключа'
         )
+    ru = description_has_ru_region(work[desc_col])
+    work = work.loc[ru].copy()
+    stats['after_ru'] = len(work)
+    if work.empty:
+        return work, stats, f'{rule_code}: нет материалов с регионом RU отдельным словом в MAKTX'
     non_abp = _filled(work[desc_col]) & ~work[desc_col].astype(str).str.contains('ABP', case=False, na=False)
     work = work.loc[non_abp].copy()
     stats['after_abp'] = len(work)

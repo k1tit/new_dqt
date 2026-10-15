@@ -26,13 +26,28 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         self.makt = pd.DataFrame({
             'MATNR': [str(i) for i in range(1, 20)],
             'SPRAS': ['E'] * 19,
-            'MAKTX': [f'MATERIAL {i}' for i in range(1, 19)] + ['ABP MATERIAL'],
+            'MAKTX': [f'MATERIAL {i} RU' for i in range(1, 19)] + ['ABP MATERIAL'],
         })
 
     def _assert_result(self, result, total, failed):
         self.assertIsNone(result['skip_reason'])
         self.assertEqual(total, len(result['df']))
         self.assertEqual(failed, int((~result['ok_mask']).sum()))
+
+    def test_mara_keeps_only_standalone_ru(self):
+        mara = pd.DataFrame({
+            'MATNR': ['1', '2', '3', '4', '5', '6'],
+            'MTART': ['ZFG', 'ZFG', 'ZFG', 'ZFG', 'ZFG', 'ZFG'],
+            'GEWEI': ['KG', 'KG', 'KG', 'KG', 'KG', 'LB'],
+        })
+        makt = pd.DataFrame({
+            'MATNR': ['1', '2', '3', '4', '5', '6'],
+            'SPRAS': ['E', 'E', 'E', 'E', 'E', 'E'],
+            'MAKTX': ['COLA RU', 'RUSSIA', 'CRUSH', 'ru', 'PRODUCT-RU 1L', 'TRU COKE'],
+        })
+        result = evaluate_mara_rule(mara, 'RPCONF_371.1', 'GEWEI', makt)
+        self._assert_result(result, 2, 0)
+        self.assertEqual(['1', '5'], list(result['df']['MATNR']))
 
     def test_rpc166_1(self):
         mara = pd.DataFrame({
