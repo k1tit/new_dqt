@@ -303,7 +303,10 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
                 'SPRAS': ['E', 'E', 'E'],
                 'ATWTB': ['OK NAME', 'OTHER NAME', 'COOLER NAME'],
             }),
-            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_OK', 'BPP_BAD']}),
+            'ZMDM_BPP_CODET': pd.DataFrame({
+                'ATWRT': ['BPP_OK', 'BPP_BAD'],
+                'ATWTB': ['OK NAME', None],
+            }),
         }
         result = evaluate_ausp_bpp_rule(
             ausp,
@@ -312,8 +315,67 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
             lambda name: tables.get(name, pd.DataFrame()),
         )
         self._assert_result(result, 2, 1)
-        self.assertEqual('CAWN_M+CAWNT_M', result['stats']['reference'])
+        self.assertIn('ZMDM_BPP_CODET', result['stats']['reference'])
+        self.assertIn('CAWN_M+CAWNT_M', result['stats']['reference'])
         self.assertEqual({'BPP_OK'}, set(result['df'].loc[result['ok_mask'], 'ATWRT']))
+
+    def test_rpc53_1_uses_zmdm_when_cawn_slice_does_not_contain_the_code(self):
+        ausp = pd.DataFrame({
+            'ATINN': ['829'],
+            'OBJEK': ['000000000000000010'],
+            'ATWRT': ['00123'],
+            'KLART': ['001'],
+            'ATZHL': ['1'],
+        })
+        tables = {
+            'MARA': pd.DataFrame({'MATNR': ['10'], 'MTART': ['ZFG']}),
+            'CAWN_M': pd.DataFrame({
+                'ATINN': ['829'],
+                'ATZHL': ['9'],
+                'ATWRT': ['OTHER'],
+            }),
+            'CAWNT_M': pd.DataFrame({
+                'ATINN': ['829'],
+                'ATZHL': ['9'],
+                'SPRAS': ['E'],
+                'ATWTB': ['OTHER NAME'],
+            }),
+            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['123'], 'ATWTB': ['REAL NAME']}),
+        }
+        result = evaluate_ausp_bpp_rule(
+            ausp,
+            'RPCONF_53.1',
+            'ATWRT',
+            lambda name: tables.get(name, pd.DataFrame()),
+        )
+        self._assert_result(result, 1, 0)
+        self.assertIn('ZMDM_BPP_CODET', result['stats']['reference'])
+
+    def test_rpc53_1_accepts_reference_name_in_any_language(self):
+        ausp = pd.DataFrame({
+            'ATINN': ['829'],
+            'OBJEK': ['000000000000000010'],
+            'ATWRT': ['BPP_OK'],
+            'KLART': ['001'],
+            'ATZHL': ['1'],
+        })
+        tables = {
+            'MARA': pd.DataFrame({'MATNR': ['10'], 'MTART': ['ZFG']}),
+            'CAWN_M': pd.DataFrame({'ATINN': ['829'], 'ATZHL': ['1'], 'ATWRT': ['BPP_OK']}),
+            'CAWNT_M': pd.DataFrame({
+                'ATINN': ['829'],
+                'ATZHL': ['1'],
+                'SPRAS': ['R'],
+                'ATWTB': ['ИМЯ'],
+            }),
+        }
+        result = evaluate_ausp_bpp_rule(
+            ausp,
+            'RPCONF_53.1',
+            'ATWRT',
+            lambda name: tables.get(name, pd.DataFrame()),
+        )
+        self._assert_result(result, 1, 0)
 
     def test_rpc53_1_ignores_plain_ausp(self):
         customer = pd.DataFrame({

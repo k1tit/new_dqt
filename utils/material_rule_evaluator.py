@@ -340,31 +340,49 @@ def _material_type_lookup(mara: pd.DataFrame) -> tuple[dict, dict, bool]:
     return exact, simple, bool(cluster_col)
 
 
+def _bpp_key_forms(code: str) -> set[str]:
+    if not code:
+        return set()
+    forms = {code}
+    if code.isdigit():
+        forms.add(code.lstrip('0') or '0')
+    return forms
+
+
+def _expand_bpp_codes(codes: set[str]) -> set[str]:
+    out = set()
+    for code in codes:
+        out |= _bpp_key_forms(code)
+    return out
+
+
+def _bpp_code_matches(code: str, valid_codes: set[str]) -> bool:
+    return bool(_bpp_key_forms(code) & valid_codes)
+
+
 def _bpp_reference_codes(reference: pd.DataFrame) -> set[str]:
     if reference is None or reference.empty:
         return set()
-    code_col = find_col(reference, ('ATWRT', 'BPP_CODE', 'CODE', 'VALUE'))
+    code_col = find_col(reference, ('ATWRT', 'BPP_CODE'))
     if not code_col:
         return set()
-    return set(_codes(reference[code_col])) - {''}
+    work = reference
+    name_col = find_col(work, ('ATWTB', 'BPP_NAME'))
+    if name_col:
+        work = work.loc[_filled(work[name_col])]
+    return set(_codes(work[code_col])) - {''}
 
 
 def _bpp_codes_from_cawn(cawn: pd.DataFrame, atinn_needed) -> set[str]:
     if cawn is None or cawn.empty:
         return set()
-    code_col = find_col(cawn, ('ATWRT', 'BPP_CODE', 'CODE', 'VALUE'))
+    code_col = find_col(cawn, ('ATWRT', 'BPP_CODE'))
     if not code_col:
         return set()
     work = cawn
     atinn_col = find_col(cawn, ('ATINN',))
     if atinn_col and atinn_needed:
         work = work.loc[_atinn_codes(work[atinn_col]).isin(atinn_needed)]
-    spras_col = find_col(work, ('SPRAS', 'LANGU', 'LANGUAGE'))
-    if spras_col:
-        lang = _codes(work[spras_col])
-        english = work.loc[lang.eq('E') | lang.eq('EN')]
-        if not english.empty:
-            work = english
     return set(_codes(work[code_col])) - {''}
 
 
@@ -384,14 +402,7 @@ def _bpp_codes_from_cawn_pair(cawn: pd.DataFrame, cawnt: pd.DataFrame, atinn_nee
         work = cawn
         if atinn_needed:
             work = work.loc[_atinn_codes(work[atinn_c]).isin(atinn_needed)]
-        texts = cawnt
-        spras = find_col(texts, ('SPRAS', 'LANGU', 'LANGUAGE'))
-        if spras:
-            lang = _codes(texts[spras])
-            english = texts.loc[lang.eq('E') | lang.eq('EN')]
-            if not english.empty:
-                texts = english
-        texts = texts.loc[_filled(texts[atwtb])]
+        texts = cawnt.loc[_filled(cawnt[atwtb])]
         named = set(zip(_atinn_codes(texts[atinn_t]).tolist(), _atinn_codes(texts[atzhl_t]).tolist()))
         if named and not work.empty:
             keys = list(zip(_atinn_codes(work[atinn_c]).tolist(), _atinn_codes(work[atzhl_c]).tolist()))
@@ -415,18 +426,26 @@ def _resolve_bpp_reference(
     loader: Callable[[str], pd.DataFrame],
     atinn_needed,
 ) -> tuple[set[str], str]:
-    codes, source = _bpp_codes_from_cawn_pair(_load(loader, 'CAWN_M'), _load(loader, 'CAWNT_M'), atinn_needed)
-    if codes:
-        return codes, source
+    found: list[tuple[str, set[str]]] = []
     for name in ('ZMDM_BPP_CODET', 'ZMDM_BPP_CODE'):
         zmdm = _bpp_reference_codes(_load(loader, name))
         if zmdm:
-            return zmdm, name
+            found.append((name, zmdm))
+    cawn_codes, cawn_source = _bpp_codes_from_cawn_pair(
+        _load(loader, 'CAWN_M'), _load(loader, 'CAWNT_M'), atinn_needed
+    )
+    if cawn_codes:
+        found.append((cawn_source, cawn_codes))
     for name in ('CAWN', 'CAWNT'):
         fallback = _bpp_codes_from_cawn(_load(loader, name), atinn_needed)
         if fallback:
-            return fallback, f'{name} ATINN={_format_atinn_list(atinn_needed)}'
-    return set(), ''
+            found.append((f'{name} ATINN={_format_atinn_list(atinn_needed)}', fallback))
+    if not found:
+        return set(), ''
+    codes = set()
+    for _source, part in found:
+        codes |= part
+    return _expand_bpp_codes(codes), '+'.join(source for source, _part in found)
 
 
 def _cabn_filter_json_path() -> str:
@@ -661,7 +680,7 @@ def evaluate_ausp_bpp_rule(
     stats['reference'] = reference_name
 
     scoped['LOOKUP_BPP_REFERENCE'] = stats['reference']
-    ok = _codes(scoped[value_col]).isin(valid_codes)
+    ok = _codes(scoped[value_col]).map(lambda code: _bpp_code_matches(code, valid_codes))
     stats['evaluated'] = len(scoped)
     return _result(scoped, ok, rc, stats)
 
