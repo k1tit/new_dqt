@@ -110,8 +110,9 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
                 'MTART': ['ZFG', 'ZFGS', 'ZFGC'],
                 'SAP_CLUSTER': ['CL1', 'CL1', 'CL1'],
             }),
-            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_OK'], 'ATWTB': ['VALID']}),
-            'ZMDM_BPP_CODE': pd.DataFrame(),
+            'CAWN_M': pd.DataFrame({'ATWRT': ['BPP_OK']}),
+            'CAWNT_M': pd.DataFrame({'ATWRT': ['BPP_OK'], 'ATWTB': ['VALID']}),
+            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_BAD'], 'ATWTB': ['SHOULD NOT COUNT']}),
         }
         result = evaluate_ausp_bpp_rule(
             ausp,
@@ -120,7 +121,7 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
             lambda name: tables.get(name, pd.DataFrame()),
         )
         self._assert_result(result, 2, 1)
-        self.assertEqual('ZMDM_BPP_CODET', result['stats']['reference'])
+        self.assertEqual('CAWN_M+CAWNT_M', result['stats']['reference'])
 
     def test_rpc53_1_picks_bpp_atinn_from_mixed_ausp(self):
         ausp = pd.DataFrame({
@@ -135,8 +136,8 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
                 'MATNR': ['10', '11', '13'],
                 'MTART': ['ZFG', 'ZFGS', 'ZFG'],
             }),
-            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_OK'], 'ATWTB': ['VALID']}),
-            'ZMDM_BPP_CODE': pd.DataFrame(),
+            'CAWN_M': pd.DataFrame({'ATWRT': ['BPP_OK']}),
+            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_BAD'], 'ATWTB': ['SHOULD NOT COUNT']}),
         }
         result = evaluate_ausp_bpp_rule(
             ausp,
@@ -159,8 +160,7 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         tables = {
             'CABN': pd.DataFrame({'ATINN': ['1001'], 'ATNAM': ['CCHBC_BPP_CODE']}),
             'MARA': pd.DataFrame({'MATNR': ['10', '99'], 'MTART': ['ZFG', 'ZFG']}),
-            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_OK'], 'ATWTB': ['VALID']}),
-            'ZMDM_BPP_CODE': pd.DataFrame(),
+            'CAWN_M': pd.DataFrame({'ATWRT': ['BPP_OK']}),
         }
         result = evaluate_ausp_bpp_rule(
             ausp,
@@ -223,8 +223,8 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
             'AUSP 829.861': pinned,
             'CABN': pd.DataFrame({'ATINN': ['829'], 'ATNAM': ['CCHBC_BPP_CODE']}),
             'MARA': pd.DataFrame({'MATNR': ['10'], 'MTART': ['ZFG']}),
-            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_OK'], 'ATWTB': ['VALID']}),
-            'ZMDM_BPP_CODE': pd.DataFrame(),
+            'CAWN_M': pd.DataFrame({'ATWRT': ['BPP_OK']}),
+            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['FROM_EQUIPMENT'], 'ATWTB': ['NO']}),
         }
         result = evaluate_ausp_bpp_rule(
             equipment,
@@ -237,7 +237,7 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         self.assertEqual('AUSP 829.861', result['stats']['ausp_table'])
         self.assertEqual(['BPP_OK'], list(result['df']['ATWRT']))
 
-    def test_rpc53_1_uses_zmdm_bpp_code_without_codet(self):
+    def test_rpc53_1_ignores_zmdm_and_plain_cawn(self):
         ausp = pd.DataFrame({
             'ATINN': ['829', '829'],
             'OBJEK': ['000000000000000010', '000000000000000011'],
@@ -248,6 +248,9 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         tables = {
             'MARA': pd.DataFrame({'MATNR': ['10', '11'], 'MTART': ['ZFG', 'ZFG']}),
             'ZMDM_BPP_CODE': pd.DataFrame({'ATWRT': ['BPP_OK']}),
+            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_OK'], 'ATWTB': ['VALID']}),
+            'CAWN': pd.DataFrame({'ATWRT': ['BPP_OK']}),
+            'CAWNT': pd.DataFrame({'ATWRT': ['BPP_OK']}),
         }
         result = evaluate_ausp_bpp_rule(
             ausp,
@@ -255,8 +258,7 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
             'ATWRT',
             lambda name: tables.get(name, pd.DataFrame()),
         )
-        self._assert_result(result, 2, 1)
-        self.assertEqual('ZMDM_BPP_CODE', result['stats']['reference'])
+        self.assertIn('CAWN_M/CAWNT_M', result['skip_reason'])
 
     def test_rpc53_1_uses_cawn_when_zmdm_missing(self):
         ausp = pd.DataFrame({
@@ -268,10 +270,11 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         })
         tables = {
             'MARA': pd.DataFrame({'MATNR': ['10', '11'], 'MTART': ['ZFG', 'ZFG']}),
-            'CAWN': pd.DataFrame({
+            'CAWN_M': pd.DataFrame({
                 'ATINN': ['829', '829', '24'],
                 'ATWRT': ['BPP_OK', 'OTHER', 'COOLER'],
             }),
+            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_BAD'], 'ATWTB': ['NO']}),
         }
         result = evaluate_ausp_bpp_rule(
             ausp,
@@ -280,7 +283,7 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
             lambda name: tables.get(name, pd.DataFrame()),
         )
         self._assert_result(result, 2, 1)
-        self.assertIn('CAWN', result['stats']['reference'])
+        self.assertEqual('CAWN_M', result['stats']['reference'])
 
     def test_rpc53_1_uses_cawn_atwrt_when_atinn_is_not_829(self):
         ausp = pd.DataFrame({
@@ -292,8 +295,8 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         })
         tables = {
             'MARA': pd.DataFrame({'MATNR': ['10'], 'MTART': ['ZFG']}),
-            'CAWN': pd.DataFrame({'ATINN': ['7'], 'ATWRT': ['BPP_OK']}),
-            'CAWNT': pd.DataFrame({'ATINN': ['7'], 'ATWRT': ['BPP_OK'], 'ATWTB': ['NAME']}),
+            'CAWN_M': pd.DataFrame({'ATINN': ['7'], 'ATWRT': ['BPP_OK']}),
+            'CAWNT_M': pd.DataFrame({'ATINN': ['7'], 'ATWRT': ['BPP_OK'], 'ATWTB': ['NAME']}),
         }
         result = evaluate_ausp_bpp_rule(
             ausp,
@@ -302,7 +305,7 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
             lambda name: tables.get(name, pd.DataFrame()),
         )
         self._assert_result(result, 1, 0)
-        self.assertIn('CAWN.ATWRT', result['stats']['reference'])
+        self.assertEqual('CAWN_M+CAWNT_M', result['stats']['reference'])
 
     def test_rpc53_1_uses_cawn_m_and_cawnt_m(self):
         ausp = pd.DataFrame({
@@ -337,8 +340,7 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
             lambda name: tables.get(name, pd.DataFrame()),
         )
         self._assert_result(result, 2, 1)
-        self.assertIn('ZMDM_BPP_CODET', result['stats']['reference'])
-        self.assertIn('CAWN_M+CAWNT_M', result['stats']['reference'])
+        self.assertEqual('CAWN_M', result['stats']['reference'])
         self.assertEqual({'BPP_OK'}, set(result['df'].loc[result['ok_mask'], 'ATWRT']))
 
     def test_rpc53_1_uses_zmdm_when_cawn_slice_does_not_contain_the_code(self):
@@ -370,8 +372,8 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
             'ATWRT',
             lambda name: tables.get(name, pd.DataFrame()),
         )
-        self._assert_result(result, 1, 0)
-        self.assertIn('ZMDM_BPP_CODET', result['stats']['reference'])
+        self._assert_result(result, 1, 1)
+        self.assertEqual('CAWN_M', result['stats']['reference'])
 
     def test_rpc53_1_accepts_reference_name_in_any_language(self):
         ausp = pd.DataFrame({
@@ -424,7 +426,7 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
             'AUSP_MATERIAL': material,
             'AUSP 829.861': material,
             'MARA': pd.DataFrame({'MATNR': ['10'], 'MTART': ['ZFG']}),
-            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_OK'], 'ATWTB': ['VALID']}),
+            'CAWN_M': pd.DataFrame({'ATWRT': ['BPP_OK']}),
         }
         result = evaluate_ausp_bpp_rule(
             customer,
@@ -457,8 +459,8 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
             'AUSP': equipment,
             'AUSP_EQUIPMENT': equipment,
             'MARA': pd.DataFrame({'MATNR': ['10'], 'MTART': ['ZFG']}),
-            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['BPP_OK'], 'ATWTB': ['VALID']}),
-            'ZMDM_BPP_CODE': pd.DataFrame(),
+            'CAWN_M': pd.DataFrame({'ATWRT': ['BPP_OK']}),
+            'ZMDM_BPP_CODET': pd.DataFrame({'ATWRT': ['COOLER'], 'ATWTB': ['NO']}),
         }
         result = evaluate_ausp_bpp_rule(
             equipment,

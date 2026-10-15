@@ -531,7 +531,7 @@
         "ELSE ''"
       ],
       "value_checked": "bpp_code",
-      "datamart_or_reference_table_used": "dm_product_general; CAWN_M + CAWNT_M (BPP catalog), CABN, AUSP (KLART=001, ATNAM=CCHBC_BPP_CODE)",
+      "datamart_or_reference_table_used": "CAWN_M + CAWNT_M (ATWRT); AUSP 829.861 (KLART=001, ATINN CCHBC_BPP_CODE)",
       "check_details_message": "",
       "quality_category": "Conformity",
       "domain": "Product",

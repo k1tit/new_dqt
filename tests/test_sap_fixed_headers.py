@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from utils.sap_fixed_headers import AUSP_HEADER, MAKT_HEADER, apply_fixed_sap_header
+from utils.sap_fixed_headers import AUSP_HEADER, MAKT_HEADER, MARC_HEADER, apply_fixed_sap_header
 
 
 class FixedSapHeaderTests(unittest.TestCase):
@@ -36,6 +36,19 @@ class FixedSapHeaderTests(unittest.TestCase):
         bound = apply_fixed_sap_header(frame, 'MAKT')
         self.assertEqual(list(MAKT_HEADER), list(bound.columns))
         self.assertEqual('E', bound.iloc[0]['SPRAS'])
+
+    def test_marc_unnamed_columns_take_the_fixed_header(self):
+        row = ['100', '10', '3600'] + [''] * (len(MARC_HEADER) - 3)
+        frame = pd.DataFrame([row], columns=[f'col_{i}' for i in range(len(MARC_HEADER))])
+        bound = apply_fixed_sap_header(frame, 'MARC')
+        self.assertEqual(list(MARC_HEADER), list(bound.columns))
+        self.assertEqual('3600', bound.iloc[0]['WERKS'])
+        self.assertEqual('DISMM', bound.columns[37])
+
+    def test_named_marc_header_stays(self):
+        frame = pd.DataFrame({'MATNR': ['10'], 'WERKS': ['3600'], 'DISMM': ['ND']})
+        bound = apply_fixed_sap_header(frame, 'MARC')
+        self.assertEqual(['MATNR', 'WERKS', 'DISMM'], list(bound.columns))
 
     def test_ausp_width_is_not_renamed_as_makt(self):
         frame = pd.DataFrame([['x'] * len(AUSP_HEADER)], columns=[f'col_{i}' for i in range(len(AUSP_HEADER))])

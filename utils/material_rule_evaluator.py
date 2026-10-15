@@ -430,24 +430,25 @@ def _bpp_codes_from_cawn_pair(cawn: pd.DataFrame, cawnt: pd.DataFrame, atinn_nee
     return set(), ''
 
 
+def _frame_atwrt(frame: pd.DataFrame) -> set[str]:
+    if frame is None or getattr(frame, 'empty', True):
+        return set()
+    code_col = find_col(frame, ('ATWRT', 'BPP_CODE'))
+    if not code_col:
+        return set()
+    return _atwrt_codes(frame, code_col)
+
+
 def _resolve_bpp_reference(
     loader: Callable[[str], pd.DataFrame],
     atinn_needed,
 ) -> tuple[set[str], str]:
+    del atinn_needed
     found: list[tuple[str, set[str]]] = []
-    for name in ('ZMDM_BPP_CODET', 'ZMDM_BPP_CODE'):
-        zmdm = _bpp_reference_codes(_load(loader, name))
-        if zmdm:
-            found.append((name, zmdm))
-    cawn_codes, cawn_source = _bpp_codes_from_cawn_pair(
-        _load(loader, 'CAWN_M'), _load(loader, 'CAWNT_M'), atinn_needed
-    )
-    if cawn_codes:
-        found.append((cawn_source, cawn_codes))
-    for name in ('CAWN', 'CAWNT'):
-        fallback = _bpp_codes_from_cawn(_load(loader, name), atinn_needed)
-        if fallback:
-            found.append((f'{name}.ATWRT', fallback))
+    for name in ('CAWN_M', 'CAWNT_M'):
+        codes = _frame_atwrt(_load(loader, name))
+        if codes:
+            found.append((name, codes))
     if not found:
         return set(), ''
     codes = set()
@@ -681,8 +682,7 @@ def evaluate_ausp_bpp_rule(
     valid_codes, reference_name = _resolve_bpp_reference(loader, atinn_needed)
     if not valid_codes:
         return _empty_result(
-            f'{rc}: нет справочника BPP. В CAWN_M/CAWNT_M, ZMDM_BPP_CODET/ZMDM_BPP_CODE и CAWN/CAWNT '
-            f'нет значений ATWRT.',
+            f'{rc}: нет справочника BPP. В CAWN_M/CAWNT_M нет значений ATWRT.',
             stats,
         )
     stats['reference'] = reference_name

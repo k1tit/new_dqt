@@ -11,6 +11,14 @@ AUSP_HEADER = (
     'CHANGED_BY', 'TYPE_BP_GUID',
 )
 MAKT_HEADER = ('MANDT', 'MATNR', 'SPRAS', 'MAKTX', 'MAKTG')
+MARC_HEADER = (
+    'MANDT', 'MATNR', 'WERKS', 'MMSTA', 'NCOST', 'KAUTB', 'MTVFP', 'RGEKZ', 'XCHAR',
+    'XCHPF', 'STLAN', 'QZGTP', 'ABCIN', 'CCFIX', 'STAWN', 'KAUSF', 'LOSGR', 'LVORM',
+    'KZDKZ', 'PERIV', 'BSTFE', 'FIXLS', 'SCM_FIXPEG_PROD_SET', 'SCM_GRPRT', 'QMATV',
+    'LADGR', 'SCM_LSUOM', 'DISLS', 'PSTAT', 'SCM_SHLF_LFE_REQ_MAX', 'MAXLZ', 'MAXLS',
+    'BSTMA', 'MABST', 'MINLS', 'BSTMI', 'DISPO', 'DISMM', 'LGPRO', 'PRCTR', 'UEETK',
+    '/CWM/TRAME',
+)
 
 _AUSP_TABLES = frozenset({
     'AUSP',
@@ -29,6 +37,8 @@ def fixed_header_for(table_name: str):
     name = str(table_name or '').strip().upper()
     if name == 'MAKT':
         return MAKT_HEADER, ('SPRAS', 'MAKTX', 'MATNR')
+    if name == 'MARC':
+        return MARC_HEADER, ('MATNR', 'WERKS')
     if name in _AUSP_TABLES:
         return AUSP_HEADER, ('ATINN', 'OBJEK', 'ATWRT')
     return None, ()

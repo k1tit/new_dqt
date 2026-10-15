@@ -4091,10 +4091,7 @@ class FastDataQualityChecker:
             'RPCOMP_199.1': ('MARA', 'MAKT'),
             'RPCOMP_252.1': ('MARA', 'MAKT'),
             'RPCOMP_262.1': ('MARA',),
-            'RPCONF_53.1': (
-                'MARA', 'CABN', 'CAWN_M', 'CAWNT_M',
-                'ZMDM_BPP_CODET', 'ZMDM_BPP_CODE', 'CAWN', 'CAWNT',
-            ),
+            'RPCONF_53.1': ('MARA', 'CABN', 'CAWN_M', 'CAWNT_M'),
         }
         rules_by_key = {
             str(k).strip().upper(): v
