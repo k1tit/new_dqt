@@ -92,6 +92,15 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         })
         upper = evaluate_makt_rule(makt, 'RPCONF_225.4', 'MAKTX')
         spaces = evaluate_makt_rule(makt, 'RPCONF_225.5', 'MAKTX')
+        self._assert_result(upper, 4, 2)
+        self._assert_result(spaces, 4, 1)
+
+    def test_makt_text_rules_without_spras(self):
+        makt = pd.DataFrame({'MAKTX': ['UPPER CASE', 'Mixed Case', 'DOUBLE  SPACE']})
+        upper = evaluate_makt_rule(makt, 'RPCONF_225.4', 'MAKTX')
+        spaces = evaluate_makt_rule(makt, 'RPCONF_225.5', 'MAKTX')
+        self.assertIsNone(upper['skip_reason'])
+        self.assertIsNone(spaces['skip_reason'])
         self._assert_result(upper, 3, 1)
         self._assert_result(spaces, 3, 1)
 

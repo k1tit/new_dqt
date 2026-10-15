@@ -68,7 +68,7 @@ ERROR_DESCRIPTIONS = {
     'RPCONF_196.10': 'MTPOS_MARA must be NORM/ZWST for ZNVL and NORM for ZKIT.',
     'RPCONF_196.11': 'MTPOS_MARA must be LEIS/ZLIS for MTART ZSV.',
     'RPCONF_196.12': 'MTPOS_MARA must be LEIS for MTART ZSTL.',
-    'RPCONF_225.4': 'MAKTX must be uppercase for English material descriptions.',
+    'RPCONF_225.4': 'MAKTX must be uppercase.',
     'RPCONF_225.5': 'MAKTX must not start/end with whitespace or contain multiple consecutive whitespace characters.',
     'RPCONF_253.4': 'MATKL for MTART ZFGC must be one of 1111005/1111006/1111007/1111009/1113002.',
     'RPCONF_265.1': 'MHDRZ must be less than or equal to MHDHB for Finished Goods.',
@@ -275,17 +275,18 @@ def evaluate_mara_rule(
 
 def evaluate_makt_rule(makt: pd.DataFrame, rule_code: str, value_col: str) -> dict:
     rc = str(rule_code).strip().upper()
-    english, spras_col = _english_makt(makt)
-    stats = {'input': len(makt), 'english': len(english), 'evaluated': 0}
-    if not spras_col:
-        return _empty_result(f'{rc}: MAKT.SPRAS не найден — нельзя применить SPRAS=E', stats)
-    if not value_col or value_col not in english.columns:
+    stats = {'input': len(makt) if makt is not None else 0, 'evaluated': 0}
+    if makt is None or makt.empty:
+        return _empty_result(f'{rc}: MAKT пуст', stats)
+    if not value_col or value_col not in makt.columns:
+        value_col = find_col(makt, ('MAKTX', 'material_description')) or value_col
+    if not value_col or value_col not in makt.columns:
         return _empty_result(f'{rc}: MAKT.MAKTX не найден', stats)
 
-    scoped = english.loc[_filled(english[value_col])].copy()
+    scoped = makt.loc[_filled(makt[value_col])].copy()
     stats['evaluated'] = len(scoped)
     if scoped.empty:
-        return _empty_result(f'{rc}: нет заполненных MAKT.MAKTX при SPRAS=E', stats)
+        return _empty_result(f'{rc}: нет заполненных MAKT.MAKTX', stats)
     text = scoped[value_col].astype(str)
     if rc == 'RPCONF_225.4':
         ok = text.eq(text.str.upper())
