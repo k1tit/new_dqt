@@ -282,6 +282,28 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         self._assert_result(result, 2, 1)
         self.assertIn('CAWN', result['stats']['reference'])
 
+    def test_rpc53_1_uses_cawn_atwrt_when_atinn_is_not_829(self):
+        ausp = pd.DataFrame({
+            'ATINN': ['829'],
+            'OBJEK': ['000000000000000010'],
+            'ATWRT': ['BPP_OK'],
+            'KLART': ['001'],
+            'ATZHL': ['1'],
+        })
+        tables = {
+            'MARA': pd.DataFrame({'MATNR': ['10'], 'MTART': ['ZFG']}),
+            'CAWN': pd.DataFrame({'ATINN': ['7'], 'ATWRT': ['BPP_OK']}),
+            'CAWNT': pd.DataFrame({'ATINN': ['7'], 'ATWRT': ['BPP_OK'], 'ATWTB': ['NAME']}),
+        }
+        result = evaluate_ausp_bpp_rule(
+            ausp,
+            'RPCONF_53.1',
+            'ATWRT',
+            lambda name: tables.get(name, pd.DataFrame()),
+        )
+        self._assert_result(result, 1, 0)
+        self.assertIn('CAWN.ATWRT', result['stats']['reference'])
+
     def test_rpc53_1_uses_cawn_m_and_cawnt_m(self):
         ausp = pd.DataFrame({
             'ATINN': ['829', '829'],

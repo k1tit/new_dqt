@@ -360,17 +360,24 @@ def _bpp_code_matches(code: str, valid_codes: set[str]) -> bool:
     return bool(_bpp_key_forms(code) & valid_codes)
 
 
+def _atwrt_codes(frame: pd.DataFrame, code_col: str) -> set[str]:
+    if frame is None or frame.empty or not code_col:
+        return set()
+    return set(_codes(frame[code_col])) - {''}
+
+
 def _bpp_reference_codes(reference: pd.DataFrame) -> set[str]:
     if reference is None or reference.empty:
         return set()
     code_col = find_col(reference, ('ATWRT', 'BPP_CODE'))
     if not code_col:
         return set()
-    work = reference
-    name_col = find_col(work, ('ATWTB', 'BPP_NAME'))
-    if name_col:
-        work = work.loc[_filled(work[name_col])]
-    return set(_codes(work[code_col])) - {''}
+    all_codes = _atwrt_codes(reference, code_col)
+    name_col = find_col(reference, ('ATWTB', 'BPP_NAME'))
+    if not name_col:
+        return all_codes
+    named = _atwrt_codes(reference.loc[_filled(reference[name_col])], code_col)
+    return named or all_codes
 
 
 def _bpp_codes_from_cawn(cawn: pd.DataFrame, atinn_needed) -> set[str]:
@@ -379,11 +386,12 @@ def _bpp_codes_from_cawn(cawn: pd.DataFrame, atinn_needed) -> set[str]:
     code_col = find_col(cawn, ('ATWRT', 'BPP_CODE'))
     if not code_col:
         return set()
-    work = cawn
+    all_codes = _atwrt_codes(cawn, code_col)
     atinn_col = find_col(cawn, ('ATINN',))
-    if atinn_col and atinn_needed:
-        work = work.loc[_atinn_codes(work[atinn_col]).isin(atinn_needed)]
-    return set(_codes(work[code_col])) - {''}
+    if not atinn_col or not atinn_needed:
+        return all_codes
+    scoped = cawn.loc[_atinn_codes(cawn[atinn_col]).isin(atinn_needed)]
+    return _atwrt_codes(scoped, code_col) or all_codes
 
 
 def _bpp_codes_from_cawn_pair(cawn: pd.DataFrame, cawnt: pd.DataFrame, atinn_needed) -> tuple[set[str], str]:
@@ -439,7 +447,7 @@ def _resolve_bpp_reference(
     for name in ('CAWN', 'CAWNT'):
         fallback = _bpp_codes_from_cawn(_load(loader, name), atinn_needed)
         if fallback:
-            found.append((f'{name} ATINN={_format_atinn_list(atinn_needed)}', fallback))
+            found.append((f'{name}.ATWRT', fallback))
     if not found:
         return set(), ''
     codes = set()
@@ -673,8 +681,8 @@ def evaluate_ausp_bpp_rule(
     valid_codes, reference_name = _resolve_bpp_reference(loader, atinn_needed)
     if not valid_codes:
         return _empty_result(
-            f'{rc}: нет справочника BPP. Нет CAWN_M/CAWNT_M, ZMDM_BPP_CODET/ZMDM_BPP_CODE и CAWN/CAWNT '
-            f'с ATWRT для ATINN {{{stats["bpp_atinn"]}}}.',
+            f'{rc}: нет справочника BPP. В CAWN_M/CAWNT_M, ZMDM_BPP_CODET/ZMDM_BPP_CODE и CAWN/CAWNT '
+            f'нет значений ATWRT.',
             stats,
         )
     stats['reference'] = reference_name
