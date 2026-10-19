@@ -532,7 +532,7 @@
       ],
       "value_checked": "bpp_code",
       "datamart_or_reference_table_used": "CAWN_M + CAWNT_M (ATWRT); AUSP 829.861 (KLART=001, ATINN CCHBC_BPP_CODE)",
-      "check_details_message": "",
+      "check_details_message": "ATWRT из AUSP 829.861 (ATINN признака CCHBC_BPP_CODE, KLART=001) у материала MTART LIKE ZFG% должен быть среди ATWRT в CAWN_M или CAWNT_M. Пустой ATWRT и ZZZZZZZZZZ вне проверки.",
       "quality_category": "Conformity",
       "domain": "Product",
       "sub_domain": "General",

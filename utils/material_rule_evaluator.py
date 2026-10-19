@@ -73,7 +73,7 @@ ERROR_DESCRIPTIONS = {
     'RPCONF_253.4': 'MATKL for MTART ZFGC must be one of 1111005/1111006/1111007/1111009/1113002.',
     'RPCONF_265.1': 'MHDRZ must be less than or equal to MHDHB for Finished Goods.',
     'RPCONF_371.1': 'GEWEI must be KG for MTART ZFG/ZFGS/ZFGC/ZFGM/ZFGA/ZNVM.',
-    'RPCONF_53.1': 'BPP code assigned to a ZFG* material does not exist in the BPP reference.',
+    'RPCONF_53.1': 'AUSP 829.861 ATWRT of a ZFG* material (ATINN CCHBC_BPP_CODE, KLART=001) is not in CAWN_M/CAWNT_M ATWRT. Empty ATWRT and ZZZZZZZZZZ are out of scope.',
     'RPCONF_160.4': 'MTVFP must be 02 or Z2 for MTART ZNVM. Empty MTVFP is out of scope.',
     'RPCONF_284.1': 'DISMM must be ND when MARA.MSTAE=99, otherwise X0 or ND, for finished and semi-finished materials. Empty DISMM is out of scope.',
     'RPCONF_284.2': 'DISMM must be ZB, PD or ND for MTART ZSPS. Empty DISMM is out of scope.',
