@@ -522,6 +522,27 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         self.assertNotIn('1000', set(result['df']['WERKS'].astype(str)))
         self.assertNotIn('4100', set(result['df']['WERKS'].astype(str)))
 
+    def test_rpc160_4_applies_abp_without_spras(self):
+        marc = pd.DataFrame({
+            'MATNR': ['10', '11'],
+            'MTVFP': ['02', 'KP'],
+            'WERKS': ['3600', '3600'],
+        })
+        tables = {
+            'MARA': pd.DataFrame({'MATNR': ['10', '11'], 'MTART': ['ZNVM', 'ZNVM']}),
+            'MAKT': pd.DataFrame({
+                'MATNR': ['10', '11'],
+                'MAKTX': ['COLA', 'ABP COLA'],
+            }),
+        }
+        result = evaluate_rpconf_160_4(
+            marc,
+            'MTVFP',
+            lambda name: tables.get(name, pd.DataFrame()),
+        )
+        self._assert_result(result, 1, 0)
+        self.assertEqual(['10'], list(result['df']['MATNR'].astype(str)))
+
     def test_rpc284_1_skips_empty_dismm(self):
         marc = pd.DataFrame({
             'MATNR': ['10', '11', '12', '13', '14', '15'],

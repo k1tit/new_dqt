@@ -162,9 +162,10 @@ def _english_makt(makt: pd.DataFrame) -> tuple[pd.DataFrame, Optional[str]]:
         return pd.DataFrame(), None
     spras_col = find_col(makt, ('SPRAS', 'LANGU', 'LANGUAGE', 'LANG'))
     if not spras_col:
-        return pd.DataFrame(), None
+        return makt.copy(), None
     language = _codes(makt[spras_col])
-    return makt.loc[language.eq('E')].copy(), spras_col
+    english = makt.loc[language.eq('E') | language.eq('EN')].copy()
+    return english, spras_col
 
 
 def _attach_material_description(mara: pd.DataFrame, makt: pd.DataFrame) -> tuple[pd.DataFrame, Optional[str]]:
