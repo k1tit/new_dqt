@@ -286,6 +286,17 @@ def _list_data_files(data_folder: str) -> list[str]:
     files = [f for f in files if not os.path.basename(f).startswith('~$')]
     return sorted(files)
 
+def _prepare_data_files(data_folder, data_files):
+    if data_files is None:
+        if not data_folder or not os.path.exists(data_folder):
+            return [], f"Папка '{data_folder}' не найдена!"
+        return _list_data_files(data_folder), None
+    ready = [
+        f for f in data_files
+        if os.path.isfile(f) and not os.path.basename(f).startswith('~$')
+    ]
+    return sorted(ready), None
+
 def _normalize_atinn_value_simple(value) -> str:
     if value is None:
         return ''
@@ -428,22 +439,16 @@ def merge_and_load_ausp_equipment_flat(db_path=None, data_folder=None, data_file
     print(f'Файлов: {len(data_files)}')
     for f in data_files[:10]:
         print(f'  - {os.path.basename(f)}')
-    if method == 'ultra_fast':
-        result = merge_and_load_xlsx_files_ultra_fast(
-            db_path=db_path,
-            data_folder=os.path.dirname(data_files[0]),
-            target_table=AUSP_EQUIPMENT_TABLE_NAME,
-            skip_final_dedup=skip_final_dedup,
-            data_files=data_files,
-        )
-                else:
-        result = merge_and_load_xlsx_files_fast(
-            db_path=db_path,
-            data_folder=os.path.dirname(data_files[0]),
-            target_table=AUSP_EQUIPMENT_TABLE_NAME,
-            skip_final_dedup=skip_final_dedup,
-            data_files=data_files,
-        )
+    loader = merge_and_load_xlsx_files_fast
+    if str(method).strip() == 'ultra_fast':
+        loader = merge_and_load_xlsx_files_ultra_fast
+    result = loader(
+        db_path=db_path,
+        data_folder=os.path.dirname(data_files[0]),
+        target_table=AUSP_EQUIPMENT_TABLE_NAME,
+        skip_final_dedup=skip_final_dedup,
+        data_files=data_files,
+    )
     if result:
         _verify_sqlite_table(db_path, AUSP_EQUIPMENT_TABLE_NAME)
     return result
@@ -453,10 +458,7 @@ def merge_and_load_ausp_from_atinn_folders(db_path=None, ausp_folder=None, skip_
     """Customer AUSP: подпапки ATINN 143/604/148/151 → AUSP.
     AUSP_EQUIPMENT сюда не входит — обычная загрузка меню 1/3.
     """
-    if db_path is None:
-        db_path = _resolve_db_path()
-            else:
-        db_path = _resolve_db_path(db_path)
+    db_path = _resolve_db_path(db_path)
     folders = []
     if ausp_folder:
         folders.append(ausp_folder)
@@ -643,14 +645,10 @@ def merge_and_load_xlsx_files_fast(db_path=None, data_folder=None, target_table=
     current_step = 1
     print_step(current_step, total_steps, 'Проверка файлов...')
     current_step += 1
-    if data_files is None:
-    if not os.path.exists(data_folder):
-        print(f"ОШИБКА: Папка '{data_folder}' не найдена!")
+    data_files, file_error = _prepare_data_files(data_folder, data_files)
+    if file_error:
+        print(f'ОШИБКА: {file_error}')
         return None
-    data_files = _list_data_files(data_folder)
-    else:
-        data_files = [f for f in data_files if os.path.isfile(f) and (not os.path.basename(f).startswith('~$'))]
-        data_files = sorted(data_files)
     if not data_files:
         print(f"ОШИБКА: Нет файлов .xlsx / .xls / .csv{' в папке ' + repr(data_folder) if data_folder else ''}")
         return None
@@ -804,13 +802,9 @@ def merge_and_load_xlsx_files_ultra_fast(db_path=None, data_folder=None, target_
     print('УЛЬТРА-БЫСТРАЯ ЗАГРУЗКА ТАБЛИЦЫ')
     print('=' * 80)
     try:
-        if data_files is None:
-        if not os.path.exists(data_folder):
-            raise FileNotFoundError(f"Папка '{data_folder}' не найдена!")
-        data_files = _list_data_files(data_folder)
-        else:
-            data_files = [f for f in data_files if os.path.isfile(f) and (not os.path.basename(f).startswith('~$'))]
-            data_files = sorted(data_files)
+        data_files, file_error = _prepare_data_files(data_folder, data_files)
+        if file_error:
+            raise FileNotFoundError(file_error)
         if not data_files:
             print(f"ОШИБКА: Нет файлов .xlsx / .xls / .csv{' в папке ' + repr(data_folder) if data_folder else ''}")
             return None
@@ -1331,7 +1325,7 @@ def collect_db_load_groups(base_folder=None, rules_path=None) -> dict:
 
     # 1) Подпапки db/ИМЯ_ТАБЛИЦЫ (как раньше)
     for name in sorted(os.listdir(base_abs)):
-            path = os.path.join(base_abs, name)
+        path = os.path.join(base_abs, name)
         if not os.path.isdir(path) or name.startswith('.') or name == '__pycache__':
             continue
         name_u = str(name).strip().upper()
