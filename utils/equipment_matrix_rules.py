@@ -7,7 +7,8 @@ import re
 from typing import Any
 
 NO_COOLER_LITERAL = 'No cooler must be linked to this customer'
-COOLER_STATUS_CODES = frozenset({'PLCD', 'UINV', 'FOND', 'NACT', 'LOST'})
+COOLER_STATUS_CODES = frozenset({'PLCD', 'UINV', 'FOND', 'NACT', 'LOST', 'TBDI'})
+HISTORY_COOLER_STATUS_CODES = frozenset({'LOST', 'TBDI'})
 
 
 def _project_roots() -> list[str]:
@@ -234,8 +235,7 @@ def eval_rcconf_342_1(
 ) -> str | None:
     """Return '1' pass, '0' fail, None skip (block unknown).
 
-    LOST coolers: order-block / no-cooler matrix does not fail the check
-    (equipment is lost — placement vs block is irrelevant).
+    LOST and TBDI are history statuses for RU: a no-cooler block does not fail them.
     """
     st = norm_equipment_status(status)
     blk = norm_block_code(block)
@@ -243,7 +243,7 @@ def eval_rcconf_342_1(
     if allowed_set is not None:
         return '1' if st in allowed_set else '0'
     if blk in no_cooler_blocks:
-        if st == 'LOST':
+        if st in HISTORY_COOLER_STATUS_CODES:
             return '1'
         return '0'
     return None
@@ -252,10 +252,10 @@ def eval_rcconf_342_1(
 def eval_rcconf_342_2(block: Any, no_cooler_blocks: set[str], status: Any = None) -> str:
     """Return '0' if block forbids cooler, else '1'.
 
-    Exception: equipment_status_code = LOST → always pass ('1'),
+    Exception: equipment_status_code in LOST/TBDI → always pass ('1'),
     even when block is in the no-cooler set.
     """
-    if norm_equipment_status(status) == 'LOST':
+    if norm_equipment_status(status) in HISTORY_COOLER_STATUS_CODES:
         return '1'
     blk = norm_block_code(block)
     return '0' if blk in no_cooler_blocks else '1'
