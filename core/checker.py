@@ -4089,6 +4089,8 @@ class FastDataQualityChecker:
             'RPCONF_284.1': ('MARA', 'MAKT'),
             'RPCONF_284.2': ('MARA', 'MAKT'),
             'RPCOMP_148.1': ('MARA',),
+            'RPCOMP_284.1': ('MARA', 'MAKT'),
+            'RPCOMP_288.1': ('MARA', 'MAKT'),
             'RPCOMP_149.1': ('MARA', 'MAKT'),
             'RPCOMP_153.1': ('MARA', 'MAKT'),
             'RPCOMP_199.1': ('MARA', 'MAKT'),

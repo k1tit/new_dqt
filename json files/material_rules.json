@@ -264,6 +264,8 @@
       "rule_description": "Missing DISMM in MARC View",
       "technical_definition": [
         "MARC.Plnt/WERKS LIKE '36%' OR '38%' OR '39%'",
+        "material_type_code from MARA.MTART by MATNR",
+        "LOOKUP_MATERIAL_DESCRIPTION contains RU as a separate token",
         "For material_description NOT LIKE '%ABP%'",
         "IF material_type_code IN (ZWST, ZFGM, ZCDC, ZCDU, ZFGP, ZFG, ZSPF, ZFGS, ZKIT, ZAP, ZFGA, ZOT, ZMM, ZRWT, ZNVM, ZMMN, ZCDE, ZEM, ZPAL, ZCDS, ZSF, ZRW, ZNVL, ZSFT, ZSFB, ZSPS, ZFGC) AND mrp_type IS NULL THEN '0'",
         "ELSE IF material_type_code IN (ZWST, ZFGM, ZCDC, ZCDU, ZFGP, ZFG, ZSPF, ZFGS, ZKIT, ZAP, ZFGA, ZOT, ZMM, ZRWT, ZNVM, ZMMN, ZCDE, ZEM, ZPAL, ZCDS, ZSF, ZRW, ZNVL, ZSFT, ZSFB, ZSPS, ZFGC) AND mrp_type IS NOT NULL THEN '1'",
@@ -290,6 +292,8 @@
       "rule_description": "Missing BESKZ in MARC View",
       "technical_definition": [
         "MARC.Plnt/WERKS LIKE '36%' OR '38%' OR '39%'",
+        "material_type_code from MARA.MTART by MATNR",
+        "LOOKUP_MATERIAL_DESCRIPTION contains RU as a separate token",
         "For material_description NOT LIKE '%ABP%'",
         "If material_type_code IN (ZFGM, ZFGP, ZFG, ZSPF, ZFGS, ZAP, ZFGA, ZOT, ZMM, ZIS, ZRWT, ZNVM, ZMMN, ZEM, ZPAL, ZCDS, ZSF, ZRW, ZNVL, ZSFT, ZSFB, ZFGC) AND procurement_type IS NULL THEN '0'",
         "ELSE",

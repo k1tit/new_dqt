@@ -10,6 +10,8 @@ from utils.material_rule_evaluator import (
     evaluate_mara_rule,
     evaluate_rpcomp_148_1,
     evaluate_rpcomp_149_1,
+    evaluate_rpcomp_284_1,
+    evaluate_rpcomp_288_1,
     evaluate_rpcomp_153_1,
     evaluate_rpcomp_199_1,
     evaluate_rpcomp_252_1,
@@ -564,6 +566,48 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         self._assert_result(result, 2, 1)
         self.assertEqual(['10', '14'], list(result['df']['MATNR'].astype(str)))
         self.assertEqual(['ZFG', 'ZNVM'], list(result['df']['LOOKUP_MATERIAL_TYPE']))
+        self.assertEqual([False, True], list(result['ok_mask']))
+
+    def test_rpccomp_284_1_applies_ru_abp_and_type(self):
+        marc = pd.DataFrame({
+            'MATNR': ['10', '11', '12', '13', '14', '19'],
+            'WERKS': ['3600', '3600', '3600', '4100', '3600', '3600'],
+            'DISMM': [None, 'ND', None, None, None, None],
+        })
+        tables = {
+            'MARA': pd.DataFrame({
+                'MATNR': ['10', '11', '12', '13', '14', '19'],
+                'MTART': ['ZFG', 'ZFG', 'ZCDN', 'ZFG', 'ZFG', 'ZFG'],
+            }),
+            'MAKT': pd.DataFrame({
+                'MATNR': ['10', '11', '12', '13', '14', '19'],
+                'MAKTX': ['COLA RU', 'COLA RU', 'COLA RU', 'COLA RU', 'RUSSIA', 'ABP COLA RU'],
+            }),
+        }
+        result = evaluate_rpcomp_284_1(marc, 'DISMM', lambda name: tables.get(name, pd.DataFrame()))
+        self._assert_result(result, 2, 1)
+        self.assertEqual(['10', '11'], list(result['df']['MATNR'].astype(str)))
+        self.assertEqual([False, True], list(result['ok_mask']))
+
+    def test_rpccomp_288_1_applies_the_same_description_filters(self):
+        marc = pd.DataFrame({
+            'MATNR': ['10', '11', '12'],
+            'WERKS': ['3600', '3800', '3600'],
+            'BESKZ': [None, 'F', None],
+        })
+        tables = {
+            'MARA': pd.DataFrame({
+                'MATNR': ['10', '11', '12'],
+                'MTART': ['ZFG', 'ZFG', 'ZWST'],
+            }),
+            'MAKT': pd.DataFrame({
+                'MATNR': ['10', '11', '12'],
+                'MAKTX': ['COLA RU', 'WATER RU', 'COLA RU'],
+            }),
+        }
+        result = evaluate_rpcomp_288_1(marc, 'BESKZ', lambda name: tables.get(name, pd.DataFrame()))
+        self._assert_result(result, 2, 1)
+        self.assertEqual(['10', '11'], list(result['df']['MATNR'].astype(str)))
         self.assertEqual([False, True], list(result['ok_mask']))
 
     def test_rpc284_1_skips_empty_dismm(self):
