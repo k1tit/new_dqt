@@ -235,6 +235,8 @@
       "rule_description": "Missing MAABC in MARC View",
       "technical_definition": [
         "MARC.Plnt/WERKS LIKE '36%' OR '38%' OR '39%'",
+        "MMSTA NOT IN (99, 98, 97)",
+        "material_type_code and material_description from MARA.MTART / MARA.MAKTX by MATNR",
         "For material_description NOT LIKE '%ABP%'",
         "IF material_type_code IN (ZFG, ZFGS, ZFGC, ZNVM) AND abc_indicator IS NULL THEN '0'",
         "ELSE IF material_type_code IN (ZFG, ZFGS, ZFGC, ZNVM) AND abc_indicator IS NOT NULL THEN '1'",

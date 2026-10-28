@@ -8,6 +8,7 @@ from utils.material_rule_evaluator import (
     evaluate_ausp_bpp_rule,
     evaluate_makt_rule,
     evaluate_mara_rule,
+    evaluate_rpcomp_148_1,
     evaluate_rpcomp_149_1,
     evaluate_rpcomp_153_1,
     evaluate_rpcomp_199_1,
@@ -542,6 +543,28 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         )
         self._assert_result(result, 1, 0)
         self.assertEqual(['10'], list(result['df']['MATNR'].astype(str)))
+
+    def test_rpc148_1_skips_blocked_mmsta_and_uses_mara_name(self):
+        marc = pd.DataFrame({
+            'MATNR': ['10', '11', '12', '13', '14', '15', '16'],
+            'WERKS': ['3600', '3600', '3800', '3900', '3600', '3600', '4100'],
+            'MMSTA': ['01', '99', '98', '97', '01', '01', '01'],
+            'MAABC': [None, None, None, None, 'A', None, None],
+        })
+        mara = pd.DataFrame({
+            'MATNR': ['10', '11', '12', '13', '14', '15', '16'],
+            'MTART': ['ZFG', 'ZFG', 'ZFGS', 'ZFGC', 'ZNVM', 'ZFG', 'ZFG'],
+            'MAKTX': ['COLA', 'COLA', 'COLA', 'COLA', 'WATER', 'ABP SYRUP', 'COLA'],
+        })
+        result = evaluate_rpcomp_148_1(
+            marc,
+            'MAABC',
+            lambda name: {'MARA': mara}.get(name, pd.DataFrame()),
+        )
+        self._assert_result(result, 2, 1)
+        self.assertEqual(['10', '14'], list(result['df']['MATNR'].astype(str)))
+        self.assertEqual(['ZFG', 'ZNVM'], list(result['df']['LOOKUP_MATERIAL_TYPE']))
+        self.assertEqual([False, True], list(result['ok_mask']))
 
     def test_rpc284_1_skips_empty_dismm(self):
         marc = pd.DataFrame({

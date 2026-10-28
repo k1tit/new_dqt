@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from utils.sap_fixed_headers import AUSP_HEADER, MAKT_HEADER, MARC_HEADER, apply_fixed_sap_header
+from utils.sap_fixed_headers import AUSP_HEADER, MAKT_HEADER, MARA_HEADER, MARC_HEADER, apply_fixed_sap_header
 
 
 class FixedSapHeaderTests(unittest.TestCase):
@@ -49,6 +49,17 @@ class FixedSapHeaderTests(unittest.TestCase):
         frame = pd.DataFrame({'MATNR': ['10'], 'WERKS': ['3600'], 'DISMM': ['ND']})
         bound = apply_fixed_sap_header(frame, 'MARC')
         self.assertEqual(['MATNR', 'WERKS', 'DISMM'], list(bound.columns))
+
+    def test_mara_unnamed_columns_take_the_fixed_header(self):
+        row = [''] * len(MARA_HEADER)
+        row[1] = '10'
+        row[10] = 'ZFG'
+        row[-2] = 'COLA'
+        frame = pd.DataFrame([row], columns=[f'col_{i}' for i in range(len(MARA_HEADER))])
+        bound = apply_fixed_sap_header(frame, 'MARA')
+        self.assertEqual(list(MARA_HEADER), list(bound.columns))
+        self.assertEqual('ZFG', bound.iloc[0]['MTART'])
+        self.assertEqual('COLA', bound.iloc[0]['MAKTX'])
 
     def test_ausp_width_is_not_renamed_as_makt(self):
         frame = pd.DataFrame([['x'] * len(AUSP_HEADER)], columns=[f'col_{i}' for i in range(len(AUSP_HEADER))])

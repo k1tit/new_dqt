@@ -184,6 +184,8 @@ class FastDataQualityChecker:
         'RCCONF_39.3', 'RCCONF_39.3.2', 'RCCONF_39.5', 'RCCONF_39.5.2', 'RCCOMP_375.1.2',
     })
     KNA1_JOIN_BLOCKED_COLUMNS = frozenset({'CLIENT', 'CL', 'MANDT', 'MANDANT'})
+    GRAY_REPORT_RULES = frozenset({'RPCOMP_284.1'})
+    GRAY_REPORT_NOTE = 'Правило оставлено. Без отдельной системы проверки строка серая, в score не входит.'
 
     def __init__(self, db_path: str, rules_file: str, output_dir: str='quality_reports', parallel_tables: int=0, use_async_load: bool=False, debug: bool=False, reference_datetime=None, save_all_errors: bool=False, use_parquet_cache: bool=True, rebuild_parquet_cache: bool=False, report_prefix: str='quality_check_report'):
         self.db_path = db_path
@@ -228,7 +230,7 @@ class FastDataQualityChecker:
         self.MASS_ERROR_THRESHOLD = 0.5
         self.column_map = self._load_column_map()
         self.ausp_atinn_mapping = self._load_ausp_atinn_mapping()
-        self.colors = {'green': PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid'), 'red': PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid'), 'orange': PatternFill(start_color='FFEB9C', end_color='FFEB9C', fill_type='solid'), 'dark_red': PatternFill(start_color='FF9999', end_color='FF9999', fill_type='solid'), 'header': PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid'), 'header_font': Font(color='FFFFFF', bold=True), 'normal_font': Font(name='Calibri', size=11), 'bold_font': Font(bold=True), 'error_font': Font(color='FF0000', bold=True), 'success_font': Font(color='00B050', bold=True)}
+        self.colors = {'green': PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid'), 'red': PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid'), 'orange': PatternFill(start_color='FFEB9C', end_color='FFEB9C', fill_type='solid'), 'dark_red': PatternFill(start_color='FF9999', end_color='FF9999', fill_type='solid'), 'gray': PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid'), 'header': PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid'), 'header_font': Font(color='FFFFFF', bold=True), 'normal_font': Font(name='Calibri', size=11), 'bold_font': Font(bold=True), 'error_font': Font(color='FF0000', bold=True), 'success_font': Font(color='00B050', bold=True), 'gray_font': Font(name='Calibri', size=11, color='595959')}
         self.current_table = None
         self.current_rule = None
         self.start_time = None
@@ -4086,6 +4088,7 @@ class FastDataQualityChecker:
             'RPCONF_160.4': ('MARA', 'MAKT'),
             'RPCONF_284.1': ('MARA', 'MAKT'),
             'RPCONF_284.2': ('MARA', 'MAKT'),
+            'RPCOMP_148.1': ('MARA',),
             'RPCOMP_149.1': ('MARA', 'MAKT'),
             'RPCOMP_153.1': ('MARA', 'MAKT'),
             'RPCOMP_199.1': ('MARA', 'MAKT'),
@@ -8934,6 +8937,8 @@ class FastDataQualityChecker:
             return None
 
         for row in results or []:
+            if str(row.get('rule_code') or '').strip().upper() in self.GRAY_REPORT_RULES:
+                continue
             key = _cat_key(row.get('quality_category'))
             if not key:
                 continue
@@ -8958,10 +8963,13 @@ class FastDataQualityChecker:
             cat_rng = f"'{summary_ref}'!$C$7:$C${data_last_row}"
             total_rng = f"'{summary_ref}'!$G$7:$G${data_last_row}"
             passed_rng = f"'{summary_ref}'!$H$7:$H${data_last_row}"
+            rule_rng = f"'{summary_ref}'!$A$7:$A${data_last_row}"
         else:
             cat_rng = f"'{summary_ref}'!$C:$C"
             total_rng = f"'{summary_ref}'!$G:$G"
             passed_rng = f"'{summary_ref}'!$H:$H"
+            rule_rng = f"'{summary_ref}'!$A:$A"
+        gray_rule_criteria = ','.join(f'{rule_rng},"<>{code}"' for code in sorted(self.GRAY_REPORT_RULES))
         header_fill = self.colors.get('header', PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid'))
         header_font_white = self.colors.get('header_font', Font(bold=True, color='FFFFFF'))
         ws.cell(row=1, column=1, value='Category')
@@ -8975,8 +8983,8 @@ class FastDataQualityChecker:
         for row_idx, (category, weight) in enumerate(categories, start=2):
             ws.cell(row=row_idx, column=1, value=category)
             ws.cell(row=row_idx, column=2, value=weight)
-            ws.cell(row=row_idx, column=3, value=f'=SUMIF({cat_rng},$A{row_idx},{passed_rng})')
-            ws.cell(row=row_idx, column=5, value=f'=SUMIF({cat_rng},$A{row_idx},{total_rng})')
+            ws.cell(row=row_idx, column=3, value=f'=SUMIFS({passed_rng},{cat_rng},$A{row_idx},{gray_rule_criteria})')
+            ws.cell(row=row_idx, column=5, value=f'=SUMIFS({total_rng},{cat_rng},$A{row_idx},{gray_rule_criteria})')
             ws.cell(row=row_idx, column=4, value=f'=E{row_idx}-C{row_idx}')
             ws.cell(row=row_idx, column=6, value=f'=IF(E{row_idx}=0,0,C{row_idx}/E{row_idx})')
         ws.cell(row=2, column=8, value=f'=SUMPRODUCT($B$2:$B${last_row},$C$2:$C${last_row})')
@@ -9085,17 +9093,27 @@ class FastDataQualityChecker:
                     total_rec_display = result.get('total_records', 0)
                     list_file_display = ''
                 error_file_display = result.get('error_file_path', '') or result.get('error_file', 'Нет')
-                values = [result.get('rule_code', ''), result.get('rule_description', ''), result.get('quality_category', ''), table_display, taxnum_type, result.get('column_checked', ''), total_rec_display, result.get('passed', 0), result.get('failed', 0), result.get('success_rate_%', 0), result.get('status', ''), result.get('execution_time_sec', 0), result.get('comments', ''), list_file_display, error_file_display]
+                comments = result.get('comments', '')
+                shade_gray = str(result.get('rule_code') or '').strip().upper() in self.GRAY_REPORT_RULES
+                if shade_gray and self.GRAY_REPORT_NOTE not in str(comments or ''):
+                    comments = f'{comments} {self.GRAY_REPORT_NOTE}'.strip() if str(comments or '').strip() else self.GRAY_REPORT_NOTE
+                values = [result.get('rule_code', ''), result.get('rule_description', ''), result.get('quality_category', ''), table_display, taxnum_type, result.get('column_checked', ''), total_rec_display, result.get('passed', 0), result.get('failed', 0), result.get('success_rate_%', 0), result.get('status', ''), result.get('execution_time_sec', 0), comments, list_file_display, error_file_display]
                 for col_num, value in enumerate(values, 1):
                     cell = ws.cell(row=row_num, column=col_num, value=value)
                     cell.font = self.colors['normal_font']
+                    if shade_gray:
+                        cell.fill = self.colors['gray']
+                        cell.font = self.colors['gray_font']
                     if col_num in (14, 15) and value and isinstance(value, str) and os.path.isfile(value):
                         try:
                             path_uri = 'file:///' + value.replace('\\', '/').lstrip('/')
                             cell.hyperlink = path_uri
-                            cell.font = Font(color='0563C1', underline='single')
+                            link_color = '595959' if shade_gray else '0563C1'
+                            cell.font = Font(name='Calibri', size=11, color=link_color, underline='single')
                         except Exception:
                             pass
+                    if shade_gray:
+                        continue
                     if col_num == 11:
                         status_color = result.get('status_color', '')
                         if status_color == 'green':

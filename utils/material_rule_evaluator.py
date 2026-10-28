@@ -19,7 +19,7 @@ MARA_RULE_CODES = frozenset({
 })
 MAKT_RULE_CODES = frozenset({'RPCONF_225.4', 'RPCONF_225.5'})
 AUSP_RULE_CODES = frozenset({'RPCONF_53.1'})
-MARC_RULE_CODES = frozenset({'RPCONF_160.4', 'RPCONF_284.1', 'RPCONF_284.2'})
+MARC_RULE_CODES = frozenset({'RPCONF_160.4', 'RPCONF_284.1', 'RPCONF_284.2', 'RPCOMP_148.1'})
 MVKE_RULE_CODES = frozenset({'RPCOMP_149.1', 'RPCOMP_153.1', 'RPCOMP_199.1', 'RPCOMP_252.1', 'RPCOMP_262.1'})
 MATERIAL_RULE_CODES = MARA_RULE_CODES | MAKT_RULE_CODES | AUSP_RULE_CODES | MARC_RULE_CODES | MVKE_RULE_CODES
 MATERIAL_BPP_AUSP_TABLE = 'AUSP 829.861'
@@ -77,7 +77,7 @@ ERROR_DESCRIPTIONS = {
     'RPCONF_160.4': 'MTVFP must be 02 or Z2 for MTART ZNVM. Empty MTVFP is out of scope.',
     'RPCONF_284.1': 'DISMM must be ND when MARA.MSTAE=99, otherwise X0 or ND, for finished and semi-finished materials. Empty DISMM is out of scope.',
     'RPCONF_284.2': 'DISMM must be ZB, PD or ND for MTART ZSPS. Empty DISMM is out of scope.',
-    'RPCOMP_149.1': 'KTGRM must be filled for the listed material types when VKORG is not 0001 and MATKL is not 1110000.',
+    'RPCOMP_148.1': 'MAABC must be filled for MTART ZFG/ZFGS/ZFGC/ZNVM when MMSTA is not 99, 98 or 97 and the MARA description is not ABP.',
     'RPCOMP_153.1': 'ZZ_KONDM must be filled for ZFG* on sales org 0001 and distribution channel 01 when the product hierarchy is in scope.',
     'RPCOMP_199.1': 'MTPOS must be filled when MTART is not ZCDS.',
     'RPCOMP_252.1': 'KONDM must be filled for ZFG* on sales org 0001 and distribution channel 01 when the product hierarchy is in scope.',
@@ -1154,6 +1154,79 @@ def evaluate_rpcomp_262_1(
     return _result(scoped, ok, rc, stats)
 
 
+MAABC_MATERIAL_TYPES = frozenset({'ZFG', 'ZFGS', 'ZFGC', 'ZNVM'})
+MMSTA_EXCLUDED_FROM_MAABC = frozenset({'99', '98', '97'})
+
+
+def _mara_type_name_lookup(mara: pd.DataFrame) -> dict:
+    if mara is None or mara.empty:
+        return {}
+    matnr_col = find_col(mara, ('MATNR', 'material_code', 'MATERIAL'))
+    mtart_col = find_col(mara, ('MTART', 'material_type_code'))
+    name_col = find_col(mara, ('MAKTX', 'material_description', 'MAKTG'))
+    if not matnr_col or not mtart_col or not name_col:
+        return {}
+    frame = pd.DataFrame({
+        'key': _matnr(mara[matnr_col]),
+        'mtart': _codes(mara[mtart_col]),
+        'name': mara[name_col].where(_filled(mara[name_col]), ''),
+    })
+    frame = frame.loc[frame['key'].ne('') & frame['key'].ne('0')]
+    frame = frame.drop_duplicates('key', keep='first')
+    return {
+        row.key: {'mtart': row.mtart, 'name': row.name}
+        for row in frame.itertuples(index=False)
+    }
+
+
+def evaluate_rpcomp_148_1(
+    marc: pd.DataFrame,
+    value_col: str,
+    loader: Callable[[str], pd.DataFrame],
+) -> dict:
+    rc = 'RPCOMP_148.1'
+    stats = {'input': len(marc) if marc is not None else 0, 'evaluated': 0}
+    if marc is None or marc.empty:
+        return _empty_result(f'{rc}: MARC пуст', stats)
+    from utils.dm_product_plant import apply_ru_marc_plant_scope
+    work, _plant_col, plant_skip = apply_ru_marc_plant_scope(marc)
+    if plant_skip:
+        return _empty_result(f'{rc}: {plant_skip}', stats)
+    if work.empty:
+        return _empty_result(f'{rc}: нет строк MARC с Plnt/WERKS 36*/38*/39*', stats)
+    matnr_col = find_col(work, ('MATNR', 'material_code', 'MATERIAL'))
+    mmsta_col = find_col(work, ('MMSTA', 'material_status_code'))
+    maabc_col = value_col if value_col in work.columns else find_col(work, ('MAABC', 'abc_indicator'))
+    if not matnr_col:
+        return _empty_result(f'{rc}: MARC.MATNR не найден', stats)
+    if not mmsta_col:
+        return _empty_result(f'{rc}: MARC.MMSTA не найден', stats)
+    if not maabc_col:
+        return _empty_result(f'{rc}: MARC.MAABC не найден', stats)
+    lookup = _mara_type_name_lookup(_load(loader, 'MARA'))
+    if not lookup:
+        return _empty_result(f'{rc}: MARA.MATNR/MTART/MAKTX не найдены', stats)
+    work = work.copy()
+    work['_DQ_MATNR'] = _matnr(work[matnr_col])
+    work['LOOKUP_MATERIAL_TYPE'] = work['_DQ_MATNR'].map(lambda key: (lookup.get(key) or {}).get('mtart', ''))
+    work['LOOKUP_MATERIAL_DESCRIPTION'] = work['_DQ_MATNR'].map(lambda key: (lookup.get(key) or {}).get('name', ''))
+    mmsta = _codes(work[mmsta_col])
+    material_type = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.upper()
+    description = work['LOOKUP_MATERIAL_DESCRIPTION'].astype(str)
+    scope = (
+        material_type.isin(MAABC_MATERIAL_TYPES)
+        & ~mmsta.isin(MMSTA_EXCLUDED_FROM_MAABC)
+        & _filled(work['LOOKUP_MATERIAL_DESCRIPTION'])
+        & ~description.str.contains('ABP', case=False, na=False)
+    )
+    scoped = work.loc[scope].copy()
+    stats['evaluated'] = len(scoped)
+    if scoped.empty:
+        return _empty_result(f'{rc}: нет строк MARC для MAABC после MMSTA/MTART/ABP', stats)
+    ok = _filled(scoped[maabc_col])
+    return _result(scoped, ok, rc, stats)
+
+
 def evaluate_material_rule(
     df: pd.DataFrame,
     table_name: str,
@@ -1170,6 +1243,8 @@ def evaluate_material_rule(
     if rc in AUSP_RULE_CODES and _is_material_ausp_table_name(table):
         return evaluate_ausp_bpp_rule(df, rc, value_col, loader, table_name=table)
     if rc in MARC_RULE_CODES and table == 'MARC':
+        if rc == 'RPCOMP_148.1':
+            return evaluate_rpcomp_148_1(df, value_col, loader)
         if rc == 'RPCONF_284.1':
             return evaluate_rpconf_284_1(df, value_col, loader)
         if rc == 'RPCONF_284.2':
