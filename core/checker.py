@@ -184,7 +184,7 @@ class FastDataQualityChecker:
         'RCCONF_39.3', 'RCCONF_39.3.2', 'RCCONF_39.5', 'RCCONF_39.5.2', 'RCCOMP_375.1.2',
     })
     KNA1_JOIN_BLOCKED_COLUMNS = frozenset({'CLIENT', 'CL', 'MANDT', 'MANDANT'})
-    GRAY_REPORT_RULES = frozenset({'RPCOMP_284.1'})
+    GRAY_REPORT_RULES = frozenset({'RPCONF_284.1'})
     GRAY_REPORT_NOTE = 'Правило оставлено. Без отдельной системы проверки строка серая, в score не входит.'
 
     def __init__(self, db_path: str, rules_file: str, output_dir: str='quality_reports', parallel_tables: int=0, use_async_load: bool=False, debug: bool=False, reference_datetime=None, save_all_errors: bool=False, use_parquet_cache: bool=True, rebuild_parquet_cache: bool=False, report_prefix: str='quality_check_report'):
@@ -230,7 +230,7 @@ class FastDataQualityChecker:
         self.MASS_ERROR_THRESHOLD = 0.5
         self.column_map = self._load_column_map()
         self.ausp_atinn_mapping = self._load_ausp_atinn_mapping()
-        self.colors = {'green': PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid'), 'red': PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid'), 'orange': PatternFill(start_color='FFEB9C', end_color='FFEB9C', fill_type='solid'), 'dark_red': PatternFill(start_color='FF9999', end_color='FF9999', fill_type='solid'), 'gray': PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid'), 'header': PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid'), 'header_font': Font(color='FFFFFF', bold=True), 'normal_font': Font(name='Calibri', size=11), 'bold_font': Font(bold=True), 'error_font': Font(color='FF0000', bold=True), 'success_font': Font(color='00B050', bold=True), 'gray_font': Font(name='Calibri', size=11, color='595959')}
+        self.colors = {'green': PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid'), 'red': PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid'), 'orange': PatternFill(start_color='FFEB9C', end_color='FFEB9C', fill_type='solid'), 'dark_red': PatternFill(start_color='FF9999', end_color='FF9999', fill_type='solid'), 'gray': PatternFill(start_color='8D8D8D', end_color='8D8D8D', fill_type='solid'), 'header': PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid'), 'header_font': Font(color='FFFFFF', bold=True), 'normal_font': Font(name='Calibri', size=11), 'bold_font': Font(bold=True), 'error_font': Font(color='FF0000', bold=True), 'success_font': Font(color='00B050', bold=True), 'gray_font': Font(name='Calibri', size=11, color='595959')}
         self.current_table = None
         self.current_rule = None
         self.start_time = None
