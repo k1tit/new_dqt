@@ -525,15 +525,15 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
 
     def test_rpc160_4_applies_abp_without_spras(self):
         marc = pd.DataFrame({
-            'MATNR': ['10', '11'],
-            'MTVFP': ['02', 'KP'],
-            'WERKS': ['3600', '3600'],
+            'MATNR': ['10', '11', '12'],
+            'MTVFP': ['02', 'KP', '02'],
+            'WERKS': ['3600', '3600', '3600'],
         })
         tables = {
-            'MARA': pd.DataFrame({'MATNR': ['10', '11'], 'MTART': ['ZNVM', 'ZNVM']}),
+            'MARA': pd.DataFrame({'MATNR': ['10', '11', '12'], 'MTART': ['ZNVM', 'ZNVM', 'ZNVM']}),
             'MAKT': pd.DataFrame({
-                'MATNR': ['10', '11'],
-                'MAKTX': ['COLA', 'ABP COLA'],
+                'MATNR': ['10', '11', '12'],
+                'MAKTX': ['COLA RU', 'ABP COLA RU', 'RUSSIA'],
             }),
         }
         result = evaluate_rpconf_160_4(
@@ -546,15 +546,15 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
 
     def test_rpc148_1_skips_blocked_mmsta_and_uses_mara_name(self):
         marc = pd.DataFrame({
-            'MATNR': ['10', '11', '12', '13', '14', '15', '16'],
-            'WERKS': ['3600', '3600', '3800', '3900', '3600', '3600', '4100'],
-            'MMSTA': ['01', '99', '98', '97', '01', '01', '01'],
-            'MAABC': [None, None, None, None, 'A', None, None],
+            'MATNR': ['10', '11', '12', '13', '14', '15', '16', '17'],
+            'WERKS': ['3600', '3600', '3800', '3900', '3600', '3600', '4100', '3600'],
+            'MMSTA': ['01', '99', '98', '97', '01', '01', '01', '01'],
+            'MAABC': [None, None, None, None, 'A', None, None, None],
         })
         mara = pd.DataFrame({
-            'MATNR': ['10', '11', '12', '13', '14', '15', '16'],
-            'MTART': ['ZFG', 'ZFG', 'ZFGS', 'ZFGC', 'ZNVM', 'ZFG', 'ZFG'],
-            'MAKTX': ['COLA', 'COLA', 'COLA', 'COLA', 'WATER', 'ABP SYRUP', 'COLA'],
+            'MATNR': ['10', '11', '12', '13', '14', '15', '16', '17'],
+            'MTART': ['ZFG', 'ZFG', 'ZFGS', 'ZFGC', 'ZNVM', 'ZFG', 'ZFG', 'ZFG'],
+            'MAKTX': ['COLA RU', 'COLA RU', 'COLA RU', 'COLA RU', 'WATER RU', 'ABP SYRUP RU', 'COLA RU', 'RUSSIA'],
         })
         result = evaluate_rpcomp_148_1(
             marc,

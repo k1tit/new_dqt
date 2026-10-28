@@ -757,6 +757,12 @@ def _marc_with_material_context(marc: pd.DataFrame, loader: Callable[[str], pd.D
     desc = work['LOOKUP_MATERIAL_DESCRIPTION']
     if int(_filled(desc).sum()) == 0:
         return None, stats, f'{rule_code}: MARC не сджойнился с MAKT по MATNR'
+    ru = description_has_ru_region(desc)
+    work = work.loc[ru].copy()
+    stats['after_ru'] = len(work)
+    if work.empty:
+        return None, stats, f'{rule_code}: нет строк с регионом RU отдельным словом в LOOKUP_MATERIAL_DESCRIPTION'
+    desc = work['LOOKUP_MATERIAL_DESCRIPTION']
     work = work.loc[_filled(desc) & ~desc.astype(str).str.contains('ABP', case=False, na=False)].copy()
     return work, stats, None
 
@@ -1217,13 +1223,13 @@ def evaluate_rpcomp_148_1(
     scope = (
         material_type.isin(MAABC_MATERIAL_TYPES)
         & ~mmsta.isin(MMSTA_EXCLUDED_FROM_MAABC)
-        & _filled(work['LOOKUP_MATERIAL_DESCRIPTION'])
+        & description_has_ru_region(work['LOOKUP_MATERIAL_DESCRIPTION'])
         & ~description.str.contains('ABP', case=False, na=False)
     )
     scoped = work.loc[scope].copy()
     stats['evaluated'] = len(scoped)
     if scoped.empty:
-        return _empty_result(f'{rc}: нет строк MARC для MAABC после MMSTA/MTART/ABP', stats)
+        return _empty_result(f'{rc}: нет строк MARC для MAABC после MMSTA/MTART/RU/ABP', stats)
     ok = _filled(scoped[maabc_col])
     return _result(scoped, ok, rc, stats)
 

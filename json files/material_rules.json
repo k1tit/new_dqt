@@ -237,6 +237,7 @@
         "MARC.Plnt/WERKS LIKE '36%' OR '38%' OR '39%'",
         "MMSTA NOT IN (99, 98, 97)",
         "material_type_code and material_description from MARA.MTART / MARA.MAKTX by MATNR",
+        "LOOKUP_MATERIAL_DESCRIPTION contains RU as a separate token",
         "For material_description NOT LIKE '%ABP%'",
         "IF material_type_code IN (ZFG, ZFGS, ZFGC, ZNVM) AND abc_indicator IS NULL THEN '0'",
         "ELSE IF material_type_code IN (ZFG, ZFGS, ZFGC, ZNVM) AND abc_indicator IS NOT NULL THEN '1'",
@@ -315,6 +316,7 @@
       "rule_description": "For MTART=ZNVM check value different than 02 -Individ.requirements, Z2 - Sensitive, KP - No check in MARC View",
       "technical_definition": [
         "MARC.Plnt/WERKS LIKE '36%' OR '38%' OR '39%'",
+        "LOOKUP_MATERIAL_DESCRIPTION contains RU as a separate token",
         "For material_description NOT LIKE '%ABP%'",
         "IF availability_checking_group IS NULL THEN ''",
         "ELSE IF material_type_code = 'ZNVM' AND availability_checking_group IN ('02', 'Z2') THEN '1'",
@@ -342,6 +344,7 @@
       "rule_description": "MRP Type (DISMM) should be ND if Cross-Plant Material Status (MARA.MSTAE) = Blocked for all, otherwise is X0 or ND (finished and semi finished materials) in MARC View",
       "technical_definition": [
         "MARC.Plnt/WERKS LIKE '36%' OR '38%' OR '39%'",
+        "LOOKUP_MATERIAL_DESCRIPTION contains RU as a separate token",
         "For material_description NOT LIKE '%ABP%'",
         "a = dm_product_plant, b = dm_product_general",
         "IF mrp_type IS NULL OR a.material_status_code != '99' THEN ''",
@@ -370,6 +373,7 @@
       "rule_description": "MRP Type (DISMM) should be ZB or PD or ND for ZSPS Material type",
       "technical_definition": [
         "MARC.Plnt/WERKS LIKE '36%' OR '38%' OR '39%'",
+        "LOOKUP_MATERIAL_DESCRIPTION contains RU as a separate token",
         "For material_description NOT LIKE '%ABP%'",
         "a = dm_product_plant",
         "IF mrp_type IS NULL OR a.material_status_code != '99' THEN ''",
