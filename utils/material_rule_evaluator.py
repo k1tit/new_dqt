@@ -78,6 +78,7 @@ ERROR_DESCRIPTIONS = {
     'RPCONF_284.1': 'DISMM must be ND when MARA.MSTAE=99, otherwise X0 or ND, for finished and semi-finished materials. Empty DISMM is out of scope.',
     'RPCONF_284.2': 'DISMM must be ZB, PD or ND for MTART ZSPS. Empty DISMM is out of scope.',
     'RPCOMP_148.1': 'MAABC must be filled for MTART ZFG/ZFGS/ZFGC/ZNVM when MMSTA is not 99, 98 or 97 and the MARA description is not ABP.',
+    'RPCOMP_149.1': 'KTGRM must be filled for the listed material types when VKORG is not 0001 and MATKL is not 1110000.',
     'RPCOMP_153.1': 'ZZ_KONDM must be filled for ZFG* on sales org 0001 and distribution channel 01 when the product hierarchy is in scope.',
     'RPCOMP_199.1': 'MTPOS must be filled when MTART is not ZCDS.',
     'RPCOMP_252.1': 'KONDM must be filled for ZFG* on sales org 0001 and distribution channel 01 when the product hierarchy is in scope.',
@@ -143,7 +144,7 @@ def _result(df: pd.DataFrame, ok_mask: pd.Series, rule_code: str, stats: dict) -
     return {
         'df': df,
         'ok_mask': ok_mask.astype(bool),
-        'error_description': ERROR_DESCRIPTIONS[rule_code],
+        'error_description': ERROR_DESCRIPTIONS.get(rule_code, rule_code),
         'skip_reason': None,
         'stats': stats,
     }
