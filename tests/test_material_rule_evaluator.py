@@ -18,6 +18,7 @@ from utils.material_rule_evaluator import (
     evaluate_rpcomp_262_1,
     evaluate_rpcomp_263_1,
     evaluate_rpconf_149_8,
+    evaluate_material_rule,
     evaluate_rpconf_199_6,
     evaluate_rpconf_160_4,
     evaluate_rpconf_284_1,
@@ -863,6 +864,211 @@ class MvkeCompletenessTests(unittest.TestCase):
         result = evaluate_rpconf_199_6(mvke, 'MTPOS', load)
         self.assertIsNone(result['skip_reason'])
         self.assertEqual([True, False], list(result['ok_mask']))
+
+    def _run(self, mvke, rule_code, column, tables):
+        def load(name):
+            return tables.get(name, pd.DataFrame())
+        return evaluate_material_rule(mvke, 'MVKE', rule_code, column, load)
+
+    def test_channel_01_ktgrm_matches_channel_04_for_zrw(self):
+        tables = {
+            'MARA': pd.DataFrame({
+                'MATNR': ['10', '20', '30', '40'],
+                'MTART': ['ZRW', 'ZRW', 'ZRW', 'ZFG'],
+                'MATKL': ['100', '100', '100', '100'],
+            }),
+            'MAKT': pd.DataFrame({
+                'MATNR': ['10', '20', '30', '40'],
+                'MAKTX': ['COLA', 'COLA', 'ABP COLA', 'COLA'],
+            }),
+        }
+        mvke = pd.DataFrame({
+            'MATNR': ['10', '10', '20', '20', '30', '30', '40', '40'],
+            'VKORG': ['3600', '3600', '3600', '3600', '3600', '3600', '3600', '3600'],
+            'VTWEG': ['01', '04', '01', '04', '01', '04', '01', '04'],
+            'KTGRM': ['20', '20', '20', '86', '20', '20', '20', '20'],
+        })
+        result = self._run(mvke, 'RPCONF_149.9', 'KTGRM', tables)
+        self.assertIsNone(result['skip_reason'])
+        self.assertEqual(['10', '20'], list(result['df']['MATNR']))
+        self.assertEqual([True, False], list(result['ok_mask']))
+
+    def test_pack_size_ss_ms_uses_volume_from_description(self):
+        tables = {
+            'MARA': pd.DataFrame({
+                'MATNR': ['10', '20', '30'],
+                'MTART': ['ZFG', 'ZFG', 'ZFG'],
+                'MATKL': ['100', '100', '100'],
+            }),
+            'MAKT': pd.DataFrame({
+                'MATNR': ['10', '20', '30'],
+                'MAKTX': ['COLA 330ML', 'COLA 1000ML', 'COLA ZZ'],
+            }),
+        }
+        mvke = pd.DataFrame({
+            'MATNR': ['10', '20', '30', '30'],
+            'VKORG': ['0001', '0001', '0001', '0001'],
+            'VTWEG': ['01', '01', '01', '01'],
+            'PRODH': ['01010012001XXXX', '01010012001XXXX', '01010012001XXXX', '01010012001XXXX'],
+            'MVGR3': ['CAN', 'CAN', 'CAN', 'OTH'],
+            'MVGR4': ['01', '01', 'ZZ', 'ZZ'],
+            'ZZ_KONDM': ['SS', 'MS', 'SS', 'MS'],
+        })
+        small = self._run(mvke.iloc[[0]], 'RPCONF_153.2', 'ZZ_KONDM', tables)
+        large = self._run(mvke.iloc[[1]], 'RPCONF_153.2', 'ZZ_KONDM', tables)
+        bulk = self._run(mvke.iloc[[2]], 'RPCONF_153.2', 'ZZ_KONDM', tables)
+        other = self._run(mvke.iloc[[3]], 'RPCONF_153.2', 'ZZ_KONDM', tables)
+        self.assertEqual([True], list(small['ok_mask']))
+        self.assertEqual([True], list(large['ok_mask']))
+        self.assertEqual([True], list(bulk['ok_mask']))
+        self.assertEqual([True], list(other['ok_mask']))
+        wrong = self._run(mvke.iloc[[0]].assign(ZZ_KONDM='MS'), 'RPCONF_153.2', 'ZZ_KONDM', tables)
+        self.assertEqual([False], list(wrong['ok_mask']))
+
+    def test_price_group_for_bulk_pack_does_not_need_coffee(self):
+        tables = {
+            'MARA': pd.DataFrame({'MATNR': ['10', '20'], 'MTART': ['ZFG', 'ZFG'], 'MATKL': ['100', '100']}),
+            'MAKT': pd.DataFrame({'MATNR': ['10', '20'], 'MAKTX': ['COLA', 'COLA']}),
+        }
+        mvke = pd.DataFrame({
+            'MATNR': ['10', '20'],
+            'VKORG': ['0001', '0001'],
+            'VTWEG': ['01', '01'],
+            'PRODH': ['01010012001XXXX', '01010012001XXXX'],
+            'MVGR3': ['TNK', 'TNK'],
+            'MVGR4': ['01', '01'],
+            'ZZ_KONDM': ['SS', 'SS'],
+            'KONDM': ['03', '04'],
+        })
+        result = self._run(mvke, 'RPCONF_252.1', 'KONDM', tables)
+        self.assertIsNone(result['skip_reason'])
+        self.assertEqual([True, False], list(result['ok_mask']))
+
+    def test_pack_type_and_hierarchy_are_stable_across_sales_orgs(self):
+        tables = {
+            'MARA': pd.DataFrame({
+                'MATNR': ['10', '20'],
+                'MTART': ['ZRW', 'ZRW'],
+                'MATKL': ['1001004', '1001004'],
+            }),
+        }
+        mvke = pd.DataFrame({
+            'MATNR': ['10', '10', '20', '20'],
+            'VKORG': ['3600', '3800', '3600', '3800'],
+            'VTWEG': ['01', '01', '01', '01'],
+            'MVGR3': ['CAN', 'CAN', 'CAN', 'PET'],
+            'PRODH': ['H1', 'H1', 'H1', 'H1'],
+        })
+        result = self._run(mvke, 'RPCONF_262.3', 'MVGR3', tables)
+        self.assertIsNone(result['skip_reason'])
+        self.assertEqual([True, True, False, False], list(result['ok_mask']))
+
+    def test_finished_goods_description_contains_pack_type(self):
+        tables = {
+            'MARA': pd.DataFrame({
+                'MATNR': ['10', '20'],
+                'MTART': ['ZFG', 'ZFG'],
+                'MATKL': ['100', '100'],
+                'MTPOS_MARA': ['NORM', 'NORM'],
+            }),
+            'MAKT': pd.DataFrame({'MATNR': ['10', '20'], 'MAKTX': ['COLA PET 1L', 'COLA PET 1L']}),
+        }
+        mvke = pd.DataFrame({
+            'MATNR': ['10', '20'],
+            'PRODH': ['01010012001XXXX', '01010012001XXXX'],
+            'MVGR3': ['PET', 'CAN'],
+        })
+        result = self._run(mvke, 'RPCONF_262.5', 'MVGR3', tables)
+        self.assertEqual([True, False], list(result['ok_mask']))
+
+    def test_description_contains_pack_volume_from_groes(self):
+        tables = {
+            'MARA': pd.DataFrame({
+                'MATNR': ['10', '20'],
+                'MTART': ['ZFG', 'ZFG'],
+                'MATKL': ['100', '100'],
+                'GROES': ['330ML', '330ML'],
+            }),
+            'MAKT': pd.DataFrame({'MATNR': ['10', '20'], 'MAKTX': ['COLA 330ML', 'COLA PET']}),
+        }
+        mvke = pd.DataFrame({
+            'MATNR': ['10', '20'],
+            'PRODH': ['01010012001XXXX', '01010012001XXXX'],
+            'MVGR4': ['01', '01'],
+        })
+        result = self._run(mvke, 'RPCONF_263.5', 'MVGR4', tables)
+        self.assertEqual([True, False], list(result['ok_mask']))
+
+    def test_prodh_must_match_inside_one_sales_org_and_the_ban(self):
+        tables = {
+            'MARA': pd.DataFrame({
+                'MATNR': ['10', '11', '99', '98'],
+                'MTART': ['ZFG', 'ZFG', 'ZFG', 'ZFG'],
+                'MATKL': ['100', '100', '100', '100'],
+                'WRKST': ['99', '98', '', ''],
+            }),
+        }
+        same = self._run(pd.DataFrame({
+            'MATNR': ['10', '10'],
+            'VKORG': ['3600', '3600'],
+            'VTWEG': ['01', '04'],
+            'PRODH': ['01010012001XXXX', '01010012001XXXX'],
+        }), 'RPCONF_290.3', 'PRODH', tables)
+        different = self._run(pd.DataFrame({
+            'MATNR': ['11', '11'],
+            'VKORG': ['3600', '3600'],
+            'VTWEG': ['01', '04'],
+            'PRODH': ['01010012001XXXX', '01010012015YYYY'],
+        }), 'RPCONF_290.3', 'PRODH', tables)
+        self.assertEqual([True, True], list(same['ok_mask']))
+        self.assertEqual([False, False], list(different['ok_mask']))
+        ban = self._run(pd.DataFrame({
+            'MATNR': ['10', '99', '11', '98'],
+            'VKORG': ['3600', '3600', '3600', '3600'],
+            'VTWEG': ['01', '01', '01', '01'],
+            'PRODH': ['AAA', 'AAA', 'BBB', 'CCC'],
+        }), 'RPCONF_290.4', 'PRODH', tables)
+        self.assertEqual(['10', '11'], list(ban['df']['MATNR']))
+        self.assertEqual([True, False], list(ban['ok_mask']))
+
+    def test_brand_outside_technical_sales_org_matches_0001_and_ban(self):
+        tables = {
+            'MARA': pd.DataFrame({
+                'MATNR': ['10', '99'],
+                'MTART': ['ZRW', 'ZFG'],
+                'MATKL': ['1001004', '100'],
+                'WRKST': ['99', ''],
+            }),
+            'MAKT': pd.DataFrame({'MATNR': ['10', '99'], 'MAKTX': ['COLA', 'BAN']}),
+        }
+        mvke = pd.DataFrame({
+            'MATNR': ['10', '10', '10', '99', '99'],
+            'VKORG': ['0001', '3600', '3800', '0001', '0001'],
+            'VTWEG': ['01', '01', '01', '01', '01'],
+            'MVGR1': ['BB', 'BB', 'XX', 'BB', 'CC'],
+            'MVGR3': ['CAN', 'CAN', 'CAN', 'CAN', 'CAN'],
+            'PRODH': ['H1', 'H1', 'H1', 'H1', 'H1'],
+        })
+        brand = self._run(mvke.iloc[:3], 'RPCONF_30.3', 'MVGR1', tables)
+        self.assertEqual(['3600', '3800'], list(brand['df']['VKORG']))
+        self.assertEqual([True, False], list(brand['ok_mask']))
+        finished = {
+            'MARA': pd.DataFrame({
+                'MATNR': ['10', '99'],
+                'MTART': ['ZFG', 'ZFG'],
+                'MATKL': ['100', '100'],
+                'WRKST': ['99', ''],
+            }),
+        }
+        ban = self._run(pd.DataFrame({
+            'MATNR': ['10', '99'],
+            'VKORG': ['0001', '0001'],
+            'VTWEG': ['01', '01'],
+            'MVGR3': ['CAN', 'PET'],
+            'PRODH': ['01010012001XXXX', '01010012001XXXX'],
+        }), 'RPCONF_262.6', 'MVGR3', finished)
+        self.assertEqual(['10'], list(ban['df']['MATNR']))
+        self.assertEqual([False], list(ban['ok_mask']))
 
 
 if __name__ == '__main__':

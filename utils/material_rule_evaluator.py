@@ -1571,7 +1571,8 @@ def evaluate_material_rule(
         return evaluate_rpconf_160_4(df, value_col, loader)
     if rc in MVKE_RULE_CODES and table == 'MVKE':
         if rc in MVKE_PENDING_RULES:
-            return _empty_result(f'{rc}: формула записана, автоматическая проверка ещё не подключена', {'input': len(df) if df is not None else 0})
+            from utils.mvke_conformity_rules import evaluate_mvke_conformity
+            return evaluate_mvke_conformity(df, rc, value_col, loader)
         if rc == 'RPCOMP_263.1':
             return evaluate_rpcomp_263_1(df, value_col, loader)
         if rc == 'RPCOMP_264.1':
