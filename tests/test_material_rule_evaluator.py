@@ -659,6 +659,22 @@ class MaterialRuleEvaluatorTests(unittest.TestCase):
         self.assertEqual(['ZB', 'X0'], list(result['df']['DISMM']))
         self.assertEqual([True, False], list(result['ok_mask']))
 
+    def test_rpc284_2_empty_scope_is_success_without_rows(self):
+        marc = pd.DataFrame({
+            'MATNR': ['10'],
+            'DISMM': ['ZB'],
+            'MMSTA': ['01'],
+            'WERKS': ['3600'],
+        })
+        tables = {
+            'MARA': pd.DataFrame({'MATNR': ['10'], 'MTART': ['ZFG']}),
+            'MAKT': pd.DataFrame({'MATNR': ['10'], 'MAKTX': ['COLA RU']}),
+        }
+        result = evaluate_rpconf_284_2(marc, 'DISMM', lambda name: tables.get(name, pd.DataFrame()))
+        self.assertTrue(result['no_rows_after_filters'])
+        self.assertEqual(0, len(result['df']))
+        self.assertIn('ZSPS', result['skip_reason'])
+
 
 class MarcMatnrScopeTests(unittest.TestCase):
     def test_keeps_only_materials_present_in_marc(self):

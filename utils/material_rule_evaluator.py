@@ -136,13 +136,21 @@ def _matnr(series: pd.Series) -> pd.Series:
 
 
 def _empty_result(reason: str, stats: Optional[dict] = None) -> dict:
+    stats = stats or {}
     return {
         'df': pd.DataFrame(),
         'ok_mask': pd.Series(dtype=bool),
         'error_description': '',
         'skip_reason': reason,
-        'stats': stats or {},
+        'no_rows_after_filters': bool(stats.get('no_rows_after_filters')),
+        'stats': stats,
     }
+
+
+def _no_rows_after_filters(reason: str, stats: Optional[dict] = None) -> dict:
+    stats = dict(stats or {})
+    stats['no_rows_after_filters'] = True
+    return _empty_result(reason, stats)
 
 
 def _result(df: pd.DataFrame, ok_mask: pd.Series, rule_code: str, stats: dict) -> dict:
@@ -216,6 +224,7 @@ def _scope_mara_not_abp(mara: pd.DataFrame, makt: pd.DataFrame, rule_code: str) 
     work = work.loc[ru].copy()
     stats['after_ru'] = len(work)
     if work.empty:
+        stats['no_rows_after_filters'] = True
         return work, stats, f'{rule_code}: нет материалов с регионом RU отдельным словом в MAKTX'
     non_abp = _filled(work[desc_col]) & ~work[desc_col].astype(str).str.contains('ABP', case=False, na=False)
     work = work.loc[non_abp].copy()
@@ -289,7 +298,7 @@ def evaluate_mara_rule(
 
     stats['evaluated'] = len(scoped)
     if scoped.empty:
-        return _empty_result(f'{rc}: нет строк после условий technical_definition', stats)
+        return _no_rows_after_filters(f'{rc}: нет строк после условий technical_definition', stats)
     return _result(scoped, ok, rc, stats)
 
 
@@ -698,7 +707,7 @@ def evaluate_ausp_bpp_rule(
     )
     scoped = work.loc[scope].copy()
     if scoped.empty:
-        return _empty_result(f'{rc}: нет заполненных BPP-кодов для материалов MTART LIKE ZFG%', stats)
+        return _no_rows_after_filters(f'{rc}: нет заполненных BPP-кодов для материалов MTART LIKE ZFG%', stats)
 
     valid_codes, reference_name = _resolve_bpp_reference(loader, atinn_needed)
     if not valid_codes:
@@ -731,6 +740,7 @@ def _marc_with_material_context(marc: pd.DataFrame, loader: Callable[[str], pd.D
         return None, stats, f'{rule_code}: {plant_skip}'
     stats['after_plant_scope'] = len(work)
     if work.empty:
+        stats['no_rows_after_filters'] = True
         return None, stats, f'{rule_code}: нет строк MARC с Plnt/WERKS 36*/38*/39* ({plant_col})'
     work = apply_is_basic_scope(work).copy()
     stats['after_basic_scope'] = len(work)
@@ -773,11 +783,13 @@ def _apply_marc_description_filters(work: pd.DataFrame, rule_code: str, stats: d
     work = work.loc[ru].copy()
     stats['after_ru'] = len(work)
     if work.empty:
+        stats['no_rows_after_filters'] = True
         return None, f'{rule_code}: нет строк с регионом RU отдельным словом в LOOKUP_MATERIAL_DESCRIPTION'
     desc = work['LOOKUP_MATERIAL_DESCRIPTION']
     work = work.loc[_filled(desc) & ~desc.astype(str).str.contains('ABP', case=False, na=False)].copy()
     stats['after_abp'] = len(work)
     if work.empty:
+        stats['no_rows_after_filters'] = True
         return None, f'{rule_code}: нет строк MARC после фильтра ABP'
     return work, None
 
@@ -826,7 +838,7 @@ def evaluate_rpconf_160_4(
     stats['skipped_empty_mtvfp'] = int((znvm & ~filled).sum())
     scoped = work.loc[znvm & filled].copy()
     if scoped.empty:
-        return _empty_result(f'{rc}: нет заполненного MTVFP для MTART=ZNVM', stats)
+        return _no_rows_after_filters(f'{rc}: нет заполненного MTVFP для MTART=ZNVM', stats)
     ok = _codes(scoped[mtvfp_col]).isin({'02', 'Z2'})
     stats['evaluated'] = len(scoped)
     return _result(scoped, ok, rc, stats)
@@ -866,7 +878,7 @@ def evaluate_rpconf_284_1(
     stats['skipped_empty_dismm'] = int((~filled).sum())
     scoped = work.loc[filled & plant_blocked & in_type].copy()
     if scoped.empty:
-        return _empty_result(f'{rc}: нет заполненного DISMM при MMSTA=99 для готовой и полуготовой продукции', stats)
+        return _no_rows_after_filters(f'{rc}: нет заполненного DISMM при MMSTA=99 для готовой и полуготовой продукции', stats)
     dismm = _codes(scoped[dismm_col])
     cross_blocked = _codes(scoped['LOOKUP_CROSS_PLANT_STATUS']).eq('99')
     ok = (cross_blocked & dismm.eq('ND')) | (~cross_blocked & dismm.isin({'X0', 'ND'}))
@@ -895,7 +907,7 @@ def evaluate_rpconf_284_2(
     stats['skipped_empty_dismm'] = int((zsps & ~filled).sum())
     scoped = work.loc[filled & plant_blocked & zsps].copy()
     if scoped.empty:
-        return _empty_result(f'{rc}: нет заполненного DISMM при MMSTA=99 для MTART=ZSPS', stats)
+        return _no_rows_after_filters(f'{rc}: нет заполненного DISMM при MMSTA=99 для MTART=ZSPS', stats)
     ok = _codes(scoped[dismm_col]).isin({'ZB', 'PD', 'ND'})
     stats['evaluated'] = len(scoped)
     return _result(scoped, ok, rc, stats)
@@ -1047,7 +1059,7 @@ def evaluate_rpcomp_149_1(
     scoped = work.loc[scope].copy()
     stats['evaluated'] = len(scoped)
     if scoped.empty:
-        return _empty_result(f'{rc}: нет строк MVKE в scope KTGRM', stats)
+        return _no_rows_after_filters(f'{rc}: нет строк MVKE в scope KTGRM', stats)
     ok = _filled(scoped[ktgrm_col])
     return _result(scoped, ok, rc, stats)
 
@@ -1093,7 +1105,7 @@ def evaluate_rpcomp_153_1(
     scoped = work.loc[scope].copy()
     stats['evaluated'] = len(scoped)
     if scoped.empty:
-        return _empty_result(f'{rc}: нет строк MVKE в scope ZZ_KONDM', stats)
+        return _no_rows_after_filters(f'{rc}: нет строк MVKE в scope ZZ_KONDM', stats)
     ok = _filled(scoped[flag_col])
     return _result(scoped, ok, rc, stats)
 
@@ -1116,7 +1128,7 @@ def evaluate_rpcomp_199_1(
     scoped = work.loc[scope].copy()
     stats['evaluated'] = len(scoped)
     if scoped.empty:
-        return _empty_result(f'{rc}: нет строк MVKE в scope MTPOS', stats)
+        return _no_rows_after_filters(f'{rc}: нет строк MVKE в scope MTPOS', stats)
     ok = _filled(scoped[mtpos_col])
     return _result(scoped, ok, rc, stats)
 
@@ -1140,7 +1152,7 @@ def evaluate_rpcomp_252_1(
     scoped = work.loc[scope].copy()
     stats['evaluated'] = len(scoped)
     if scoped.empty:
-        return _empty_result(f'{rc}: нет строк MVKE в scope KONDM', stats)
+        return _no_rows_after_filters(f'{rc}: нет строк MVKE в scope KONDM', stats)
     ok = _filled(scoped[kondm_col])
     return _result(scoped, ok, rc, stats)
 
@@ -1171,7 +1183,7 @@ def evaluate_rpcomp_262_1(
     scoped = work.loc[scope].copy()
     stats['evaluated'] = len(scoped)
     if scoped.empty:
-        return _empty_result(f'{rc}: нет строк MVKE в scope MVGR3', stats)
+        return _no_rows_after_filters(f'{rc}: нет строк MVKE в scope MVGR3', stats)
     ok = _filled(scoped[mvgr3_col])
     return _result(scoped, ok, rc, stats)
 
@@ -1215,7 +1227,7 @@ def evaluate_rpcomp_148_1(
     if plant_skip:
         return _empty_result(f'{rc}: {plant_skip}', stats)
     if work.empty:
-        return _empty_result(f'{rc}: нет строк MARC с Plnt/WERKS 36*/38*/39*', stats)
+        return _no_rows_after_filters(f'{rc}: нет строк MARC с Plnt/WERKS 36*/38*/39*', stats)
     matnr_col = find_col(work, ('MATNR', 'material_code', 'MATERIAL'))
     mmsta_col = find_col(work, ('MMSTA', 'material_status_code'))
     maabc_col = value_col if value_col in work.columns else find_col(work, ('MAABC', 'abc_indicator'))
@@ -1244,7 +1256,7 @@ def evaluate_rpcomp_148_1(
     scoped = work.loc[scope].copy()
     stats['evaluated'] = len(scoped)
     if scoped.empty:
-        return _empty_result(f'{rc}: нет строк MARC для MAABC после MMSTA/MTART/RU/ABP', stats)
+        return _no_rows_after_filters(f'{rc}: нет строк MARC для MAABC после MMSTA/MTART/RU/ABP', stats)
     ok = _filled(scoped[maabc_col])
     return _result(scoped, ok, rc, stats)
 
@@ -1281,7 +1293,7 @@ def _evaluate_marc_completeness(
     scoped = work.loc[in_type].copy()
     stats['evaluated'] = len(scoped)
     if scoped.empty:
-        return _empty_result(f'{rule_code}: нет строк MARC после типа материала', stats)
+        return _no_rows_after_filters(f'{rule_code}: нет строк MARC после типа материала', stats)
     return _result(scoped, _filled(scoped[checked]), rule_code, stats)
 
 

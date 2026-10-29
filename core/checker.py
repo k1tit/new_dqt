@@ -1470,8 +1470,9 @@ class FastDataQualityChecker:
             mass_error = error_count_result > self.MAX_ERRORS_TO_SAVE
             not_evaluated = total_rows == 0 and error_count_result == 0
             skip_reason = getattr(self._thread_rule_state, 'skip_reason', None)
-            skipped = not_evaluated and bool(skip_reason)
-            if error_count_result == 0 and total_rows > 0:
+            empty_scope_success = bool(getattr(self._thread_rule_state, 'empty_scope_success', False))
+            skipped = not_evaluated and bool(skip_reason) and not empty_scope_success
+            if error_count_result == 0 and (total_rows > 0 or empty_scope_success):
                 success_count += 1
             elif skipped:
                 self.skipped_rules += 1
@@ -1482,7 +1483,10 @@ class FastDataQualityChecker:
                 suspicious_count += 1
             else:
                 error_count += 1
-            self._print_rule_stats(rule_code_now, total_rows, error_count_result, execution_time, is_suspicious, mass_error, not_evaluated=not_evaluated)
+            self._print_rule_stats(
+                rule_code_now, total_rows, error_count_result, execution_time,
+                is_suspicious, mass_error, not_evaluated=not_evaluated and not empty_scope_success,
+            )
         return (success_count, error_count, suspicious_count)
 
     def _process_single_rule_without_save(self, rule, table_name, df, timestamp):
@@ -1493,6 +1497,7 @@ class FastDataQualityChecker:
         self._last_rule_error = None
         self._last_rule_skip_reason = None
         self._thread_rule_state.skip_reason = None
+        self._thread_rule_state.empty_scope_success = False
         self._thread_rule_state.save_result = save_result
         self._current_save_result = save_result
         rule_code_raw = str(rule.get('rule_code', 'UNKNOWN'))
@@ -2042,6 +2047,9 @@ class FastDataQualityChecker:
             )
             scoped = evaluation.get('df')
             skip_reason = evaluation.get('skip_reason')
+            if skip_reason and evaluation.get('no_rows_after_filters'):
+                self._log_empty_scope_success(rule, table_name, timestamp)
+                return (0, 0)
             if skip_reason:
                 self._log_skipped_rule(rule, table_name, skip_reason, timestamp)
                 return (0, 0)
@@ -8453,6 +8461,33 @@ class FastDataQualityChecker:
         except Exception as e:
             print(f'      [WARN] Ошибка добавления central_order_block_code из KNA1 для {rule_code}: {e}')
             return df
+    def _log_empty_scope_success(self, rule, table_name, timestamp):
+        self._last_rule_skip_reason = None
+        self._thread_rule_state.skip_reason = None
+        self._thread_rule_state.empty_scope_success = True
+        if not self._should_save_current_rule():
+            return
+        rule_code = rule.get('rule_code', 'UNKNOWN')
+        self._append_result({
+            'rule_code': rule_code,
+            'rule_description': rule.get('rule_description', 'Unknown rule'),
+            'quality_category': rule.get('quality_category', 'Unknown'),
+            'table_name': table_name,
+            'column_checked': rule.get('column_name_checked', ''),
+            'matched_column': '',
+            'total_records': 0,
+            'passed': 0,
+            'failed': 0,
+            'total_evaluated': 0,
+            'success_rate_%': 0,
+            'execution_time_sec': 0,
+            'check_date': timestamp,
+            'status': 'УСПЕШНО',
+            'status_color': 'green',
+            'error_file': 'Нет',
+            'comments': 'Строк для анализа после фильтров не оказалось.',
+        })
+
     def _log_skipped_rule(self, rule, table_name, reason, timestamp):
         self._last_rule_skip_reason = reason
         self._thread_rule_state.skip_reason = reason
