@@ -23,7 +23,22 @@ MARC_RULE_CODES = frozenset({
     'RPCONF_160.4', 'RPCONF_284.1', 'RPCONF_284.2',
     'RPCOMP_148.1', 'RPCOMP_284.1', 'RPCOMP_288.1',
 })
-MVKE_RULE_CODES = frozenset({'RPCOMP_149.1', 'RPCOMP_153.1', 'RPCOMP_199.1', 'RPCOMP_252.1', 'RPCOMP_262.1'})
+MVKE_RULE_CODES = frozenset({
+    'RPCOMP_149.1', 'RPCOMP_153.1', 'RPCOMP_199.1', 'RPCOMP_252.1', 'RPCOMP_262.1',
+    'RPCOMP_263.1', 'RPCOMP_264.1', 'RPCOMP_290.1', 'RPCOMP_30.1', 'RPCOMP_65.1',
+    'RPCONF_149.8', 'RPCONF_199.6', 'RPCONF_199.7', 'RPCONF_199.8', 'RPCONF_199.9',
+    'RPCONF_282.2', 'RPCONF_290.1',
+    'RPCONF_149.9', 'RPCONF_153.2', 'RPCONF_153.3', 'RPCONF_153.4', 'RPCONF_252.1',
+    'RPCONF_262.3', 'RPCONF_262.5', 'RPCONF_262.6', 'RPCONF_263.2', 'RPCONF_263.5',
+    'RPCONF_263.6', 'RPCONF_264.6', 'RPCONF_290.3', 'RPCONF_290.4', 'RPCONF_30.3',
+    'RPCONF_30.4', 'RPCONF_30.5', 'RPCONF_30.6', 'RPCONF_65.2', 'RPCONF_65.3',
+})
+MVKE_PENDING_RULES = frozenset({
+    'RPCONF_149.9', 'RPCONF_153.2', 'RPCONF_153.3', 'RPCONF_153.4', 'RPCONF_252.1',
+    'RPCONF_262.3', 'RPCONF_262.5', 'RPCONF_262.6', 'RPCONF_263.2', 'RPCONF_263.5',
+    'RPCONF_263.6', 'RPCONF_264.6', 'RPCONF_290.3', 'RPCONF_290.4', 'RPCONF_30.3',
+    'RPCONF_30.4', 'RPCONF_30.5', 'RPCONF_30.6', 'RPCONF_65.2', 'RPCONF_65.3',
+})
 MATERIAL_RULE_CODES = MARA_RULE_CODES | MAKT_RULE_CODES | AUSP_RULE_CODES | MARC_RULE_CODES | MVKE_RULE_CODES
 MATERIAL_BPP_AUSP_TABLE = 'AUSP 829.861'
 MATERIAL_AUSP_TABLES = frozenset({
@@ -88,6 +103,18 @@ ERROR_DESCRIPTIONS = {
     'RPCOMP_199.1': 'MTPOS must be filled when MTART is not ZCDS.',
     'RPCOMP_252.1': 'KONDM must be filled for ZFG* on sales org 0001 and distribution channel 01 when the product hierarchy is in scope.',
     'RPCOMP_262.1': 'MVGR3 must be filled for finished-goods types, and for ZSF/ZNVL when MATKL is 1001009 or 1003012.',
+    'RPCOMP_263.1': 'MVGR4 must be filled for finished-goods types, and for ZSF/ZNVL when MATKL is 1003012.',
+    'RPCOMP_264.1': 'MVGR5 must be filled for finished-goods types.',
+    'RPCOMP_290.1': 'PRODH must be filled for finished goods, ZRW and ZSF.',
+    'RPCOMP_30.1': 'MVGR1 must be filled for the finished-goods, syrup and raw-material scope.',
+    'RPCOMP_65.1': 'MVGR2 must be filled for the finished-goods, syrup and raw-material scope.',
+    'RPCONF_149.8': 'KTGRM must be 20 or 86 for MTART ZSPS when VKORG is not 0001 and MATKL is not 1110000.',
+    'RPCONF_199.6': 'MTPOS must be NORM, ZFGR, ZCVI or ZFGM for MTART ZNVM.',
+    'RPCONF_199.7': 'MTPOS must be ZEIS, LEIS, NORM, ZLIS or LEIC for MTART ZSV.',
+    'RPCONF_199.8': 'MTPOS must be LEIS for MTART ZSTL.',
+    'RPCONF_199.9': 'MTPOS must be ZSPS on channel 02 and ZCSM on channel 04 for MTART ZSPS.',
+    'RPCONF_282.2': 'PRAT1 must be X when a finished-goods description contains (C).',
+    'RPCONF_290.1': 'PRODH must be 0205 for MTART ZSF and ZSFT.',
 }
 
 
@@ -1188,6 +1215,202 @@ def evaluate_rpcomp_262_1(
     return _result(scoped, ok, rc, stats)
 
 
+MVGR_BRAND_GROUPS = frozenset({'1001004', '1001022', '1001024'})
+
+
+def _mvke_brand_flavour_scope(work: pd.DataFrame) -> pd.Series:
+    material_type = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.strip().str.upper()
+    material_group = work['LOOKUP_MATERIAL_GROUP'].astype(str).str.strip().str.upper()
+    pack_col = find_col(work, ('MVGR3', 'pack_type_code'))
+    pack = _codes(work[pack_col]) if pack_col else pd.Series('', index=work.index)
+    finished = material_type.isin(MVGR3_FINISHED_TYPES)
+    syrup = material_type.isin({'ZSF', 'ZNVL'}) & material_group.eq('1001009') & pack.eq('ZSY')
+    raw = material_type.eq('ZRW') & material_group.isin(MVGR_BRAND_GROUPS)
+    nvl = material_type.eq('ZNVL') & material_group.isin({'1001022', '1001024'})
+    return finished | syrup | raw | nvl
+
+
+def _evaluate_mvke_completeness(mvke, value_col, loader, rule_code, column_names, scope_mask, missing, exclude_abp):
+    work, stats, skip = _mvke_with_material_context(mvke, loader, rule_code, exclude_abp=exclude_abp)
+    stats['evaluated'] = 0
+    if skip:
+        return _empty_result(skip, stats)
+    checked = value_col if value_col in work.columns else find_col(work, column_names)
+    if not checked:
+        return _empty_result(f'{rule_code}: {missing}', stats)
+    scoped = work.loc[scope_mask(work)].copy()
+    stats['evaluated'] = len(scoped)
+    if scoped.empty:
+        return _no_rows_after_filters(f'{rule_code}: нет строк MVKE после фильтров', stats)
+    return _result(scoped, _filled(scoped[checked]), rule_code, stats)
+
+
+def evaluate_rpcomp_263_1(mvke, value_col, loader):
+    def scope(work):
+        material_type = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.strip().str.upper()
+        material_group = work['LOOKUP_MATERIAL_GROUP'].astype(str).str.strip().str.upper()
+        return material_type.isin(MVGR3_FINISHED_TYPES) | (
+            material_type.isin(MVGR3_SEMI_TYPES) & material_group.eq('1003012')
+        )
+    return _evaluate_mvke_completeness(
+        mvke, value_col, loader, 'RPCOMP_263.1', ('MVGR4', 'pack_size_code'),
+        scope, 'MVKE.MVGR4 не найден', False,
+    )
+
+
+def evaluate_rpcomp_264_1(mvke, value_col, loader):
+    def scope(work):
+        material_type = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.strip().str.upper()
+        return material_type.isin(MVGR3_FINISHED_TYPES)
+    return _evaluate_mvke_completeness(
+        mvke, value_col, loader, 'RPCOMP_264.1', ('MVGR5', 'sales_unit_code'),
+        scope, 'MVKE.MVGR5 не найден', False,
+    )
+
+
+def evaluate_rpcomp_290_1(mvke, value_col, loader):
+    def scope(work):
+        material_type = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.strip().str.upper()
+        return material_type.isin(MVGR3_FINISHED_TYPES | {'ZRW', 'ZSF'})
+    return _evaluate_mvke_completeness(
+        mvke, value_col, loader, 'RPCOMP_290.1', ('PRODH', 'product_hierarchy_code'),
+        scope, 'MVKE.PRODH не найден', False,
+    )
+
+
+def evaluate_rpcomp_30_1(mvke, value_col, loader):
+    return _evaluate_mvke_completeness(
+        mvke, value_col, loader, 'RPCOMP_30.1', ('MVGR1', 'brand_code'),
+        _mvke_brand_flavour_scope, 'MVKE.MVGR1 не найден', False,
+    )
+
+
+def evaluate_rpcomp_65_1(mvke, value_col, loader):
+    return _evaluate_mvke_completeness(
+        mvke, value_col, loader, 'RPCOMP_65.1', ('MVGR2', 'flavour_code'),
+        _mvke_brand_flavour_scope, 'MVKE.MVGR2 не найден', False,
+    )
+
+
+def evaluate_rpconf_149_8(mvke, value_col, loader):
+    rc = 'RPCONF_149.8'
+    work, stats, skip = _mvke_with_material_context(mvke, loader, rc)
+    stats['evaluated'] = 0
+    if skip:
+        return _empty_result(skip, stats)
+    ktgrm_col = value_col if value_col in work.columns else find_col(work, ('KTGRM', 'account_assignmnet_group_code', 'account_assignment_group_code'))
+    vkorg_col = find_col(work, ('VKORG', 'sales_org_code', 'SALES_ORG'))
+    if not ktgrm_col or not vkorg_col:
+        return _empty_result(f'{rc}: MVKE.KTGRM/VKORG не найдены', stats)
+    material_type = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.strip().str.upper()
+    material_group = work['LOOKUP_MATERIAL_GROUP'].astype(str).str.strip().str.upper()
+    sales_org = _zfill_code(work[vkorg_col], 4)
+    scope = (
+        _filled(work[ktgrm_col])
+        & material_type.eq('ZSPS')
+        & sales_org.ne('0001')
+        & material_group.ne('1110000')
+    )
+    scoped = work.loc[scope].copy()
+    stats['evaluated'] = len(scoped)
+    if scoped.empty:
+        return _no_rows_after_filters(f'{rc}: нет строк MVKE в scope KTGRM ZSPS', stats)
+    ok = _codes(scoped[ktgrm_col]).isin({'86', '20'})
+    return _result(scoped, ok, rc, stats)
+
+
+def _evaluate_mtpos_allowed(mvke, value_col, loader, rule_code, material_type_code, allowed):
+    work, stats, skip = _mvke_with_material_context(mvke, loader, rule_code)
+    stats['evaluated'] = 0
+    if skip:
+        return _empty_result(skip, stats)
+    mtpos_col = value_col if value_col in work.columns else find_col(work, ('MTPOS', 'item_category_group_code'))
+    if not mtpos_col:
+        return _empty_result(f'{rule_code}: MVKE.MTPOS не найден', stats)
+    material_type = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.strip().str.upper()
+    scope = material_type.eq(material_type_code) & _filled(work[mtpos_col])
+    scoped = work.loc[scope].copy()
+    stats['evaluated'] = len(scoped)
+    if scoped.empty:
+        return _no_rows_after_filters(f'{rule_code}: нет строк MVKE в scope MTPOS', stats)
+    ok = _codes(scoped[mtpos_col]).isin(allowed)
+    return _result(scoped, ok, rule_code, stats)
+
+
+def evaluate_rpconf_199_6(mvke, value_col, loader):
+    return _evaluate_mtpos_allowed(mvke, value_col, loader, 'RPCONF_199.6', 'ZNVM', frozenset({'NORM', 'ZFGR', 'ZCVI', 'ZFGM'}))
+
+
+def evaluate_rpconf_199_7(mvke, value_col, loader):
+    return _evaluate_mtpos_allowed(mvke, value_col, loader, 'RPCONF_199.7', 'ZSV', frozenset({'ZEIS', 'LEIS', 'NORM', 'ZLIS', 'LEIC'}))
+
+
+def evaluate_rpconf_199_8(mvke, value_col, loader):
+    return _evaluate_mtpos_allowed(mvke, value_col, loader, 'RPCONF_199.8', 'ZSTL', frozenset({'LEIS'}))
+
+
+def evaluate_rpconf_199_9(mvke, value_col, loader):
+    rc = 'RPCONF_199.9'
+    work, stats, skip = _mvke_with_material_context(mvke, loader, rc)
+    stats['evaluated'] = 0
+    if skip:
+        return _empty_result(skip, stats)
+    mtpos_col = value_col if value_col in work.columns else find_col(work, ('MTPOS', 'item_category_group_code'))
+    vtweg_col = find_col(work, ('VTWEG', 'distribution_channel_code', 'DCHL'))
+    if not mtpos_col or not vtweg_col:
+        return _empty_result(f'{rc}: MVKE.MTPOS/VTWEG не найдены', stats)
+    material_type = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.strip().str.upper()
+    channel = _zfill_code(work[vtweg_col], 2)
+    scope = material_type.eq('ZSPS') & _filled(work[mtpos_col]) & channel.isin({'02', '04'})
+    scoped = work.loc[scope].copy()
+    stats['evaluated'] = len(scoped)
+    if scoped.empty:
+        return _no_rows_after_filters(f'{rc}: нет строк MVKE в scope MTPOS ZSPS', stats)
+    mtpos = _codes(scoped[mtpos_col])
+    channel = _zfill_code(scoped[vtweg_col], 2)
+    ok = (channel.eq('02') & mtpos.eq('ZSPS')) | (channel.eq('04') & mtpos.eq('ZCSM'))
+    return _result(scoped, ok, rc, stats)
+
+
+def evaluate_rpconf_282_2(mvke, value_col, loader):
+    rc = 'RPCONF_282.2'
+    work, stats, skip = _mvke_with_material_context(mvke, loader, rc)
+    stats['evaluated'] = 0
+    if skip:
+        return _empty_result(skip, stats)
+    flag_col = value_col if value_col in work.columns else find_col(work, ('PRAT1', 'promotion_flag'))
+    if not flag_col:
+        return _empty_result(f'{rc}: MVKE.PRAT1 не найден', stats)
+    material_type = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.strip().str.upper()
+    description = work['LOOKUP_MATERIAL_DESCRIPTION'].astype(str)
+    scope = material_type.str.startswith('ZFG') & description.str.contains(r'\(C\)', regex=True, na=False)
+    scoped = work.loc[scope].copy()
+    stats['evaluated'] = len(scoped)
+    if scoped.empty:
+        return _no_rows_after_filters(f'{rc}: нет строк MVKE с (C) в наименовании', stats)
+    ok = _codes(scoped[flag_col]).eq('X')
+    return _result(scoped, ok, rc, stats)
+
+
+def evaluate_rpconf_290_1(mvke, value_col, loader):
+    rc = 'RPCONF_290.1'
+    work, stats, skip = _mvke_with_material_context(mvke, loader, rc, exclude_abp=False)
+    stats['evaluated'] = 0
+    if skip:
+        return _empty_result(skip, stats)
+    prodh_col = value_col if value_col in work.columns else find_col(work, ('PRODH', 'product_hierarchy_code'))
+    if not prodh_col:
+        return _empty_result(f'{rc}: MVKE.PRODH не найден', stats)
+    material_type = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.strip().str.upper()
+    scope = material_type.isin({'ZSF', 'ZSFT'}) & _filled(work[prodh_col])
+    scoped = work.loc[scope].copy()
+    stats['evaluated'] = len(scoped)
+    if scoped.empty:
+        return _no_rows_after_filters(f'{rc}: нет заполненного PRODH для ZSF/ZSFT', stats)
+    ok = _codes(scoped[prodh_col]).eq('0205')
+    return _result(scoped, ok, rc, stats)
+
+
 MAABC_MATERIAL_TYPES = frozenset({'ZFG', 'ZFGS', 'ZFGC', 'ZNVM'})
 MMSTA_EXCLUDED_FROM_MAABC = frozenset({'99', '98', '97'})
 
@@ -1347,6 +1570,32 @@ def evaluate_material_rule(
             return evaluate_rpconf_284_2(df, value_col, loader)
         return evaluate_rpconf_160_4(df, value_col, loader)
     if rc in MVKE_RULE_CODES and table == 'MVKE':
+        if rc in MVKE_PENDING_RULES:
+            return _empty_result(f'{rc}: формула записана, автоматическая проверка ещё не подключена', {'input': len(df) if df is not None else 0})
+        if rc == 'RPCOMP_263.1':
+            return evaluate_rpcomp_263_1(df, value_col, loader)
+        if rc == 'RPCOMP_264.1':
+            return evaluate_rpcomp_264_1(df, value_col, loader)
+        if rc == 'RPCOMP_290.1':
+            return evaluate_rpcomp_290_1(df, value_col, loader)
+        if rc == 'RPCOMP_30.1':
+            return evaluate_rpcomp_30_1(df, value_col, loader)
+        if rc == 'RPCOMP_65.1':
+            return evaluate_rpcomp_65_1(df, value_col, loader)
+        if rc == 'RPCONF_149.8':
+            return evaluate_rpconf_149_8(df, value_col, loader)
+        if rc == 'RPCONF_199.6':
+            return evaluate_rpconf_199_6(df, value_col, loader)
+        if rc == 'RPCONF_199.7':
+            return evaluate_rpconf_199_7(df, value_col, loader)
+        if rc == 'RPCONF_199.8':
+            return evaluate_rpconf_199_8(df, value_col, loader)
+        if rc == 'RPCONF_199.9':
+            return evaluate_rpconf_199_9(df, value_col, loader)
+        if rc == 'RPCONF_282.2':
+            return evaluate_rpconf_282_2(df, value_col, loader)
+        if rc == 'RPCONF_290.1':
+            return evaluate_rpconf_290_1(df, value_col, loader)
         if rc == 'RPCOMP_153.1':
             return evaluate_rpcomp_153_1(df, value_col, loader)
         if rc == 'RPCOMP_199.1':

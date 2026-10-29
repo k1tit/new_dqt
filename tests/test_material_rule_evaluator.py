@@ -16,6 +16,9 @@ from utils.material_rule_evaluator import (
     evaluate_rpcomp_199_1,
     evaluate_rpcomp_252_1,
     evaluate_rpcomp_262_1,
+    evaluate_rpcomp_263_1,
+    evaluate_rpconf_149_8,
+    evaluate_rpconf_199_6,
     evaluate_rpconf_160_4,
     evaluate_rpconf_284_1,
     evaluate_rpconf_284_2,
@@ -795,6 +798,71 @@ class MvkeCompletenessTests(unittest.TestCase):
         self.assertIsNone(result['skip_reason'])
         self.assertEqual(['10', '20'], list(result['df']['MATNR']))
         self.assertEqual([False, False], list(result['ok_mask']))
+
+    def test_mvgr4_uses_finished_goods_and_group_1003012(self):
+        mara = pd.DataFrame({
+            'MATNR': ['10', '20', '30'],
+            'MTART': ['ZFG', 'ZNVL', 'ZNVL'],
+            'MATKL': ['100', '1003012', '1001009'],
+        })
+        mvke = pd.DataFrame({
+            'MATNR': ['10', '20', '30'],
+            'MVGR4': [None, '01', None],
+        })
+
+        def load(name):
+            return {'MARA': mara}.get(name, pd.DataFrame())
+
+        result = evaluate_rpcomp_263_1(mvke, 'MVGR4', load)
+        self.assertIsNone(result['skip_reason'])
+        self.assertEqual(['10', '20'], list(result['df']['MATNR']))
+        self.assertEqual([False, True], list(result['ok_mask']))
+
+    def test_zsps_ktgrm_accepts_20_and_86(self):
+        mara = pd.DataFrame({
+            'MATNR': ['10', '20', '30'],
+            'MTART': ['ZSPS', 'ZSPS', 'ZFG'],
+            'MATKL': ['100', '100', '100'],
+        })
+        makt = pd.DataFrame({
+            'MATNR': ['10', '20', '30'],
+            'MAKTX': ['COLA RU', 'COLA RU', 'COLA RU'],
+        })
+        mvke = pd.DataFrame({
+            'MATNR': ['10', '20', '30'],
+            'VKORG': ['3600', '3800', '3600'],
+            'KTGRM': ['20', '01', '86'],
+        })
+
+        def load(name):
+            return {'MARA': mara, 'MAKT': makt}.get(name, pd.DataFrame())
+
+        result = evaluate_rpconf_149_8(mvke, 'KTGRM', load)
+        self.assertIsNone(result['skip_reason'])
+        self.assertEqual(['10', '20'], list(result['df']['MATNR']))
+        self.assertEqual([True, False], list(result['ok_mask']))
+
+    def test_znvm_mtpos_allows_norm_zfgr_zcvi_zfgm(self):
+        mara = pd.DataFrame({
+            'MATNR': ['10', '20'],
+            'MTART': ['ZNVM', 'ZNVM'],
+            'MATKL': ['100', '100'],
+        })
+        makt = pd.DataFrame({
+            'MATNR': ['10', '20'],
+            'MAKTX': ['COLA RU', 'COLA RU'],
+        })
+        mvke = pd.DataFrame({
+            'MATNR': ['10', '20'],
+            'MTPOS': ['NORM', 'LEIS'],
+        })
+
+        def load(name):
+            return {'MARA': mara, 'MAKT': makt}.get(name, pd.DataFrame())
+
+        result = evaluate_rpconf_199_6(mvke, 'MTPOS', load)
+        self.assertIsNone(result['skip_reason'])
+        self.assertEqual([True, False], list(result['ok_mask']))
 
 
 if __name__ == '__main__':
