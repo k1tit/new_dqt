@@ -29,6 +29,7 @@ class TaxNumHandler:
         self._apply_export_column_map()
         self.taxnum_type = self._get_taxnum_type(table_name)
         initial_len = len(self.df) if self.df is not None and (not self.df.empty) else 0
+        # Срез RU1..RU6 / DFKKBPTAXNUM1..6: в проверку идёт только свой Tax Type.
         needs_type_slice = bool(self.taxnum_type and (re.search('_RU\\d$', table_name, re.I) or re.search('DFKKBPTAXNUM\\d$', table_name, re.I)))
         if needs_type_slice:
             type_col = self._find_taxtype_column()

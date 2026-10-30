@@ -5,6 +5,7 @@ import pandas as pd
 _EMPTY = {'', 'none', 'null', 'nan', '<na>', 'nat', '-', '.', 'n/a', 'na'}
 
 def norm_sap_recon_account(value: Any, *, length: int=10) -> str:
+    # Счёт выравнивается нулями слева. Ноль и пусто — одно и то же, в сверку не идут.
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return ''
     if isinstance(value, (int, float)):

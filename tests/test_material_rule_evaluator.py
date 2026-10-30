@@ -931,17 +931,27 @@ class MvkeCompletenessTests(unittest.TestCase):
             'MAKT': pd.DataFrame({'MATNR': ['10', '20'], 'MAKTX': ['COLA', 'COLA']}),
         }
         mvke = pd.DataFrame({
-            'MATNR': ['10', '20'],
-            'VKORG': ['0001', '0001'],
-            'VTWEG': ['01', '01'],
-            'PRODH': ['01010012001XXXX', '01010012001XXXX'],
-            'MVGR3': ['TNK', 'TNK'],
-            'MVGR4': ['01', '01'],
-            'ZZ_KONDM': ['SS', 'SS'],
-            'KONDM': ['03', '04'],
+            'MATNR': ['10', '20', '30', '40'],
+            'VKORG': ['0001', '0001', '0001', '0001'],
+            'VTWEG': ['01', '01', '01', '01'],
+            'PRODH': ['01010012001XXXX', '01010012001XXXX', '01010012001XXXX', '01010012001XXXX'],
+            'MVGR3': ['TNK', 'TNK', 'CAN', 'TNK'],
+            'MVGR4': ['01', '01', '01', '01'],
+            'ZZ_KONDM': ['SS', 'SS', 'SS', 'SS'],
+            'KONDM': ['03', '04', '03', '03'],
+        })
+        tables['MARA'] = pd.DataFrame({
+            'MATNR': ['10', '20', '30', '40'],
+            'MTART': ['ZFG', 'ZFG', 'ZFG', 'ZFG'],
+            'MATKL': ['100', '100', '100', '100'],
+        })
+        tables['MAKT'] = pd.DataFrame({
+            'MATNR': ['10', '20', '30', '40'],
+            'MAKTX': ['COLA', 'COLA', 'COLA', 'ABP COLA'],
         })
         result = self._run(mvke, 'RPCONF_252.1', 'KONDM', tables)
         self.assertIsNone(result['skip_reason'])
+        self.assertEqual(['10', '20'], list(result['df']['MATNR']))
         self.assertEqual([True, False], list(result['ok_mask']))
 
     def test_pack_type_and_hierarchy_are_stable_across_sales_orgs(self):
@@ -984,20 +994,29 @@ class MvkeCompletenessTests(unittest.TestCase):
     def test_description_contains_pack_volume_from_groes(self):
         tables = {
             'MARA': pd.DataFrame({
-                'MATNR': ['10', '20'],
-                'MTART': ['ZFG', 'ZFG'],
-                'MATKL': ['100', '100'],
-                'GROES': ['330ML', '330ML'],
+                'MATNR': ['10', '20', '30', '40', '50'],
+                'MTART': ['ZFG', 'ZFG', 'ZFG', 'ZFG', 'ZFG'],
+                'MATKL': ['100', '100', '100', '100', '100'],
+                'GROES': ['330ML', '330ML', '', '', '330ML'],
+                'VOLUM': ['', '', '0.33', '', ''],
+                'VOLEH': ['', '', 'L', '', ''],
+                'MTPOS_MARA': ['NORM', 'NORM', 'NORM', 'NORM', 'NORM'],
             }),
-            'MAKT': pd.DataFrame({'MATNR': ['10', '20'], 'MAKTX': ['COLA 330ML', 'COLA PET']}),
+            'MAKT': pd.DataFrame({
+                'MATNR': ['10', '20', '30', '40', '50'],
+                'MAKTX': ['COLA 330ML', 'COLA PET', 'COLA 330 ML', 'ABP COLA 330ML', 'COLA 330ML'],
+            }),
         }
         mvke = pd.DataFrame({
-            'MATNR': ['10', '20'],
-            'PRODH': ['01010012001XXXX', '01010012001XXXX'],
-            'MVGR4': ['01', '01'],
+            'MATNR': ['10', '20', '30', '40', '50'],
+            'VKORG': ['0001', '0001', '0001', '0001', '3600'],
+            'VTWEG': ['01', '01', '01', '01', '01'],
+            'PRODH': ['01010012001XXXX'] * 5,
+            'MVGR4': ['01', '01', '033', '033', '01'],
         })
         result = self._run(mvke, 'RPCONF_263.5', 'MVGR4', tables)
-        self.assertEqual([True, False], list(result['ok_mask']))
+        self.assertEqual(['10', '20', '30'], list(result['df']['MATNR']))
+        self.assertEqual([True, False, True], list(result['ok_mask']))
 
     def test_prodh_must_match_inside_one_sales_org_and_the_ban(self):
         tables = {

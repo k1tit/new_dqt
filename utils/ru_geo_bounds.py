@@ -26,6 +26,7 @@ def latitude_inside_russia(num: pd.Series) -> pd.Series:
 
 
 def longitude_inside_russia(num: pd.Series) -> pd.Series:
+    # Россия пересекает 180-й меридиан: отдельно западный сектор и хвост за антимеридианом.
     in_main = num.ge(RU_LON_WEST) & num.le(180)
     in_wrap = num.ge(-180) & num.le(RU_LON_EAST)
     return num.notna() & (in_main | in_wrap)

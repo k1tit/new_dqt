@@ -61,6 +61,7 @@ def _parse_change_datetime(df: pd.DataFrame, date_col: str, time_col: Optional[s
     return dser
 
 class KNA1Handler:
+    # Карточка клиента: имена колонок приводятся к правилам до проверок KTOKD/KATR.
 
     def __init__(self, table_name: str, df: pd.DataFrame, memory_manager, checker):
         self.table_name = table_name

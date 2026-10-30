@@ -5,6 +5,7 @@ import os
 import sqlite3
 import time
 from typing import List, Optional, Tuple
+# Активный файл базы задаёт config/database.json, это имя — только запасной вариант.
 DEFAULT_DB_FILENAME = 'db_april.db'
 DB_CONFIG_REL = os.path.join('config', 'database.json')
 ENV_DB_VAR = 'DQ_DATABASE'

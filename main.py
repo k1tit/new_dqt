@@ -130,6 +130,7 @@ def load_checker_module():
                     os.remove(os.path.join(cache_dir, name))
                 except OSError:
                     pass
+    # С диска заново читается только core.*. utils.* живут до перезапуска процесса.
     for mod in list(sys.modules):
         if mod == 'core' or mod.startswith('core.'):
             sys.modules.pop(mod, None)

@@ -25,6 +25,7 @@ def _norm(s: pd.Series) -> pd.Series:
 
 def is_basic_scope_mask(df: pd.DataFrame) -> pd.Series:
     """
+    Атрибут витрины, не общий фильтр правил. Каждое правило само решает, применять ли его.
     IF (LVORM <> 'X' AND MSTAE <> '99') AND MTART NOT IN (ZCDN, ZSPN) THEN '1' ELSE '0'
     Missing LVORM/MSTAE columns: treat as non-blocking (empty != X / != 99).
     """

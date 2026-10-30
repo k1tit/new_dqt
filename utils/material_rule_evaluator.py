@@ -190,6 +190,7 @@ def _result(df: pd.DataFrame, ok_mask: pd.Series, rule_code: str, stats: dict) -
     }
 
 
+# RU отдельным словом: «COLA RU» и «PRODUCT-RU» входят, RUSSIA и «ru» — нет.
 _RU_REGION = re.compile(r'(?<![A-Za-z0-9])RU(?![A-Za-z0-9])')
 
 
@@ -202,6 +203,7 @@ def _english_makt(makt: pd.DataFrame) -> tuple[pd.DataFrame, Optional[str]]:
     if makt is None or makt.empty:
         return pd.DataFrame(), None
     spras_col = find_col(makt, ('SPRAS', 'LANGU', 'LANGUAGE', 'LANG'))
+    # Колонки языка нет — берём весь MAKT, иначе фильтр ABP не к чему применить.
     if not spras_col:
         return makt.copy(), None
     language = _codes(makt[spras_col])
@@ -501,6 +503,7 @@ def _resolve_bpp_reference(
     atinn_needed,
 ) -> tuple[set[str], str]:
     del atinn_needed
+    # Справочник BPP — только CAWN_M и CAWNT_M. Обычные CAWN/CAWNT сюда не подставляются.
     found: list[tuple[str, set[str]]] = []
     for name in ('CAWN_M', 'CAWNT_M'):
         codes = _frame_atwrt(_load(loader, name))
@@ -579,6 +582,7 @@ def _is_material_ausp_table_name(name: str) -> bool:
     return u == 'AUSP' or u.startswith('AUSP_') or is_material_bpp_ausp_table(u)
 
 
+# Срез по MATNR из MARC. AUSP в список не входит: классификация не режется списком заводов.
 MATERIAL_MARC_MATNR_TABLES = frozenset({'MARA', 'MAKT', 'MARC', 'MVKE'})
 
 
@@ -803,6 +807,7 @@ def _marc_with_material_context(marc: pd.DataFrame, loader: Callable[[str], pd.D
 
 
 def _apply_marc_description_filters(work: pd.DataFrame, rule_code: str, stats: dict):
+    # Общий фильтр всех правил MARC: сначала RU отдельным словом, затем описание без ABP.
     desc = work['LOOKUP_MATERIAL_DESCRIPTION']
     if int(_filled(desc).sum()) == 0:
         return None, f'{rule_code}: MARC не сджойнился с описанием по MATNR'
@@ -900,6 +905,7 @@ def evaluate_rpconf_284_1(
         work['LOOKUP_CROSS_PLANT_STATUS'] = work['_DQ_MATNR'].map(simple_status).fillna('')
 
     filled = _filled(work[dismm_col])
+    # MMSTA 99 здесь обязателен в scope. Исключение 99/98/97 есть только у RPCOMP_148.1.
     plant_blocked = _codes(work[mmsta_col]).eq('99')
     in_type = _finished_or_semi(work['LOOKUP_MATERIAL_TYPE'])
     stats['skipped_empty_dismm'] = int((~filled).sum())
@@ -1472,6 +1478,7 @@ def evaluate_rpcomp_148_1(
         return _empty_result(desc_skip, stats)
     mmsta = _codes(work[mmsta_col])
     material_type = work['LOOKUP_MATERIAL_TYPE'].astype(str).str.upper()
+    # Пустой MMSTA остаётся в проверке: исключаются только 99, 98 и 97.
     scope = (
         material_type.isin(MAABC_MATERIAL_TYPES)
         & ~mmsta.isin(MMSTA_EXCLUDED_FROM_MAABC)
@@ -1551,6 +1558,7 @@ def evaluate_material_rule(
 ) -> dict:
     rc = str(rule_code).strip().upper()
     table = str(table_name).strip().upper()
+    # Код не из этих множеств уходит в общий валидатор: пустая ячейка колонки станет ошибкой полноты.
     if rc in MARA_RULE_CODES and table == 'MARA':
         return evaluate_mara_rule(df, rc, value_col, _load(loader, 'MAKT'))
     if rc in MAKT_RULE_CODES and table == 'MAKT':
@@ -1571,6 +1579,7 @@ def evaluate_material_rule(
         return evaluate_rpconf_160_4(df, value_col, loader)
     if rc in MVKE_RULE_CODES and table == 'MVKE':
         if rc in MVKE_PENDING_RULES:
+            # Сверки каналов, BAN, иерархии и объёма. Имя множества историческое: правила уже исполняются.
             from utils.mvke_conformity_rules import evaluate_mvke_conformity
             return evaluate_mvke_conformity(df, rc, value_col, loader)
         if rc == 'RPCOMP_263.1':

@@ -110,6 +110,7 @@ def apply_ru_marc_plant_scope(df: pd.DataFrame):
 
 
 def apply_is_basic_scope(df: pd.DataFrame) -> pd.DataFrame:
+    # Для заводов 36*/38*/39* условие «завод вне 4110–4122» всегда истинно, срез не сужается.
     if df is None or df.empty:
         return df if df is not None else pd.DataFrame()
     return df.loc[is_basic_scope_mask(df)].copy()

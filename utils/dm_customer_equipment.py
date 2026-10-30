@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 
+# Статус оборудования читается из TJ30T только схемы CSEQ01.
 TJ30T_STSMA = 'CSEQ01'
 DATBI_OPEN_PREFIXES = ('99991231', '9999-12-31')
 

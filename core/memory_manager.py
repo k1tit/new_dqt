@@ -24,6 +24,7 @@ def _term(symbol_name: str) -> str:
     return TERMINAL_SYMBOLS_LOCAL.get(symbol_name, '')
 
 class MemoryManager:
+    # Клиентские срезы AUSP по ATINN. Материал и cooler — отдельные таблицы, сюда не смешиваются.
     AUSP_DERIVED_NAMES = ('AUSP_143', 'AUSP_604', 'AUSP_148', 'AUSP_151')
     AUSP_ATINN_TO_COLUMN = {'143': 'CCAF', '604': 'RED_OUTLET', '148': 'ZGLOBAL_CUSTOMER', '151': 'ZTRADE_NAME'}
     AUSP_EQUIPMENT_TABLE = 'AUSP_EQUIPMENT'
@@ -67,6 +68,7 @@ class MemoryManager:
         self.data_cache = {}
         self.reference_cache = {}
         self._unique_partner_count = {}
+        # Parquet — кэш чтения SQLite. Пересборка только при rebuild_parquet_cache.
         self.use_parquet_cache = bool(use_parquet_cache)
         self.rebuild_parquet_cache = bool(rebuild_parquet_cache)
         self._parquet_engine = self._detect_parquet_engine()

@@ -287,6 +287,7 @@ def _list_data_files(data_folder: str) -> list[str]:
     return sorted(files)
 
 def _prepare_data_files(data_folder, data_files):
+    # Список файлов готовится до загрузки. Ветка оборудования не должна попадать в else общего загрузчика.
     if data_files is None:
         if not data_folder or not os.path.exists(data_folder):
             return [], f"Папка '{data_folder}' не найдена!"

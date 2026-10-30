@@ -184,6 +184,7 @@ class FastDataQualityChecker:
         'RCCONF_39.3', 'RCCONF_39.3.2', 'RCCONF_39.5', 'RCCONF_39.5.2', 'RCCOMP_375.1.2',
     })
     KNA1_JOIN_BLOCKED_COLUMNS = frozenset({'CLIENT', 'CL', 'MANDT', 'MANDANT'})
+    # Серая строка отчёта и исключение из score. Это conformity DISMM, не completeness RPCOMP_284.1.
     GRAY_REPORT_RULES = frozenset({'RPCONF_284.1'})
     GRAY_REPORT_NOTE = 'Правило оставлено. Без отдельной системы проверки строка серая, в score не входит.'
 
@@ -199,6 +200,7 @@ class FastDataQualityChecker:
         self.save_all_errors = bool(save_all_errors)
         self.use_parquet_cache = bool(use_parquet_cache)
         self.rebuild_parquet_cache = bool(rebuild_parquet_cache)
+        # Профиль выбирает набор правил и каталог отчёта. База одна и та же.
         self.load_profile = 'material' if os.path.basename(str(rules_file)).lower() == 'material_rules.json' else 'customer'
         self._parallel_lock = threading.Lock() if self.parallel_tables else None
         self._results_lock = threading.Lock()
@@ -1373,6 +1375,7 @@ class FastDataQualityChecker:
         return (success_count, error_count, suspicious_count)
 
     def _marc_material_numbers(self):
+        # Allow-list MATNR для MARA/MAKT/MARC/MVKE. Считается по полной таблице MARC, кэш на время прогона.
         cached = getattr(self, '_marc_matnr_keys', None)
         if cached is not None:
             return cached
@@ -2227,6 +2230,7 @@ class FastDataQualityChecker:
                         self._save_rule_error_with_limit(rule_code, table_name, error_df, error_count, is_suspicious, total_rows=total_rows)
                 return (error_count, total_rows)
             if rule_code == 'RCCONF_372.1':
+                # Страна ADR2 сверяется с T005 по точному совпадению LAND1, C/R, ISO_Code или INTCA.
                 print(f'      [REF] {rule_code}: ADR2.COUNTRY (ISO 3166) vs справочник T005 (LAND1 / C/R / ISO_Code / INTCA)...')
                 t005_df = self._get_table_for_rules('T005')
                 if t005_df is None or t005_df.empty:
@@ -3014,6 +3018,7 @@ class FastDataQualityChecker:
             comments = f'ПОДОЗРИТЕЛЬНО: {error_percent:.1f}% ДАННЫХ С ОШИБКАМИ - ПРОВЕРИТЬ ЛОГИКУ ПРАВИЛА'
         result = {'rule_code': rule_info['rule_code'], 'rule_description': rule_info['rule_description'], 'quality_category': rule_info['quality_category'], 'table_name': rule_info['table_name'], 'column_checked': rule_info.get('original_column', ''), 'matched_column': rule_info['matched_column'], 'total_records': total_records_evaluated, 'passed': passed_count, 'failed': error_count, 'total_evaluated': total_records_evaluated, 'success_rate_%': round(success_rate, 2), 'execution_time_sec': round(execution_time, 2), 'check_date': timestamp, 'status': status, 'status_color': status_color, 'error_file': error_file_status, 'comments': comments}
         rule_code = str(rule_info.get('rule_code', '')).strip()
+        # ADR2: «Всего записей» — пары ADDRNUMBER+PARTNER после фильтра правила, отдельный файл списка не пишется.
         if rule_code == 'RCCOMP_375.1.2':
             result['filtered_adr2_count'] = total_rows
             result['filtered_adr2_file'] = ''
@@ -3306,6 +3311,7 @@ class FastDataQualityChecker:
         return df
 
     def _process_taxnum_same_as_other(self, rule_code, df, table_name, rule, save_result, timestamp):
+        # Знаменатель — весь срез своего типа. Ошибка только когда tax_0..tax_6 заполнены и свой номер совпал с чужим.
         own_by_rule = {'RCCONF_50.11': 1, 'RCCONF_52.11': 2, 'RCCONF_54.9': 3, 'RCCONF_63.7': 5}
         own = own_by_rule.get(rule_code)
         source = self._taxnum_same_as_other_source(df)
@@ -3535,7 +3541,10 @@ class FastDataQualityChecker:
         return out
 
     def _filter_geo_rule_knvv_scope(self, df, rule_code):
-        """RCCONF_383.3/384.3: keep customers with KNVV VTWEG/SPART 01/01, drop 04/01 and 04/02."""
+        """RCCONF_383.3/384.3: клиент остаётся, если есть KNVV 01/01, и выпадает, если есть 04/01 или 04/02.
+
+        Канал и сектор — VTWEG и SPART, не VKORG.
+        """
         if df is None or df.empty:
             return df, None
         partner_col = next((c for c in df.columns if str(c).strip().upper() == 'PARTNER'), None)
@@ -4199,7 +4208,7 @@ class FastDataQualityChecker:
         rule_code_raw = str(rule_info.get('rule_code', ''))
         rule_code = re.sub('[^A-Za-z0-9._-]', '', rule_code_raw).upper()
         qc = str(quality_category or '').strip().lower()
-        # Explicit Completeness category → CompletenessValidator (field fill only)
+        # Completeness без своего evaluator считает ошибкой каждую пустую ячейку колонки.
         if qc == 'completeness':
             return CompletenessValidator(rule_info)
         if rule_code == 'RCCONF_24.1':
@@ -8494,6 +8503,7 @@ class FastDataQualityChecker:
             print(f'      [WARN] Ошибка добавления central_order_block_code из KNA1 для {rule_code}: {e}')
             return df
     def _log_empty_scope_success(self, rule, table_name, timestamp):
+        # После фильтров строк не осталось: статус Успешно, нули, не ПРОПУЩЕНО и не ошибка выполнения.
         self._last_rule_skip_reason = None
         self._thread_rule_state.skip_reason = None
         self._thread_rule_state.empty_scope_success = True

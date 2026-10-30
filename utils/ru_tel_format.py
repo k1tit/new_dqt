@@ -9,6 +9,7 @@ _TRAILING_DECIMAL_ZERO_RE = re.compile(r'^\d+\.0+$')
 
 
 def normalize_tel_raw(val) -> str:
+    # Полная ширина цифр и хвостовой «.0» из Excel приводятся к обычной строке до проверки маски.
     if val is None or (isinstance(val, float) and val != val):
         return ''
     s = str(val).strip().replace('\ufeff', '').strip()

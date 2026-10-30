@@ -12,6 +12,7 @@ def _norm(name: str) -> str:
     return re.sub('[^A-Z0-9]', '', str(name or '').upper())
 
 def load_column_map(project_root: str) -> dict:
+    # Имена выгрузки SAP (Addr. No., SOrg) приводятся к техническим именам правил.
     if project_root in _cache:
         return _cache[project_root]
     for rel in (os.path.join('json files', 'column_map.json'), os.path.join('config', 'column_map.json')):

@@ -74,12 +74,12 @@ ERROR_DESCRIPTIONS.update({
     'RPCONF_153.2': 'ZZ_KONDM must be SS or MS for the 749 ml/g pack-size cases on sales org 0001 channel 01.',
     'RPCONF_153.3': 'ZZ_KONDM must be SS or MS for the 750 ml pack-size cases on sales org 0001 channel 01.',
     'RPCONF_153.4': 'ZZ_KONDM must be SS or MS for the 999 ml/g, coffee and brand cases on sales org 0001 channel 01.',
-    'RPCONF_252.1': 'KONDM must match the coffee, pack type or pack size case on sales org 0001 channel 01.',
+    'RPCONF_252.1': 'KONDM must match the coffee, pack type or pack size case on sales org 0001 channel 01. Rows outside every case stay out of scope.',
     'RPCONF_262.3': 'MVGR3 and PRODH must be the same on every sales org and channel for the ZRW/ZSF syrup scope.',
     'RPCONF_262.5': 'Finished-goods MAKTX must contain the MVGR3 pack type code.',
     'RPCONF_262.6': 'MVGR3 on sales org 0001 channel 01 must equal MVGR3 of the BAN material.',
     'RPCONF_263.2': 'MVGR4 and PRODH must be the same on every sales org and channel for the ZRW/ZSF syrup scope.',
-    'RPCONF_263.5': 'Finished-goods MAKTX must contain the pack size taken from GROES, VOLUM or numeric MVGR4.',
+    'RPCONF_263.5': 'Finished-goods MAKTX on sales org 0001 channel 01 must contain the pack size from GROES or VOLUM.',
     'RPCONF_263.6': 'MVGR4 on sales org 0001 channel 01 must equal MVGR4 of the BAN material.',
     'RPCONF_264.6': 'MVGR5 on sales org 0001 channel 01 must equal MVGR5 of the BAN material.',
     'RPCONF_290.3': 'PRODH must be the same across distribution channels of one sales org. More than one PRODH is an error.',
@@ -166,6 +166,7 @@ def _attach_description(work: pd.DataFrame, loader) -> pd.DataFrame:
 def _attach_mara_attributes(work: pd.DataFrame, loader) -> pd.DataFrame:
     mara = _load(loader, 'MARA')
     out = work.copy()
+    # ban_code в dm_product_general — это MARA.WRKST, ключ другого материала.
     out['LOOKUP_BAN'] = out['_DQ_MATNR'].map(_mara_code_lookup(mara, ('WRKST', 'ban_code'))).fillna('')
     out['LOOKUP_BAN'] = _matnr(out['LOOKUP_BAN']).where(out['LOOKUP_BAN'].astype(str).str.strip().ne(''), '')
     out.loc[out['LOOKUP_BAN'].isin({'', '0'}), 'LOOKUP_BAN'] = ''
@@ -196,6 +197,8 @@ def _mara_text_lookup(mara: pd.DataFrame, column_names: Sequence[str]) -> dict:
 
 
 def _characteristic_lookup(loader, atnam: str, left4: bool = False, material_class_only: bool = False) -> dict:
+    # ATINN признака: сначала CABN.ATNAM, иначе ausp_cabn_filter.json.
+    # left4 — bpp_bp_code = LEFT(ATWRT, 4). material_class_only — только KLART 001, это ветка BPP.
     atinn = _atinn_from_cabn(_load(loader, 'CABN'), atnam) or _atinn_from_cabn_filter_json(atnam)
     if not atinn:
         return {}
@@ -263,6 +266,7 @@ def _hierarchy_text(work: pd.DataFrame):
     if not prodh_col:
         return None, None, None, 'MVKE.PRODH не найден'
     text = _codes(work[prodh_col])
+    # product_hierarchy_l4_code — первые 11 символов PRODH, l3 — первые 7.
     return prodh_col, text, text.str[:11], None
 
 
@@ -289,6 +293,9 @@ def _measures_for(work: pd.DataFrame) -> pd.DataFrame:
     for key, groes, volum, voleh, desc in zip(
         work['_DQ_MATNR'], work['LOOKUP_GROES'], work['LOOKUP_VOLUM'], work['LOOKUP_VOLEH'], description.fillna('')
     ):
+        # Отдельной колонки pack_size_volume_unified в выгрузке нет.
+        # Порядок: GROES (330ML), затем MARA.VOLUM+VOLEH, затем токен размера в MAKTX.
+        # Для L/KG gram_ml = число * 1000, чтобы 1.5L сравнивалось как 1500.
         parsed = _parse_size_text(groes) or _parse_volum(volum, voleh) or _parse_size_text(desc)
         if parsed:
             rows.append((key, parsed[0], parsed[1], parsed[2]))
@@ -308,6 +315,7 @@ def _map_measures(work: pd.DataFrame) -> pd.DataFrame:
 
 
 def _apply_flag_cases(work, base, flag, cases):
+    # Кейсы идут по порядку. Первый подошедший решает исход: неверный SS/MS — ошибка, а не переход к следующему кейсу.
     decision = pd.Series(pd.NA, index=work.index, dtype='boolean')
     remaining = base.fillna(False).copy()
     for predicate, expected in cases:
@@ -325,6 +333,7 @@ def _ss_base(work, flag_col, prodh_col, pack_col, pack_type_col, vkorg, vtweg, e
         return None, hierarchy_skip
     text = _codes(work[prodh_col])
     if extra_prefixes:
+        # 01030052329 есть в кейсе 153.4/252.1, но нет в общем списке UC03. Без этого ветка не выполняется.
         hierarchy = hierarchy | _starts_with_any(text, extra_prefixes)
     scope = (
         _filled(work[flag_col])
@@ -376,6 +385,7 @@ def evaluate_rpconf_149_9(mvke, value_col, loader):
     side['value'] = value.loc[scope]
     if side.empty:
         return _finish_empty(stats, f'{rc}: нет строк ZRW/ZST с KTGRM на каналах 01 и 04')
+    # Пара — один материал и одна сбытовая организация, канал 01 против 04. В итог попадает строка канала 01.
     counts = side.groupby(['_DQ_MATNR', 'vkorg', 'vtweg'])['value'].nunique()
     single = side.join(counts.rename('nunique'), on=['_DQ_MATNR', 'vkorg', 'vtweg'])
     single = single.loc[single['nunique'].eq(1)].drop_duplicates(['_DQ_MATNR', 'vkorg', 'vtweg'])
@@ -470,6 +480,7 @@ def _cases_153_4(work, pack, pack_type, text):
     brand = _codes(work[find_col(work, ('MVGR1', 'brand_code'))]) if find_col(work, ('MVGR1', 'brand_code')) else pd.Series('', index=work.index)
     channel = work.get('LOOKUP_COFFEE_CHANNEL', pd.Series('', index=work.index)).astype(str)
     coffee_format = work.get('LOOKUP_COFFEE_FORMAT', pd.Series('', index=work.index)).astype(str)
+    # В тексте формулы AND стоит без скобок. Смысл кейса: (бренд CN или иерархия) и объём, не «любой CN».
     cn_or_hierarchy = brand.eq('CN') | text.str.startswith('01010012137')
     listed = _starts_with_any(text, CASE_153_4_VOLUME)
     return [
@@ -512,9 +523,21 @@ def evaluate_rpconf_153_4(mvke, value_col, loader):
     )
 
 
+def _first_case_decision(base, value, cases):
+    # Как в 153.2: первый подошедший кейс решает. Строка без кейса остаётся вне проверки.
+    decision = pd.Series(pd.NA, index=base.index, dtype='boolean')
+    remaining = base.fillna(False).copy()
+    for predicate, expected in cases:
+        hit = remaining & predicate.fillna(False)
+        decision.loc[hit] = value.loc[hit].eq(expected).to_numpy()
+        remaining = remaining & ~hit
+    return decision, remaining
+
+
 def evaluate_rpconf_252_1(mvke, value_col, loader):
     rc = 'RPCONF_252.1'
-    work, stats, skip = _prepare(mvke, loader, rc, False)
+    # Те же входные фильтры, что у RPCOMP_252.1 и 153.2: ABP, техническая SO, иерархия, тип и группа.
+    work, stats, skip = _prepare(mvke, loader, rc, True)
     if work is None:
         if stats.get('no_rows_after_filters'):
             return _no_rows_after_filters(skip, stats)
@@ -536,6 +559,8 @@ def evaluate_rpconf_252_1(mvke, value_col, loader):
     if hierarchy_skip:
         return _empty_result(f'{rc}: {hierarchy_skip}', stats)
     hierarchy = hierarchy | text.str[:11].eq('01030052329')
+    # Пустой кофе выводит из проверки только ZFGC: кофейные кейсы без канала и формата не с чем сравнить.
+    # Остальные готовые продукты идут по типу упаковки и иерархии.
     material_type = _codes(work['LOOKUP_MATERIAL_TYPE'])
     material_group = _codes(work['LOOKUP_MATERIAL_GROUP'])
     kondm = _codes(work[kondm_col])
@@ -550,6 +575,8 @@ def evaluate_rpconf_252_1(mvke, value_col, loader):
     base = (
         kondm.ne('')
         & _filled(work[flag_col])
+        & _filled(work[pack_col])
+        & _filled(work[pack_type_col])
         & material_group.ne('1110000')
         & material_type.isin(TECHNICAL_SO_TYPES)
         & _technical_sales(vkorg, vtweg)
@@ -557,34 +584,36 @@ def evaluate_rpconf_252_1(mvke, value_col, loader):
         & ~(zfgc & ~has_coffee)
     )
     cn = l4.eq('01010012137') | brand.eq('CN3')
-    zfgc_pass = (
-        (channel.isin({'CH3', 'CH4', 'CH5', 'CH6'}) & coffee_format.eq('CF1') & kondm.eq('03'))
-        | (channel.eq('CH3') & coffee_format.isin({'CF2', 'CF3'}) & kondm.eq('04'))
-        | (channel.eq('CH5') & coffee_format.isin({'CF2', 'CF3'}) & kondm.eq('03'))
-        | (channel.eq('CH4') & coffee_format.isin({'CF2', 'CF4'}) & kondm.eq('03'))
-        | (channel.eq('CH6') & coffee_format.eq('CF4') & kondm.eq('03'))
-    )
-    other_pass = (
-        (pack_type.isin(BULK_PACK_TYPES) & kondm.eq('03'))
-        | (pack.eq('ZZ') & pack_type.eq('OTH') & kondm.eq('04'))
-        | (cn & _near(gram, 250) & kondm.eq('03'))
-        | (cn & _near(gram, 800) & kondm.eq('04'))
-        | (l4.eq('01010022145') & gram.le(99) & kondm.eq('03'))
-        | (l4.eq('01010022145') & gram.gt(99) & kondm.eq('04'))
-        | (l4.eq('01010022133') & gram.le(500) & kondm.eq('03'))
-        | (l4.eq('01010022133') & gram.gt(500) & kondm.eq('04'))
-        | (l4.eq('01010012083') & kondm.eq('04'))
-        | (l4.eq('01030052329') & gram.le(100) & kondm.eq('03'))
-        | (l4.eq('01030052329') & gram.gt(100) & kondm.eq('04'))
-    )
-    ok = pd.Series(False, index=work.index)
-    ok.loc[base & zfgc] = zfgc_pass.loc[base & zfgc]
-    ok.loc[base & ~zfgc] = other_pass.loc[base & ~zfgc]
-    scoped = work.loc[base].copy()
+    zfgc_cases = [
+        (channel.isin({'CH3', 'CH4', 'CH5', 'CH6'}) & coffee_format.eq('CF1'), '03'),
+        (channel.eq('CH3') & coffee_format.isin({'CF2', 'CF3'}), '04'),
+        (channel.eq('CH5') & coffee_format.isin({'CF2', 'CF3'}), '03'),
+        (channel.eq('CH4') & coffee_format.isin({'CF2', 'CF4'}), '03'),
+        (channel.eq('CH6') & coffee_format.eq('CF4'), '03'),
+    ]
+    other_cases = [
+        (pack_type.isin(BULK_PACK_TYPES), '03'),
+        (pack.eq('ZZ') & pack_type.eq('OTH'), '04'),
+        (cn & _near(gram, 250), '03'),
+        (cn & _near(gram, 800), '04'),
+        (l4.eq('01010022145') & gram.le(99), '03'),
+        (l4.eq('01010022145') & gram.gt(99), '04'),
+        (l4.eq('01010022133') & gram.le(500), '03'),
+        (l4.eq('01010022133') & gram.gt(500), '04'),
+        (l4.eq('01010012083'), '04'),
+        (l4.eq('01030052329') & gram.le(100), '03'),
+        (l4.eq('01030052329') & gram.gt(100), '04'),
+    ]
+    decision, zfgc_left = _first_case_decision(base & zfgc, kondm, zfgc_cases)
+    # Формула для ZFGC: не прошёл кофейные кейсы — ошибка, к упаковке не переходим.
+    decision.loc[zfgc_left] = False
+    other_decision, _other_left = _first_case_decision(base & ~zfgc, kondm, other_cases)
+    decision = decision.fillna(other_decision)
+    scoped = work.loc[decision.notna()].copy()
     stats['evaluated'] = len(scoped)
     if scoped.empty:
         return _finish_empty(stats, f'{rc}: нет строк MVKE в scope KONDM')
-    return _result(scoped, ok.loc[scoped.index], rc, stats)
+    return _result(scoped, decision.loc[scoped.index].astype(bool), rc, stats)
 
 
 def _distinct_pair(mvke, value_col, loader, rule_code, left_names):
@@ -603,6 +632,7 @@ def _distinct_pair(mvke, value_col, loader, rule_code, left_names):
     stats['evaluated'] = len(scoped)
     if scoped.empty:
         return _finish_empty(stats, f'{rule_code}: нет строк MVKE в syrup/raw scope')
+    # Одно значение поля и один PRODH на материал по всем сбытовым организациям и каналам. Пустые строки в счёт не входят.
     pair = _codes(scoped[left_col]) + '\t' + _codes(scoped[prodh_col])
     ok = pair.groupby(scoped['_DQ_MATNR']).transform('nunique').eq(1)
     return _result(scoped, ok, rule_code, stats)
@@ -657,20 +687,37 @@ def evaluate_rpconf_262_5(mvke, value_col, loader):
     return _result(scoped, ok, rc, stats)
 
 
-def _independent_size_token(groes, volum, voleh, pack_code) -> str:
+def _size_search_tokens(groes, volum, voleh) -> list[str]:
+    # Объём для сверки с наименованием — GROES или MARA.VOLUM+VOLEH, не код MVGR4 и не сам MAKTX.
+    # Ищем и исходное число, и gram_ml: 0.33 L в наименовании часто записано как 330.
     parsed = _parse_size_text(groes) or _parse_volum(volum, voleh)
-    if parsed:
-        return _volume_token(parsed[0])
-    digits = re.sub(r'\D', '', str(pack_code or ''))
-    digits = digits.lstrip('0')
-    if len(digits) >= 2:
-        return digits
-    return ''
+    if not parsed:
+        return []
+    tokens = []
+    for number in (parsed[0], parsed[2]):
+        token = _volume_token(number)
+        if token and token not in tokens:
+            tokens.append(token)
+    return tokens
+
+
+def _description_has_size(description: str, tokens: list[str]) -> bool:
+    text = str(description or '')
+    for token in tokens:
+        forms = [token]
+        if '.' in token:
+            forms.append(token.replace('.', ','))
+        for form in forms:
+            if re.search(r'(?<!\d)' + re.escape(form) + r'(?!\d)', text):
+                return True
+    return False
 
 
 def evaluate_rpconf_263_5(mvke, value_col, loader):
     rc = 'RPCONF_263.5'
-    work, stats, skip = _prepare(mvke, loader, rc, False)
+    # ABP, техническая SO 0001/01, группа не 1110000 и тип ZFG% — как у 153.2 и RPCOMP_252.1.
+    # MTPOS_MARA ZCVI и исключённая иерархия — как у соседней сверки наименования RPCONF_262.5.
+    work, stats, skip = _prepare(mvke, loader, rc, True)
     if work is None:
         if stats.get('no_rows_after_filters'):
             return _no_rows_after_filters(skip, stats)
@@ -678,36 +725,35 @@ def evaluate_rpconf_263_5(mvke, value_col, loader):
     work = _attach_description(work, loader)
     pack_col = _column(work, value_col, ('MVGR4', 'pack_size_code'))
     _prodh_col, text, _l4, hier_skip = _hierarchy_text(work)
-    if not pack_col or hier_skip:
-        return _empty_result(f'{rc}: {hier_skip or "MVKE.MVGR4 не найден"}', stats)
+    _vk, _vt, vkorg, vtweg, sales_skip = _sales_channels(work)
+    if not pack_col or hier_skip or sales_skip:
+        return _empty_result(f'{rc}: {hier_skip or sales_skip or "MVKE.MVGR4 не найден"}', stats)
     if int(_filled(work['LOOKUP_MATERIAL_DESCRIPTION']).sum()) == 0:
         return _empty_result(f'{rc}: MAKT.MAKTX не найден', stats)
     material_type = _codes(work['LOOKUP_MATERIAL_TYPE'])
+    material_group = _codes(work['LOOKUP_MATERIAL_GROUP'])
     scope = (
         _filled(work[pack_col])
         & ~_hierarchy_excluded(text)
-        & material_type.isin(MVGR3_FINISHED_TYPES)
+        & material_type.str.startswith('ZFG')
+        & material_group.ne('1110000')
+        & work['LOOKUP_MTPOS_MARA'].astype(str).ne('ZCVI')
+        & _technical_sales(vkorg, vtweg)
     )
     scoped = work.loc[scope].copy()
-    tokens = [
-        _independent_size_token(groes, volum, voleh, pack)
-        for groes, volum, voleh, pack in zip(
-            scoped['LOOKUP_GROES'], scoped['LOOKUP_VOLUM'], scoped['LOOKUP_VOLEH'], _codes(scoped[pack_col])
-        )
+    token_rows = [
+        _size_search_tokens(groes, volum, voleh)
+        for groes, volum, voleh in zip(scoped['LOOKUP_GROES'], scoped['LOOKUP_VOLUM'], scoped['LOOKUP_VOLEH'])
     ]
-    keep = [bool(token) for token in tokens]
+    keep = [bool(tokens) for tokens in token_rows]
     scoped = scoped.loc[keep].copy()
-    tokens = [token for token, enabled in zip(tokens, keep) if enabled]
+    token_rows = [tokens for tokens, enabled in zip(token_rows, keep) if enabled]
     stats['evaluated'] = len(scoped)
     if scoped.empty:
-        return _finish_empty(stats, f'{rc}: нет объёма упаковки в GROES, VOLUM или числовом MVGR4')
+        return _finish_empty(stats, f'{rc}: нет объёма упаковки в GROES или VOLUM на технической SO')
     description = scoped['LOOKUP_MATERIAL_DESCRIPTION'].astype(str)
     ok = pd.Series(
-        [
-            re.search(r'(?<!\d)' + re.escape(token) + r'(?!\d)', text_value) is not None
-            or re.search(r'(?<!\d)' + re.escape(token.replace('.', ',')) + r'(?!\d)', text_value) is not None
-            for token, text_value in zip(tokens, description)
-        ],
+        [_description_has_size(text_value, tokens) for tokens, text_value in zip(token_rows, description)],
         index=scoped.index,
     )
     return _result(scoped, ok, rc, stats)
@@ -726,6 +772,8 @@ def _ban_compare(mvke, value_col, loader, rule_code, value_names, finished: bool
         return _empty_result(f'{rule_code}: {hier_skip or sales_skip or "колонка значения не найдена"}', stats)
     value = _codes(work[value_col_name])
     material_type = _codes(work['LOOKUP_MATERIAL_TYPE'])
+    # SKU сверяется с MVKE материала BAN (WRKST) на той же паре VKORG+VTWEG.
+    # 290.4 без ограничения 0001/01 и без фильтра Finished Goods. Остальные BAN-правила — только 0001/01 и готовая продукция.
     sales_key = vkorg + '|' + vtweg
     ref = {}
     hier_by_key = {}
@@ -802,6 +850,8 @@ def evaluate_rpconf_290_3(mvke, value_col, loader):
     stats['evaluated'] = len(scoped)
     if scoped.empty:
         return _finish_empty(stats, f'{rc}: нет строк MVKE с PRODH вне исключённых иерархий')
+    # Группа — материал, тип и сбытовая организация: каналы внутри одной VKORG должны нести один PRODH.
+    # В исходной формуле и count=1, и count>1 возвращали успех. Несколько разных PRODH — ошибка.
     group_key = scoped['_DQ_MATNR'] + '|' + _codes(scoped['LOOKUP_MATERIAL_TYPE']) + '|' + vkorg.loc[scoped.index]
     ok = text.loc[scoped.index].groupby(group_key).transform('nunique').eq(1)
     return _result(scoped, ok, rc, stats)
@@ -827,6 +877,9 @@ def _compare_with_technical_so(mvke, value_col, loader, rule_code, left_names, r
     else:
         right = left
     material_type = _codes(work['LOOKUP_MATERIAL_TYPE'])
+    # Строки вне 0001 сравниваются с единственной парой на 0001. Несколько разных пар на 0001 — ошибка.
+    # 30.6 сверяет бренд. bpp_bp_code один на материал, поэтому это допуск в проверку, а не второе сравнение.
+    # Страны dm_product_universe в выгрузке нет. Если BPP в AUSP нет совсем, допуск по BP не режет все строки.
     bpp_lookup = _characteristic_lookup(loader, BPP_ATNAM, left4=True, material_class_only=True) if require_bpp else {}
     if require_bpp and bpp_lookup:
         work = work.copy()

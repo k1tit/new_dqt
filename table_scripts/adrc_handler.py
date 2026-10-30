@@ -3,6 +3,7 @@ import logging
 from typing import Dict, Any
 
 class ADRCHandler:
+    # Адрес ADRC. Геокоординаты считаются в checker по VTWEG/SPART, не здесь.
 
     def __init__(self, table_name: str, df: pd.DataFrame, memory_manager, checker):
         self.table_name = table_name

@@ -99,6 +99,7 @@ def _row_is_header(row, header) -> bool:
 
 
 def apply_fixed_sap_header(df: pd.DataFrame, table_name: str) -> pd.DataFrame:
+    # Шапка по позиции только если нужных имён нет и число столбцов совпало. Уже известное имя не затирается.
     header, needed = fixed_header_for(table_name)
     if df is None or header is None or not needed:
         return df

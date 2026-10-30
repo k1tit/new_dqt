@@ -66,6 +66,7 @@ def _adr2_rows_with_adr6_email(df_adr2, adr6_df):
     return pd.Series(False, index=df_adr2.index)
 
 class CompletenessValidator(BaseValidator):
+    # Общая полнота: пустая ячейка — ошибка. Свои правила материалов сюда не попадают.
 
     def validate(self, df, column_name, **kwargs):
         if column_name not in df.columns:
