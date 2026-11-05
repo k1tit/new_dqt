@@ -9039,14 +9039,14 @@ class FastDataQualityChecker:
         summary_ref = summary_sheet_title.replace("'", "''")
         data_last_row = summary_last_row if summary_last_row and summary_last_row >= 7 else None
         if data_last_row:
-            cat_rng = f"'{summary_ref}'!$C$7:$C${data_last_row}"
-            total_rng = f"'{summary_ref}'!$G$7:$G${data_last_row}"
-            passed_rng = f"'{summary_ref}'!$H$7:$H${data_last_row}"
+            cat_rng = f"'{summary_ref}'!$D$7:$D${data_last_row}"
+            total_rng = f"'{summary_ref}'!$H$7:$H${data_last_row}"
+            passed_rng = f"'{summary_ref}'!$I$7:$I${data_last_row}"
             rule_rng = f"'{summary_ref}'!$A$7:$A${data_last_row}"
         else:
-            cat_rng = f"'{summary_ref}'!$C:$C"
-            total_rng = f"'{summary_ref}'!$G:$G"
-            passed_rng = f"'{summary_ref}'!$H:$H"
+            cat_rng = f"'{summary_ref}'!$D:$D"
+            total_rng = f"'{summary_ref}'!$H:$H"
+            passed_rng = f"'{summary_ref}'!$I:$I"
             rule_rng = f"'{summary_ref}'!$A:$A"
         gray_rule_criteria = ','.join(f'{rule_rng},"<>{code}"' for code in sorted(self.GRAY_REPORT_RULES))
         header_fill = self.colors.get('header', PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid'))
@@ -9120,6 +9120,21 @@ class FastDataQualityChecker:
     def _save_totals_by_table(self, timestamp=None):
         return
 
+    def _rule_owner(self, rule_code: str) -> str:
+        owners = getattr(self, '_rule_owners', None)
+        if owners is None:
+            owners = {}
+            path = os.path.join(parent_dir, 'json files', 'rule_owners.json')
+            try:
+                with open(path, encoding='utf-8') as fh:
+                    raw = json.load(fh)
+                if isinstance(raw, dict):
+                    owners = {str(k).strip().upper(): str(v).strip() for k, v in raw.items() if not str(k).startswith('_')}
+            except Exception as exc:
+                print(f'[WARN] Ответственные не загружены ({path}): {exc}')
+            self._rule_owners = owners
+        return owners.get(str(rule_code or '').strip().upper(), '')
+
     def _create_correct_report(self, report_name: str='quality_check_report', timestamp=None):
         try:
             if not self.results:
@@ -9141,7 +9156,7 @@ class FastDataQualityChecker:
             ws['A3'] = f'Дата проверки: {check_date}'
             ws['A3'].font = Font(size=9, italic=True)
             ws['A4'] = ''
-            headers = ['Код правила', 'Описание', 'Категория', 'Таблица', 'Тип TAXNUM', 'Колонка', 'Всего записей', 'Успешно', 'Ошибок', '% успеха', 'Статус', 'Время (сек)', 'Комментарии', 'Список записей (файл)', 'Файл ошибок']
+            headers = ['Код правила', 'Описание', 'Ответственный', 'Категория', 'Таблица', 'Тип TAXNUM', 'Колонка', 'Всего записей', 'Успешно', 'Ошибок', '% успеха', 'Статус', 'Время (сек)', 'Комментарии', 'Список записей (файл)', 'Файл ошибок']
             for col_num, header in enumerate(headers, 1):
                 cell = ws.cell(row=6, column=col_num, value=header)
                 cell.fill = self.colors['header']
@@ -9176,14 +9191,15 @@ class FastDataQualityChecker:
                 shade_gray = str(result.get('rule_code') or '').strip().upper() in self.GRAY_REPORT_RULES
                 if shade_gray and self.GRAY_REPORT_NOTE not in str(comments or ''):
                     comments = f'{comments} {self.GRAY_REPORT_NOTE}'.strip() if str(comments or '').strip() else self.GRAY_REPORT_NOTE
-                values = [result.get('rule_code', ''), result.get('rule_description', ''), result.get('quality_category', ''), table_display, taxnum_type, result.get('column_checked', ''), total_rec_display, result.get('passed', 0), result.get('failed', 0), result.get('success_rate_%', 0), result.get('status', ''), result.get('execution_time_sec', 0), comments, list_file_display, error_file_display]
+                owner = self._rule_owner(result.get('rule_code', ''))
+                values = [result.get('rule_code', ''), result.get('rule_description', ''), owner, result.get('quality_category', ''), table_display, taxnum_type, result.get('column_checked', ''), total_rec_display, result.get('passed', 0), result.get('failed', 0), result.get('success_rate_%', 0), result.get('status', ''), result.get('execution_time_sec', 0), comments, list_file_display, error_file_display]
                 for col_num, value in enumerate(values, 1):
                     cell = ws.cell(row=row_num, column=col_num, value=value)
                     cell.font = self.colors['normal_font']
                     if shade_gray:
                         cell.fill = self.colors['gray']
                         cell.font = self.colors['gray_font']
-                    if col_num in (14, 15) and value and isinstance(value, str) and os.path.isfile(value):
+                    if col_num in (15, 16) and value and isinstance(value, str) and os.path.isfile(value):
                         try:
                             path_uri = 'file:///' + value.replace('\\', '/').lstrip('/')
                             cell.hyperlink = path_uri
@@ -9193,7 +9209,7 @@ class FastDataQualityChecker:
                             pass
                     if shade_gray:
                         continue
-                    if col_num == 11:
+                    if col_num == 12:
                         status_color = result.get('status_color', '')
                         if status_color == 'green':
                             cell.fill = self.colors['green']
@@ -9207,7 +9223,7 @@ class FastDataQualityChecker:
                         elif status_color == 'dark_red':
                             cell.fill = self.colors['dark_red']
                             cell.font = Font(color='000000', bold=True)
-                    elif col_num == 9:
+                    elif col_num == 10:
                         failed_count = result.get('failed', 0)
                         if failed_count == 0:
                             cell.fill = self.colors['green']
