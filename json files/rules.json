@@ -1588,6 +1588,21 @@
       "column_name_checked": "KONDA",
       "business_attribute_name": "Price Group",
       "exclude_from_score_calculation": false
+    },
+    {
+      "rule_code": "RCCOMP_163.1",
+      "rule_description": "Missing Terms Of Payment In KNVV View",
+      "technical_definition_RU": "IF terms_of_payment_code IS NULL THEN '0' ELSE '1'",
+      "value_checked": "terms_of_payment_code",
+      "datamart_or_reference_table_used": "dm_customer_sales_org",
+      "quality_category": "Completeness",
+      "sub_domain": "Distribution",
+      "type_of_check": "Availability",
+      "table_name_checked": "KNVV",
+      "column_name_checked": "ZTERM",
+      "business_attribute_name": "Terms Of Payment",
+      "is_active": 1,
+      "exclude_from_score_calculation": false
     }
   ],
   "KNB1": [
@@ -1623,6 +1638,21 @@
       "table_name_checked": "KNB1",
       "column_name_checked": "FDGRV",
       "business_attribute_name": "Cash Mgmt Group",
+      "exclude_from_score_calculation": false
+    },
+    {
+      "rule_code": "RCCOMP_119.1",
+      "rule_description": "Missing Terms Of Payment In KNB1 View",
+      "technical_definition_RU": "IF terms_of_payment_code IS NULL THEN '0' ELSE '1'",
+      "value_checked": "terms_of_payment_code",
+      "datamart_or_reference_table_used": "dm_customer_company (a) dm_customer_general (b) LEFT JOIN customer_code + country_code",
+      "quality_category": "Completeness",
+      "sub_domain": "Company",
+      "type_of_check": "Availability",
+      "table_name_checked": "KNB1",
+      "column_name_checked": "ZTERM",
+      "business_attribute_name": "Terms Of Payment",
+      "is_active": 1,
       "exclude_from_score_calculation": false
     },
     {
