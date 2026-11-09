@@ -9153,8 +9153,6 @@ class FastDataQualityChecker:
         first = data_start if data_start and data_start >= 1 else 7
         last = summary_last_row if summary_last_row and summary_last_row >= first else first
         ref = summary_sheet_title.replace("'", "''")
-        code_rng = f"'{ref}'!${cols['code']}${first}:${cols['code']}${last}"
-        desc_rng = f"'{ref}'!${cols['desc']}${first}:${cols['desc']}${last}"
         owner_rng = f"'{ref}'!${cols['owner']}${first}:${cols['owner']}${last}"
         total_rng = f"'{ref}'!${cols['total']}${first}:${cols['total']}${last}"
         err_rng = f"'{ref}'!${cols['errors']}${first}:${cols['errors']}${last}"
@@ -9164,15 +9162,11 @@ class FastDataQualityChecker:
         sand = 'FDE6D2'
         ink = '2B2B2B'
         line = 'E8C4A8'
-        fill_banner = PatternFill(start_color=orange, end_color=orange, fill_type='solid')
-        fill_sub = PatternFill(start_color=sand, end_color=sand, fill_type='solid')
         fill_header = PatternFill(start_color=orange, end_color=orange, fill_type='solid')
         fill_total = PatternFill(start_color=orange_deep, end_color=orange_deep, fill_type='solid')
         fill_white = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
         fill_alt = PatternFill(start_color=cream, end_color=cream, fill_type='solid')
         fill_group = PatternFill(start_color=sand, end_color=sand, fill_type='solid')
-        font_banner = Font(name='Calibri', size=18, bold=True, color='FFFFFF')
-        font_sub = Font(name='Calibri', size=11, color='6B3A12')
         font_section = Font(name='Calibri', size=13, bold=True, color=orange_deep)
         font_header = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
         font_body = Font(name='Calibri', size=11, color=ink)
@@ -9187,45 +9181,51 @@ class FastDataQualityChecker:
             top=Side(style='thin', color=line),
             bottom=Side(style='thin', color=line),
         )
-        for col in range(1, 6):
-            ws.cell(row=1, column=col).fill = fill_banner
-            ws.cell(row=2, column=col).fill = fill_sub
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=5)
-        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=5)
-        title = ws.cell(row=1, column=1, value='ОТЧЁТ ПО КАЧЕСТВУ ДАННЫХ')
-        title.font = font_banner
-        title.alignment = Alignment(horizontal='left', vertical='center', indent=1)
-        subtitle = ws.cell(row=2, column=1, value=f"='{ref}'!A3")
-        subtitle.font = font_sub
-        subtitle.alignment = Alignment(horizontal='left', vertical='center', indent=1)
-        ws.row_dimensions[1].height = 32
-        ws.row_dimensions[2].height = 20
-        ws.row_dimensions[3].height = 10
-        ws.cell(row=4, column=1, value='Сводка по ответственным').font = font_section
-        ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=4)
-        ws.row_dimensions[4].height = 22
+        ws.cell(row=1, column=1, value='Сводка по ответственным').font = font_section
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=4)
+        ws.row_dimensions[1].height = 22
         owner_headers = ('Ответственный2', 'Ответственный', 'Всего проверок', 'Ошибки')
         for col, header in enumerate(owner_headers, 1):
-            cell = ws.cell(row=5, column=col, value=header)
+            cell = ws.cell(row=2, column=col, value=header)
             cell.fill = fill_header
             cell.font = font_header
             cell.alignment = center
             cell.border = thin
-        ws.row_dimensions[5].height = 24
+        ws.row_dimensions[2].height = 24
+        summary_ws = wb[summary_sheet_title]
+        code_idx = column_index_from_string(cols['code'])
+        err_idx = column_index_from_string(cols['errors'])
         ranked = []
-        for result in ordered_results or []:
-            code = str(result.get('rule_code') or '').strip()
-            if not code or code.upper() in self.GRAY_REPORT_RULES:
+        for src in range(first, last + 1):
+            raw = summary_ws.cell(src, code_idx).value
+            if raw is None or str(raw).strip() == '':
                 continue
-            failed = result.get('failed', 0)
+            code = str(raw).strip()
+            if code.upper() in self.GRAY_REPORT_RULES:
+                continue
+            failed = summary_ws.cell(src, err_idx).value
             try:
-                failed = int(failed)
+                failed_n = int(failed)
             except (TypeError, ValueError):
-                failed = 0
-            ranked.append((failed, code))
+                try:
+                    failed_n = int(float(str(failed).replace(' ', '').replace(',', '.')))
+                except (TypeError, ValueError):
+                    failed_n = 0
+            ranked.append((failed_n, code, src))
+        if not ranked:
+            for result in ordered_results or []:
+                code = str(result.get('rule_code') or '').strip()
+                if not code or code.upper() in self.GRAY_REPORT_RULES:
+                    continue
+                failed = result.get('failed', 0)
+                try:
+                    failed_n = int(failed)
+                except (TypeError, ValueError):
+                    failed_n = 0
+                ranked.append((failed_n, code, None))
         ranked.sort(key=lambda item: (-item[0], item[1]))
-        top_codes = [code for _, code in ranked[:10]]
-        row = 6
+        top_rows = ranked[:10]
+        row = 3
         for group_name, members in self.REPORT_OWNER_GROUPS:
             block_start = row
             for index, member in enumerate(members):
@@ -9284,13 +9284,19 @@ class FastDataQualityChecker:
         ws.row_dimensions[row].height = 24
         row += 1
         top_start = row
-        for offset, code in enumerate(top_codes):
+        for offset, (failed_n, code, src) in enumerate(top_rows):
             zebra = fill_alt if offset % 2 else fill_white
             code_cell = ws.cell(row=row, column=1, value=code)
-            desc_cell = ws.cell(row=row, column=2, value=f'=IF(A{row}="","",INDEX({desc_rng},MATCH(A{row},{code_rng},0)))')
-            owner_cell = ws.cell(row=row, column=3, value=f'=IF(A{row}="","",INDEX({owner_rng},MATCH(A{row},{code_rng},0)))')
-            total_cell = ws.cell(row=row, column=4, value=f'=IF(A{row}="","",SUMIF({code_rng},A{row},{total_rng}))')
-            err_cell = ws.cell(row=row, column=5, value=f'=IF(A{row}="","",SUMIF({code_rng},A{row},{err_rng}))')
+            if src:
+                desc_cell = ws.cell(row=row, column=2, value=f'=IF(\'{ref}\'!{cols["desc"]}{src}="","",\'{ref}\'!{cols["desc"]}{src})')
+                owner_cell = ws.cell(row=row, column=3, value=f'=IF(\'{ref}\'!{cols["owner"]}{src}="","",\'{ref}\'!{cols["owner"]}{src})')
+                total_cell = ws.cell(row=row, column=4, value=f'=IF(\'{ref}\'!{cols["total"]}{src}="","",\'{ref}\'!{cols["total"]}{src})')
+                err_cell = ws.cell(row=row, column=5, value=f'=IF(\'{ref}\'!{cols["errors"]}{src}="","",\'{ref}\'!{cols["errors"]}{src})')
+            else:
+                desc_cell = ws.cell(row=row, column=2, value='')
+                owner_cell = ws.cell(row=row, column=3, value='')
+                total_cell = ws.cell(row=row, column=4, value='')
+                err_cell = ws.cell(row=row, column=5, value='')
             for cell, align, font in (
                 (code_cell, left, font_body),
                 (desc_cell, left, font_body),
@@ -9306,9 +9312,9 @@ class FastDataQualityChecker:
             err_cell.number_format = '#,##0'
             ws.row_dimensions[row].height = 20
             row += 1
-        if top_codes:
+        if top_rows:
             ws.conditional_formatting.add(
-                f'E{top_start}:E{top_start + len(top_codes) - 1}',
+                f'E{top_start}:E{top_start + len(top_rows) - 1}',
                 DataBarRule(start_type='num', start_value=0, end_type='max', color=orange, showValue=True, minLength=0, maxLength=100),
             )
         widths = {'A': 28, 'B': 68, 'C': 28, 'D': 18, 'E': 16}
@@ -9323,8 +9329,6 @@ class FastDataQualityChecker:
         ws.page_setup.paperSize = ws.PAPERSIZE_A4
         ws.sheet_properties.pageSetUpPr.fitToPage = True
         ws.sheet_properties.tabColor = orange
-        ws.freeze_panes = 'A4'
-        ws.print_title_rows = '1:2'
         wb.active = ws
         return ws
 
