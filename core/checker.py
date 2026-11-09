@@ -9222,8 +9222,8 @@ class FastDataQualityChecker:
         )
         summary_ws = wb[summary_sheet_title]
         period = ws.cell(row=1, column=1, value=self._report_period_label(summary_ws))
-        period.font = Font(name='Calibri', size=16, bold=True, color=orange_deep)
-        period.alignment = Alignment(horizontal='left', vertical='center')
+        period.font = Font(name='Calibri', size=12, bold=True, color=orange_deep)
+        period.alignment = Alignment(horizontal='left', vertical='bottom')
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=5)
         ws.row_dimensions[1].height = 26
         ws.cell(row=2, column=1, value='Сводка по ответственным').font = font_section
