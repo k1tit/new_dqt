@@ -390,6 +390,7 @@ def interactive_mode(checker, FastDataQualityChecker=None, checker_kwargs=None):
         print('  [1] - Проверить таблицу по номеру')
         print('  [N] - Проверить таблицу по имени')
         print('  [M] - Проверить несколько таблиц')
+        print('  [P] - Лист Report по последнему отчёту (самый новый по дате в папке)')
         print('  [Q] - Выход')
         print(f"  Текущий отчёт: rules={os.path.basename(checker.rules_file)} -> {checker.output_dir}")
         print('  Перед проверкой F/1/N/M можно задать опорную дату для правил на дату (например RCCONF_173.1)')
@@ -446,6 +447,8 @@ def interactive_mode(checker, FastDataQualityChecker=None, checker_kwargs=None):
                 checker, _ = run_table_check(checker, table_name)
             else:
                 print('Имя таблицы не может быть пустым!')
+        elif choice == 'P':
+            checker.refresh_report_sheet_from_latest()
         elif choice == 'M':
             tables = list_tables(checker)
             if tables:

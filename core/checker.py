@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.formatting.rule import DataBarRule
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import get_column_letter, column_index_from_string
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
@@ -9144,18 +9144,20 @@ class FastDataQualityChecker:
         ('Dispatch', ('Dispatch', 'Dispatch_GEO')),
     )
 
-    def _create_report_sheet(self, wb, summary_sheet_title: str, summary_last_row: Optional[int], ordered_results):
+    def _create_report_sheet(self, wb, summary_sheet_title: str, summary_last_row: Optional[int], ordered_results, summary_columns=None, data_start: int=7):
         sheet_name = 'Report'
         if sheet_name in wb.sheetnames:
             del wb[sheet_name]
         ws = wb.create_sheet(sheet_name, 0)
-        last = summary_last_row if summary_last_row and summary_last_row >= 7 else 7
+        cols = summary_columns or {'code': 'A', 'desc': 'B', 'owner': 'C', 'total': 'E', 'errors': 'G'}
+        first = data_start if data_start and data_start >= 1 else 7
+        last = summary_last_row if summary_last_row and summary_last_row >= first else first
         ref = summary_sheet_title.replace("'", "''")
-        code_rng = f"'{ref}'!$A$7:$A${last}"
-        desc_rng = f"'{ref}'!$B$7:$B${last}"
-        owner_rng = f"'{ref}'!$C$7:$C${last}"
-        total_rng = f"'{ref}'!$E$7:$E${last}"
-        err_rng = f"'{ref}'!$G$7:$G${last}"
+        code_rng = f"'{ref}'!${cols['code']}${first}:${cols['code']}${last}"
+        desc_rng = f"'{ref}'!${cols['desc']}${first}:${cols['desc']}${last}"
+        owner_rng = f"'{ref}'!${cols['owner']}${first}:${cols['owner']}${last}"
+        total_rng = f"'{ref}'!${cols['total']}${first}:${cols['total']}${last}"
+        err_rng = f"'{ref}'!${cols['errors']}${first}:${cols['errors']}${last}"
         orange = 'E87722'
         orange_deep = 'C65A12'
         cream = 'FFF6EE'
@@ -9325,6 +9327,125 @@ class FastDataQualityChecker:
         ws.print_title_rows = '1:2'
         wb.active = ws
         return ws
+
+    def _report_xlsx_candidates(self):
+        folder = getattr(self, 'output_dir', None)
+        prefix = str(getattr(self, 'report_prefix', '') or '').strip()
+        dated = []
+        undated = []
+        if not folder or not os.path.isdir(folder):
+            return []
+        for name in os.listdir(folder):
+            if name.startswith('~$') or not name.lower().endswith('.xlsx'):
+                continue
+            if prefix and not os.path.basename(name).startswith(prefix):
+                continue
+            path = os.path.join(folder, name)
+            if not os.path.isfile(path):
+                continue
+            stamp = re.search(r'(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})', name)
+            if not stamp:
+                undated.append((datetime.fromtimestamp(os.path.getmtime(path)), path))
+                continue
+            try:
+                when = datetime.strptime(stamp.group(1), '%Y-%m-%d_%H-%M-%S')
+            except ValueError:
+                undated.append((datetime.fromtimestamp(os.path.getmtime(path)), path))
+                continue
+            dated.append((when, path))
+        dated.sort(key=lambda item: item[0], reverse=True)
+        undated.sort(key=lambda item: item[0], reverse=True)
+        return [path for _, path in dated] + [path for _, path in undated]
+
+    def _summary_layout(self, wb):
+        sheets = []
+        for name in wb.sheetnames:
+            if str(name).strip().lower() == 'сводка проверок':
+                sheets.insert(0, wb[name])
+            else:
+                sheets.append(wb[name])
+        for ws in sheets:
+            for row in range(1, 21):
+                found = None
+                labels = {}
+                for col in range(1, 40):
+                    text = str(ws.cell(row, col).value or '').strip()
+                    if not text:
+                        continue
+                    labels[text] = get_column_letter(col)
+                    if text == 'Код правила':
+                        found = row
+                if not found:
+                    continue
+                needed = {
+                    'code': 'Код правила',
+                    'desc': 'Описание',
+                    'owner': 'Ответственный',
+                    'total': 'Всего записей',
+                    'errors': 'Ошибок',
+                }
+                if any(title not in labels for title in needed.values()):
+                    return None
+                return ws, found, {key: labels[title] for key, title in needed.items()}
+        return None
+
+    def refresh_report_sheet_from_latest(self):
+        from openpyxl import load_workbook
+        candidates = self._report_xlsx_candidates()
+        if not candidates:
+            print(f'[INFO] В {getattr(self, "output_dir", "")} нет xlsx отчётов')
+            return None
+        for path in candidates:
+            try:
+                wb = load_workbook(path)
+            except Exception as exc:
+                print(f'[WARN] Не открылся {path}: {exc}')
+                continue
+            layout = self._summary_layout(wb)
+            if layout is None:
+                wb.close()
+                print(f'[INFO] Пропуск {os.path.basename(path)}: нет сводки с кодом, описанием, ответственным, всего и ошибок')
+                continue
+            summary_ws, header_row, cols = layout
+            data_start = header_row + 1
+            code_idx = column_index_from_string(cols['code'])
+            err_idx = column_index_from_string(cols['errors'])
+            last = header_row
+            results = []
+            for row in range(data_start, (summary_ws.max_row or header_row) + 1):
+                code = summary_ws.cell(row, code_idx).value
+                if code is None or str(code).strip() == '':
+                    continue
+                last = row
+                results.append({'rule_code': str(code).strip(), 'failed': summary_ws.cell(row, err_idx).value})
+            self._create_report_sheet(
+                wb,
+                summary_sheet_title=summary_ws.title,
+                summary_last_row=last,
+                ordered_results=results,
+                summary_columns=cols,
+                data_start=data_start,
+            )
+            try:
+                wb.save(path)
+            except Exception as exc:
+                wb.close()
+                print(f'[ERROR] Не удалось записать {path}: {exc}')
+                return None
+            wb.close()
+            print(f'[INFO] Лист Report записан в последний отчёт: {path}')
+            stamp = re.search(r'(.+)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.xlsx$', os.path.basename(path), re.IGNORECASE)
+            if stamp:
+                stable = os.path.join(os.path.dirname(path), stamp.group(1) + '.xlsx')
+                if os.path.abspath(stable) != os.path.abspath(path):
+                    try:
+                        shutil.copy2(path, stable)
+                        print(f'[INFO] Та же книга скопирована в {stable}')
+                    except Exception as exc:
+                        print(f'[WARN] Копия без даты не обновлена ({stable}): {exc}')
+            return path
+        print('[INFO] Подходящий отчёт со сводкой не найден')
+        return None
 
     def _create_correct_report(self, report_name: str='quality_check_report', timestamp=None):
         try:
