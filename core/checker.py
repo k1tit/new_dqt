@@ -9282,15 +9282,24 @@ class FastDataQualityChecker:
             cell.alignment = right
             cell.number_format = '#,##0' if col < 10 else '0.00%'
         ws.cell(row=5, column=1, value='Сводка по ответственным').font = font_section
-        ws.merge_cells(start_row=5, start_column=1, end_row=5, end_column=4)
+        ws.merge_cells(start_row=5, start_column=1, end_row=5, end_column=5)
         ws.row_dimensions[5].height = 22
-        owner_headers = ('Функция', 'Ответственный', 'Всего проверок', 'Ошибки')
-        for col, header in enumerate(owner_headers, 1):
+        owner_header_cells = (
+            (1, 'Функция'),
+            (3, 'Ответственный'),
+            (4, 'Всего проверок'),
+            (5, 'Ошибки'),
+        )
+        for col, header in owner_header_cells:
             cell = ws.cell(row=6, column=col, value=header)
             cell.fill = fill_header
             cell.font = font_header
             cell.alignment = center
             cell.border = thin
+        ws.merge_cells(start_row=6, start_column=1, end_row=6, end_column=2)
+        ws.cell(row=6, column=2).fill = fill_header
+        ws.cell(row=6, column=2).border = thin
+        ws.cell(row=6, column=2).font = font_header
         ws.row_dimensions[6].height = 24
         code_idx = column_index_from_string(cols['code'])
         err_idx = column_index_from_string(cols['errors'])
@@ -9330,13 +9339,16 @@ class FastDataQualityChecker:
             for index, member in enumerate(members):
                 zebra = fill_alt if index % 2 else fill_white
                 group_cell = ws.cell(row=row, column=1, value=group_name if index == 0 else None)
-                member_cell = ws.cell(row=row, column=2, value=member)
-                total_cell = ws.cell(row=row, column=3, value=f'=SUMIF({owner_rng},B{row},{total_rng})')
-                err_cell = ws.cell(row=row, column=4, value=f'=SUMIF({owner_rng},B{row},{err_rng})')
+                group_pad = ws.cell(row=row, column=2, value=None)
+                member_cell = ws.cell(row=row, column=3, value=member)
+                total_cell = ws.cell(row=row, column=4, value=f'=SUMIF({owner_rng},C{row},{total_rng})')
+                err_cell = ws.cell(row=row, column=5, value=f'=SUMIF({owner_rng},C{row},{err_rng})')
                 group_cell.fill = fill_group
                 group_cell.font = Font(name='Calibri', size=11, bold=True, color=orange_deep)
                 group_cell.alignment = center
                 group_cell.border = thin
+                group_pad.fill = fill_group
+                group_pad.border = thin
                 for cell, align in ((member_cell, left), (total_cell, right), (err_cell, right)):
                     cell.fill = zebra
                     cell.font = font_error if cell is err_cell else font_body
@@ -9346,15 +9358,15 @@ class FastDataQualityChecker:
                 err_cell.number_format = '#,##0'
                 ws.row_dimensions[row].height = 20
                 row += 1
-            if len(members) > 1:
-                ws.merge_cells(start_row=block_start, start_column=1, end_row=row - 1, end_column=1)
+            ws.merge_cells(start_row=block_start, start_column=1, end_row=row - 1, end_column=2)
             total_label = ws.cell(row=row, column=1, value=f'{group_name} Total')
-            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
-            total_checks = ws.cell(row=row, column=3, value=f'=SUM(C{block_start}:C{row - 1})')
-            total_errors = ws.cell(row=row, column=4, value=f'=SUM(D{block_start}:D{row - 1})')
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+            total_checks = ws.cell(row=row, column=4, value=f'=SUM(D{block_start}:D{row - 1})')
+            total_errors = ws.cell(row=row, column=5, value=f'=SUM(E{block_start}:E{row - 1})')
             for cell, align in (
                 (total_label, left),
                 (ws.cell(row=row, column=2), left),
+                (ws.cell(row=row, column=3), left),
                 (total_checks, right),
                 (total_errors, right),
             ):
@@ -9367,16 +9379,20 @@ class FastDataQualityChecker:
             ws.row_dimensions[row].height = 22
             row += 1
         ws.cell(row=row, column=1, value='Топ-10 правил по количеству ошибок').font = font_section
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
         ws.row_dimensions[row].height = 22
         row += 1
-        top_headers = ('Код правила', 'Описание', 'Ответственный', 'Всего проверок', 'Ошибки')
-        for col, header in enumerate(top_headers, 1):
+        top_header_cells = ((1, 'Код правила'), (2, 'Описание'), (4, 'Ответственный'), (5, 'Всего проверок'), (6, 'Ошибки'))
+        for col, header in top_header_cells:
             cell = ws.cell(row=row, column=col, value=header)
             cell.fill = fill_header
             cell.font = font_header
             cell.alignment = center
             cell.border = thin
+        ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=3)
+        ws.cell(row=row, column=3).fill = fill_header
+        ws.cell(row=row, column=3).border = thin
+        ws.cell(row=row, column=3).font = font_header
         ws.row_dimensions[row].height = 24
         row += 1
         top_start = row
@@ -9385,17 +9401,19 @@ class FastDataQualityChecker:
             code_cell = ws.cell(row=row, column=1, value=code)
             if src:
                 desc_cell = ws.cell(row=row, column=2, value=f'=IF(\'{ref}\'!{cols["desc"]}{src}="","",\'{ref}\'!{cols["desc"]}{src})')
-                owner_cell = ws.cell(row=row, column=3, value=f'=IF(\'{ref}\'!{cols["owner"]}{src}="","",\'{ref}\'!{cols["owner"]}{src})')
-                total_cell = ws.cell(row=row, column=4, value=f'=IF(\'{ref}\'!{cols["total"]}{src}="","",\'{ref}\'!{cols["total"]}{src})')
-                err_cell = ws.cell(row=row, column=5, value=f'=IF(\'{ref}\'!{cols["errors"]}{src}="","",\'{ref}\'!{cols["errors"]}{src})')
+                owner_cell = ws.cell(row=row, column=4, value=f'=IF(\'{ref}\'!{cols["owner"]}{src}="","",\'{ref}\'!{cols["owner"]}{src})')
+                total_cell = ws.cell(row=row, column=5, value=f'=IF(\'{ref}\'!{cols["total"]}{src}="","",\'{ref}\'!{cols["total"]}{src})')
+                err_cell = ws.cell(row=row, column=6, value=f'=IF(\'{ref}\'!{cols["errors"]}{src}="","",\'{ref}\'!{cols["errors"]}{src})')
             else:
                 desc_cell = ws.cell(row=row, column=2, value='')
-                owner_cell = ws.cell(row=row, column=3, value='')
-                total_cell = ws.cell(row=row, column=4, value='')
-                err_cell = ws.cell(row=row, column=5, value='')
+                owner_cell = ws.cell(row=row, column=4, value='')
+                total_cell = ws.cell(row=row, column=5, value='')
+                err_cell = ws.cell(row=row, column=6, value='')
+            desc_pad = ws.cell(row=row, column=3, value=None)
             for cell, align, font in (
                 (code_cell, left, font_body),
                 (desc_cell, left, font_body),
+                (desc_pad, left, font_body),
                 (owner_cell, left, font_body),
                 (total_cell, right, font_body),
                 (err_cell, right, font_error),
@@ -9404,16 +9422,17 @@ class FastDataQualityChecker:
                 cell.font = font
                 cell.alignment = align
                 cell.border = thin
+            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=3)
             total_cell.number_format = '#,##0'
             err_cell.number_format = '#,##0'
             ws.row_dimensions[row].height = 20
             row += 1
         if top_rows:
             ws.conditional_formatting.add(
-                f'E{top_start}:E{top_start + len(top_rows) - 1}',
+                f'F{top_start}:F{top_start + len(top_rows) - 1}',
                 DataBarRule(start_type='num', start_value=0, end_type='max', color=orange, showValue=True, minLength=0, maxLength=100),
             )
-        widths = {'A': 28, 'B': 68, 'C': 28, 'D': 18, 'E': 16, 'F': 12, 'G': 3, 'H': 16, 'I': 14, 'J': 12}
+        widths = {'A': 18, 'B': 10, 'C': 42, 'D': 18, 'E': 16, 'F': 14, 'G': 3, 'H': 16, 'I': 14, 'J': 12}
         for letter, width in widths.items():
             ws.column_dimensions[letter].width = width
         ws.sheet_view.showGridLines = False
