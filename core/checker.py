@@ -9187,8 +9187,12 @@ class FastDataQualityChecker:
         sheet_name = 'Report'
         if sheet_name in wb.sheetnames:
             del wb[sheet_name]
+        if 'result' in wb.sheetnames:
+            del wb['result']
         ws = wb.create_sheet(sheet_name, 0)
-        cols = summary_columns or {'code': 'A', 'desc': 'B', 'owner': 'C', 'total': 'E', 'errors': 'G'}
+        cols = dict(summary_columns or {'code': 'A', 'desc': 'B', 'owner': 'C', 'total': 'E', 'errors': 'G'})
+        cols.setdefault('category', 'D')
+        cols.setdefault('passed', 'F')
         first = data_start if data_start and data_start >= 1 else 7
         last = summary_last_row if summary_last_row and summary_last_row >= first else first
         ref = summary_sheet_title.replace("'", "''")
@@ -9224,28 +9228,38 @@ class FastDataQualityChecker:
         period = ws.cell(row=1, column=1, value=self._report_period_label(summary_ws))
         period.font = Font(name='Calibri', size=12, bold=True, color=orange_deep)
         period.alignment = Alignment(horizontal='left', vertical='bottom')
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=7)
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=10)
         ws.row_dimensions[1].height = 26
-        ws.cell(row=2, column=1, value='Score').font = font_section
-        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=7)
-        ws.row_dimensions[2].height = 22
-        score_headers = ('Category', 'Weight', 'Successful', 'Failed', 'Total', '%', 'Score')
-        score_letters = ('A', 'B', 'C', 'D', 'E', 'F', 'J')
-        for col, header in enumerate(score_headers, 1):
-            cell = ws.cell(row=3, column=col, value=header)
+        cat_rng = f"'{ref}'!${cols['category']}${first}:${cols['category']}${last}"
+        passed_rng = f"'{ref}'!${cols['passed']}${first}:${cols['passed']}${last}"
+        rule_rng = f"'{ref}'!${cols['code']}${first}:${cols['code']}${last}"
+        gray_rule_criteria = ','.join(f'{rule_rng},"<>{code}"' for code in sorted(self.GRAY_REPORT_RULES))
+        for col, header in enumerate(('Category', 'Weight', 'Successful', 'Failed', 'Total', '%'), 1):
+            cell = ws.cell(row=2, column=col, value=header)
             cell.fill = fill_header
             cell.font = font_header
             cell.alignment = center
             cell.border = thin
-        ws.row_dimensions[3].height = 24
-        for offset, src in enumerate((2, 3)):
-            score_row = 4 + offset
-            zebra = fill_alt if offset % 2 else fill_white
-            for col, letter in enumerate(score_letters, 1):
-                if letter == 'J' and src != 2:
-                    cell = ws.cell(row=score_row, column=col, value='')
-                else:
-                    cell = ws.cell(row=score_row, column=col, value=f"=IF(result!{letter}{src}=\"\",\"\",result!{letter}{src})")
+        for col, header in enumerate(('Successful', 'Total', 'Score'), 8):
+            cell = ws.cell(row=2, column=col, value=header)
+            cell.fill = fill_header
+            cell.font = font_header
+            cell.alignment = center
+            cell.border = thin
+        ws.row_dimensions[2].height = 24
+        for offset, (category, weight) in enumerate((('Completeness', 0.4), ('Conformity', 0.2))):
+            score_row = 3 + offset
+            zebra = fill_white if offset % 2 == 0 else fill_alt
+            values = (
+                category,
+                weight,
+                f'=SUMIFS({passed_rng},{cat_rng},A{score_row},{gray_rule_criteria})',
+                f'=E{score_row}-C{score_row}',
+                f'=SUMIFS({total_rng},{cat_rng},A{score_row},{gray_rule_criteria})',
+                f'=IF(E{score_row}=0,0,C{score_row}/E{score_row})',
+            )
+            for col, value in enumerate(values, 1):
+                cell = ws.cell(row=score_row, column=col, value=value)
                 cell.fill = zebra
                 cell.font = font_body
                 cell.border = thin
@@ -9254,19 +9268,30 @@ class FastDataQualityChecker:
             for col in (3, 4, 5):
                 ws.cell(row=score_row, column=col).number_format = '#,##0'
             ws.cell(row=score_row, column=6).number_format = '0.00%'
-            ws.cell(row=score_row, column=7).number_format = '0.00%'
             ws.row_dimensions[score_row].height = 20
-        ws.cell(row=6, column=1, value='Сводка по ответственным').font = font_section
-        ws.merge_cells(start_row=6, start_column=1, end_row=6, end_column=4)
-        ws.row_dimensions[6].height = 22
+        score_values = (
+            '=SUMPRODUCT($B$3:$B$4,$C$3:$C$4)',
+            '=SUMPRODUCT($B$3:$B$4,$E$3:$E$4)',
+            '=IF(I3=0,0,H3/I3)',
+        )
+        for col, value in enumerate(score_values, 8):
+            cell = ws.cell(row=3, column=col, value=value)
+            cell.fill = fill_white
+            cell.font = font_body
+            cell.border = thin
+            cell.alignment = right
+            cell.number_format = '#,##0' if col < 10 else '0.00%'
+        ws.cell(row=5, column=1, value='Сводка по ответственным').font = font_section
+        ws.merge_cells(start_row=5, start_column=1, end_row=5, end_column=4)
+        ws.row_dimensions[5].height = 22
         owner_headers = ('Функция', 'Ответственный', 'Всего проверок', 'Ошибки')
         for col, header in enumerate(owner_headers, 1):
-            cell = ws.cell(row=7, column=col, value=header)
+            cell = ws.cell(row=6, column=col, value=header)
             cell.fill = fill_header
             cell.font = font_header
             cell.alignment = center
             cell.border = thin
-        ws.row_dimensions[7].height = 24
+        ws.row_dimensions[6].height = 24
         code_idx = column_index_from_string(cols['code'])
         err_idx = column_index_from_string(cols['errors'])
         ranked = []
@@ -9299,7 +9324,7 @@ class FastDataQualityChecker:
                 ranked.append((failed_n, code, None))
         ranked.sort(key=lambda item: (-item[0], item[1]))
         top_rows = ranked[:10]
-        row = 8
+        row = 7
         for group_name, members in self.REPORT_OWNER_GROUPS:
             block_start = row
             for index, member in enumerate(members):
@@ -9388,7 +9413,7 @@ class FastDataQualityChecker:
                 f'E{top_start}:E{top_start + len(top_rows) - 1}',
                 DataBarRule(start_type='num', start_value=0, end_type='max', color=orange, showValue=True, minLength=0, maxLength=100),
             )
-        widths = {'A': 28, 'B': 68, 'C': 28, 'D': 18, 'E': 16, 'F': 12, 'G': 12}
+        widths = {'A': 28, 'B': 68, 'C': 28, 'D': 18, 'E': 16, 'F': 12, 'G': 3, 'H': 16, 'I': 14, 'J': 12}
         for letter, width in widths.items():
             ws.column_dimensions[letter].width = width
         ws.sheet_view.showGridLines = False
@@ -9461,7 +9486,12 @@ class FastDataQualityChecker:
                 }
                 if any(title not in labels for title in needed.values()):
                     return None
-                return ws, found, {key: labels[title] for key, title in needed.items()}
+                found_cols = {key: labels[title] for key, title in needed.items()}
+                if 'Категория' in labels:
+                    found_cols['category'] = labels['Категория']
+                if 'Успешно' in labels:
+                    found_cols['passed'] = labels['Успешно']
+                return ws, found, found_cols
         return None
 
     def refresh_report_sheet_from_latest(self):
@@ -9656,24 +9686,8 @@ class FastDataQualityChecker:
             except Exception as report_err:
                 print(f'\n[WARN] Лист Report: {report_err}')
                 traceback.print_exc()
-            result_sheet_mode = 'failed'
-            try:
-                self._create_result_score_sheet(wb, summary_sheet_title=ws.title, summary_last_row=row_num - 1, results=ordered_results)
-                result_sheet_mode = 'formulas'
-            except Exception as result_err:
-                print(f'\n[WARN] Лист result (формулы): {result_err} — записываем значения без формул')
-                traceback.print_exc()
-                try:
-                    self._create_result_score_sheet_values_only(wb, results=ordered_results)
-                    result_sheet_mode = 'values'
-                except Exception as values_err:
-                    print(f'\n[ERROR] Лист result не создан: {values_err}')
-                    traceback.print_exc()
             self._apply_sheet_zoom(wb)
             wb.save(excel_path)
-            if result_sheet_mode != 'failed' and 'result' not in wb.sheetnames:
-                print('[WARN] Лист result отсутствует в книге перед сохранением')
-            print(f'[INFO] Лист result (Score, {result_sheet_mode}) добавлен в отчёт: {excel_path}')
             self.last_report_path = excel_path
             stable_path = os.path.join(self.output_dir, f'{self._safe_filename_token(report_name)}.xlsx')
             try:

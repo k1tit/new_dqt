@@ -463,7 +463,7 @@ def merge_and_load_ausp_from_atinn_folders(db_path=None, ausp_folder=None, skip_
     folders = []
     if ausp_folder:
         folders.append(ausp_folder)
-    else:
+                else:
         p = resolve_ausp_data_folder()
         if p:
             folders.append(p)
@@ -1326,7 +1326,7 @@ def collect_db_load_groups(base_folder=None, rules_path=None) -> dict:
 
     # 1) Подпапки db/ИМЯ_ТАБЛИЦЫ (как раньше)
     for name in sorted(os.listdir(base_abs)):
-        path = os.path.join(base_abs, name)
+            path = os.path.join(base_abs, name)
         if not os.path.isdir(path) or name.startswith('.') or name == '__pycache__':
             continue
         name_u = str(name).strip().upper()
