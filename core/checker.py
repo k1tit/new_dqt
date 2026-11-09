@@ -9202,7 +9202,7 @@ class FastDataQualityChecker:
         ink = '2B2B2B'
         line = 'E8C4A8'
         fill_header = PatternFill(start_color=orange, end_color=orange, fill_type='solid')
-        fill_total = PatternFill(start_color=orange_deep, end_color=orange_deep, fill_type='solid')
+        fill_total = PatternFill(start_color='F6D7BE', end_color='F6D7BE', fill_type='solid')
         fill_white = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
         fill_alt = PatternFill(start_color=cream, end_color=cream, fill_type='solid')
         fill_group = PatternFill(start_color=sand, end_color=sand, fill_type='solid')
@@ -9210,7 +9210,7 @@ class FastDataQualityChecker:
         font_header = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
         font_body = Font(name='Calibri', size=11, color=ink)
         font_error = Font(name='Calibri', size=11, bold=True, color=orange_deep)
-        font_total = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+        font_total = Font(name='Calibri', size=11, bold=True, color=ink)
         center = Alignment(horizontal='center', vertical='center', wrap_text=True)
         left = Alignment(horizontal='left', vertical='center', wrap_text=True)
         right = Alignment(horizontal='right', vertical='center')
@@ -9224,19 +9224,49 @@ class FastDataQualityChecker:
         period = ws.cell(row=1, column=1, value=self._report_period_label(summary_ws))
         period.font = Font(name='Calibri', size=12, bold=True, color=orange_deep)
         period.alignment = Alignment(horizontal='left', vertical='bottom')
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=4)
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=7)
         ws.row_dimensions[1].height = 26
-        ws.cell(row=2, column=1, value='Сводка по ответственным').font = font_section
-        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=4)
+        ws.cell(row=2, column=1, value='Score').font = font_section
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=7)
         ws.row_dimensions[2].height = 22
-        owner_headers = ('Функция', 'Ответственный', 'Всего проверок', 'Ошибки')
-        for col, header in enumerate(owner_headers, 1):
+        score_headers = ('Category', 'Weight', 'Successful', 'Failed', 'Total', '%', 'Score')
+        score_letters = ('A', 'B', 'C', 'D', 'E', 'F', 'J')
+        for col, header in enumerate(score_headers, 1):
             cell = ws.cell(row=3, column=col, value=header)
             cell.fill = fill_header
             cell.font = font_header
             cell.alignment = center
             cell.border = thin
         ws.row_dimensions[3].height = 24
+        for offset, src in enumerate((2, 3)):
+            score_row = 4 + offset
+            zebra = fill_alt if offset % 2 else fill_white
+            for col, letter in enumerate(score_letters, 1):
+                if letter == 'J' and src != 2:
+                    cell = ws.cell(row=score_row, column=col, value='')
+                else:
+                    cell = ws.cell(row=score_row, column=col, value=f"=IF(result!{letter}{src}=\"\",\"\",result!{letter}{src})")
+                cell.fill = zebra
+                cell.font = font_body
+                cell.border = thin
+                cell.alignment = left if col == 1 else right
+            ws.cell(row=score_row, column=2).number_format = '0.0'
+            for col in (3, 4, 5):
+                ws.cell(row=score_row, column=col).number_format = '#,##0'
+            ws.cell(row=score_row, column=6).number_format = '0.00%'
+            ws.cell(row=score_row, column=7).number_format = '0.00%'
+            ws.row_dimensions[score_row].height = 20
+        ws.cell(row=6, column=1, value='Сводка по ответственным').font = font_section
+        ws.merge_cells(start_row=6, start_column=1, end_row=6, end_column=4)
+        ws.row_dimensions[6].height = 22
+        owner_headers = ('Функция', 'Ответственный', 'Всего проверок', 'Ошибки')
+        for col, header in enumerate(owner_headers, 1):
+            cell = ws.cell(row=7, column=col, value=header)
+            cell.fill = fill_header
+            cell.font = font_header
+            cell.alignment = center
+            cell.border = thin
+        ws.row_dimensions[7].height = 24
         code_idx = column_index_from_string(cols['code'])
         err_idx = column_index_from_string(cols['errors'])
         ranked = []
@@ -9269,7 +9299,7 @@ class FastDataQualityChecker:
                 ranked.append((failed_n, code, None))
         ranked.sort(key=lambda item: (-item[0], item[1]))
         top_rows = ranked[:10]
-        row = 4
+        row = 8
         for group_name, members in self.REPORT_OWNER_GROUPS:
             block_start = row
             for index, member in enumerate(members):
@@ -9358,7 +9388,7 @@ class FastDataQualityChecker:
                 f'E{top_start}:E{top_start + len(top_rows) - 1}',
                 DataBarRule(start_type='num', start_value=0, end_type='max', color=orange, showValue=True, minLength=0, maxLength=100),
             )
-        widths = {'A': 28, 'B': 68, 'C': 28, 'D': 18, 'E': 16}
+        widths = {'A': 28, 'B': 68, 'C': 28, 'D': 18, 'E': 16, 'F': 12, 'G': 12}
         for letter, width in widths.items():
             ws.column_dimensions[letter].width = width
         ws.sheet_view.showGridLines = False
