@@ -9228,34 +9228,28 @@ class FastDataQualityChecker:
         period = ws.cell(row=1, column=1, value=self._report_period_label(summary_ws))
         period.font = Font(name='Calibri', size=12, bold=True, color=orange_deep)
         period.alignment = Alignment(horizontal='left', vertical='bottom')
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=10)
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=6)
         ws.row_dimensions[1].height = 26
         cat_rng = f"'{ref}'!${cols['category']}${first}:${cols['category']}${last}"
         passed_rng = f"'{ref}'!${cols['passed']}${first}:${cols['passed']}${last}"
         rule_rng = f"'{ref}'!${cols['code']}${first}:${cols['code']}${last}"
         gray_rule_criteria = ','.join(f'{rule_rng},"<>{code}"' for code in sorted(self.GRAY_REPORT_RULES))
-        for col, header in enumerate(('Category', 'Weight', 'Successful', 'Failed', 'Total', '%'), 1):
-            cell = ws.cell(row=2, column=col, value=header)
-            cell.fill = fill_header
-            cell.font = font_header
-            cell.alignment = center
-            cell.border = thin
-        for col, header in enumerate(('Successful', 'Total', 'Score'), 8):
+        for col, header in enumerate(('Категория', 'Вес', 'Успешно', 'Ошибок', 'Всего', '%'), 1):
             cell = ws.cell(row=2, column=col, value=header)
             cell.fill = fill_header
             cell.font = font_header
             cell.alignment = center
             cell.border = thin
         ws.row_dimensions[2].height = 24
-        for offset, (category, weight) in enumerate((('Completeness', 0.4), ('Conformity', 0.2))):
+        for offset, (category, title, weight) in enumerate((('Completeness', 'Полнота', 0.4), ('Conformity', 'Соответствие', 0.2))):
             score_row = 3 + offset
             zebra = fill_white if offset % 2 == 0 else fill_alt
             values = (
-                category,
+                title,
                 weight,
-                f'=SUMIFS({passed_rng},{cat_rng},A{score_row},{gray_rule_criteria})',
+                f'=SUMIFS({passed_rng},{cat_rng},"{category}",{gray_rule_criteria})',
                 f'=E{score_row}-C{score_row}',
-                f'=SUMIFS({total_rng},{cat_rng},A{score_row},{gray_rule_criteria})',
+                f'=SUMIFS({total_rng},{cat_rng},"{category}",{gray_rule_criteria})',
                 f'=IF(E{score_row}=0,0,C{score_row}/E{score_row})',
             )
             for col, value in enumerate(values, 1):
@@ -9269,21 +9263,29 @@ class FastDataQualityChecker:
                 ws.cell(row=score_row, column=col).number_format = '#,##0'
             ws.cell(row=score_row, column=6).number_format = '0.00%'
             ws.row_dimensions[score_row].height = 20
-        score_values = (
+        total_row = 5
+        total_values = (
+            'Итого',
+            None,
             '=SUMPRODUCT($B$3:$B$4,$C$3:$C$4)',
+            '=E5-C5',
             '=SUMPRODUCT($B$3:$B$4,$E$3:$E$4)',
-            '=IF(I3=0,0,H3/I3)',
+            '=IF(E5=0,0,C5/E5)',
         )
-        for col, value in enumerate(score_values, 8):
-            cell = ws.cell(row=3, column=col, value=value)
-            cell.fill = fill_white
-            cell.font = font_body
+        for col, value in enumerate(total_values, 1):
+            cell = ws.cell(row=total_row, column=col, value=value)
+            cell.fill = fill_total
+            cell.font = font_total
             cell.border = thin
-            cell.alignment = right
-            cell.number_format = '#,##0' if col < 10 else '0.00%'
-        ws.cell(row=5, column=1, value='Сводка по ответственным').font = font_section
-        ws.merge_cells(start_row=5, start_column=1, end_row=5, end_column=5)
-        ws.row_dimensions[5].height = 22
+            cell.alignment = left if col == 1 else right
+        ws.merge_cells(start_row=total_row, start_column=1, end_row=total_row, end_column=2)
+        for col in (3, 4, 5):
+            ws.cell(row=total_row, column=col).number_format = '#,##0'
+        ws.cell(row=total_row, column=6).number_format = '0.00%'
+        ws.row_dimensions[total_row].height = 22
+        ws.cell(row=6, column=1, value='Сводка по ответственным').font = font_section
+        ws.merge_cells(start_row=6, start_column=1, end_row=6, end_column=5)
+        ws.row_dimensions[6].height = 22
         owner_header_cells = (
             (1, 'Функция'),
             (3, 'Ответственный'),
@@ -9291,16 +9293,16 @@ class FastDataQualityChecker:
             (5, 'Ошибки'),
         )
         for col, header in owner_header_cells:
-            cell = ws.cell(row=6, column=col, value=header)
+            cell = ws.cell(row=7, column=col, value=header)
             cell.fill = fill_header
             cell.font = font_header
             cell.alignment = center
             cell.border = thin
-        ws.merge_cells(start_row=6, start_column=1, end_row=6, end_column=2)
-        ws.cell(row=6, column=2).fill = fill_header
-        ws.cell(row=6, column=2).border = thin
-        ws.cell(row=6, column=2).font = font_header
-        ws.row_dimensions[6].height = 24
+        ws.merge_cells(start_row=7, start_column=1, end_row=7, end_column=2)
+        ws.cell(row=7, column=2).fill = fill_header
+        ws.cell(row=7, column=2).border = thin
+        ws.cell(row=7, column=2).font = font_header
+        ws.row_dimensions[7].height = 24
         code_idx = column_index_from_string(cols['code'])
         err_idx = column_index_from_string(cols['errors'])
         ranked = []
@@ -9333,7 +9335,7 @@ class FastDataQualityChecker:
                 ranked.append((failed_n, code, None))
         ranked.sort(key=lambda item: (-item[0], item[1]))
         top_rows = ranked[:10]
-        row = 7
+        row = 8
         for group_name, members in self.REPORT_OWNER_GROUPS:
             block_start = row
             for index, member in enumerate(members):
@@ -9359,7 +9361,7 @@ class FastDataQualityChecker:
                 ws.row_dimensions[row].height = 20
                 row += 1
             ws.merge_cells(start_row=block_start, start_column=1, end_row=row - 1, end_column=2)
-            total_label = ws.cell(row=row, column=1, value=f'{group_name} Total')
+            total_label = ws.cell(row=row, column=1, value=f'{group_name} — итог')
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
             total_checks = ws.cell(row=row, column=4, value=f'=SUM(D{block_start}:D{row - 1})')
             total_errors = ws.cell(row=row, column=5, value=f'=SUM(E{block_start}:E{row - 1})')
