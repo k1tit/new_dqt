@@ -9144,6 +9144,45 @@ class FastDataQualityChecker:
         ('Dispatch', ('Dispatch', 'Dispatch_GEO')),
     )
 
+    def _apply_sheet_zoom(self, wb):
+        scales = {'report': 60, 'сводка проверок': 85, 'result': 100}
+        for name in wb.sheetnames:
+            scale = scales.get(str(name).strip().lower())
+            if scale:
+                wb[name].sheet_view.zoomScale = scale
+
+    def _report_period_label(self, summary_ws) -> str:
+        months = (
+            'январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
+            'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь',
+        )
+        text = ''
+        for row in range(1, 8):
+            for col in range(1, 8):
+                value = summary_ws.cell(row, col).value
+                if value and 'Дата проверки' in str(value):
+                    text = str(value)
+                    break
+            if text:
+                break
+        year = month = None
+        dated = re.search(r'(20\d{2})[-./](\d{1,2})[-./](\d{1,2})', text or '')
+        if dated:
+            year, month = int(dated.group(1)), int(dated.group(2))
+        else:
+            month_year = re.search(r'(\d{1,2})[./](20\d{2})', text or '')
+            if month_year:
+                month, year = int(month_year.group(1)), int(month_year.group(2))
+        if not year or not month or not 1 <= month <= 12:
+            return ''
+        if month == 1:
+            year -= 1
+            month = 12
+        else:
+            month -= 1
+        name = months[month - 1]
+        return f'{name[:1].upper()}{name[1:]} {year}'
+
     def _create_report_sheet(self, wb, summary_sheet_title: str, summary_last_row: Optional[int], ordered_results, summary_columns=None, data_start: int=7):
         sheet_name = 'Report'
         if sheet_name in wb.sheetnames:
@@ -9181,18 +9220,23 @@ class FastDataQualityChecker:
             top=Side(style='thin', color=line),
             bottom=Side(style='thin', color=line),
         )
-        ws.cell(row=1, column=1, value='Сводка по ответственным').font = font_section
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=4)
-        ws.row_dimensions[1].height = 22
-        owner_headers = ('Ответственный2', 'Ответственный', 'Всего проверок', 'Ошибки')
+        summary_ws = wb[summary_sheet_title]
+        period = ws.cell(row=1, column=1, value=self._report_period_label(summary_ws))
+        period.font = Font(name='Calibri', size=16, bold=True, color=orange_deep)
+        period.alignment = Alignment(horizontal='left', vertical='center')
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=5)
+        ws.row_dimensions[1].height = 26
+        ws.cell(row=2, column=1, value='Сводка по ответственным').font = font_section
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=4)
+        ws.row_dimensions[2].height = 22
+        owner_headers = ('Функция', 'Ответственный', 'Всего проверок', 'Ошибки')
         for col, header in enumerate(owner_headers, 1):
-            cell = ws.cell(row=2, column=col, value=header)
+            cell = ws.cell(row=3, column=col, value=header)
             cell.fill = fill_header
             cell.font = font_header
             cell.alignment = center
             cell.border = thin
-        ws.row_dimensions[2].height = 24
-        summary_ws = wb[summary_sheet_title]
+        ws.row_dimensions[3].height = 24
         code_idx = column_index_from_string(cols['code'])
         err_idx = column_index_from_string(cols['errors'])
         ranked = []
@@ -9225,7 +9269,7 @@ class FastDataQualityChecker:
                 ranked.append((failed_n, code, None))
         ranked.sort(key=lambda item: (-item[0], item[1]))
         top_rows = ranked[:10]
-        row = 3
+        row = 4
         for group_name, members in self.REPORT_OWNER_GROUPS:
             block_start = row
             for index, member in enumerate(members):
@@ -9267,9 +9311,6 @@ class FastDataQualityChecker:
             total_errors.number_format = '#,##0'
             ws.row_dimensions[row].height = 22
             row += 1
-        row += 1
-        ws.row_dimensions[row].height = 12
-        row += 1
         ws.cell(row=row, column=1, value='Топ-10 правил по количеству ошибок').font = font_section
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
         ws.row_dimensions[row].height = 22
@@ -9321,7 +9362,7 @@ class FastDataQualityChecker:
         for letter, width in widths.items():
             ws.column_dimensions[letter].width = width
         ws.sheet_view.showGridLines = False
-        ws.sheet_view.zoomScale = 110
+        self._apply_sheet_zoom(wb)
         ws.page_setup.orientation = 'landscape'
         ws.page_setup.fitToPage = True
         ws.page_setup.fitToWidth = 1
@@ -9598,6 +9639,7 @@ class FastDataQualityChecker:
                 except Exception as values_err:
                     print(f'\n[ERROR] Лист result не создан: {values_err}')
                     traceback.print_exc()
+            self._apply_sheet_zoom(wb)
             wb.save(excel_path)
             if result_sheet_mode != 'failed' and 'result' not in wb.sheetnames:
                 print('[WARN] Лист result отсутствует в книге перед сохранением')
