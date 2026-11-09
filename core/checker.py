@@ -12,7 +12,8 @@ import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from openpyxl import Workbook
-from openpyxl.styles import PatternFill, Font, Alignment
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from openpyxl.formatting.rule import DataBarRule
 from openpyxl.utils import get_column_letter
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
@@ -9040,13 +9041,13 @@ class FastDataQualityChecker:
         data_last_row = summary_last_row if summary_last_row and summary_last_row >= 7 else None
         if data_last_row:
             cat_rng = f"'{summary_ref}'!$D$7:$D${data_last_row}"
-            total_rng = f"'{summary_ref}'!$H$7:$H${data_last_row}"
-            passed_rng = f"'{summary_ref}'!$I$7:$I${data_last_row}"
+            total_rng = f"'{summary_ref}'!$E$7:$E${data_last_row}"
+            passed_rng = f"'{summary_ref}'!$F$7:$F${data_last_row}"
             rule_rng = f"'{summary_ref}'!$A$7:$A${data_last_row}"
         else:
             cat_rng = f"'{summary_ref}'!$D:$D"
-            total_rng = f"'{summary_ref}'!$H:$H"
-            passed_rng = f"'{summary_ref}'!$I:$I"
+            total_rng = f"'{summary_ref}'!$E:$E"
+            passed_rng = f"'{summary_ref}'!$F:$F"
             rule_rng = f"'{summary_ref}'!$A:$A"
         gray_rule_criteria = ','.join(f'{rule_rng},"<>{code}"' for code in sorted(self.GRAY_REPORT_RULES))
         header_fill = self.colors.get('header', PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid'))
@@ -9135,6 +9136,196 @@ class FastDataQualityChecker:
             self._rule_owners = owners
         return owners.get(str(rule_code or '').strip().upper(), '')
 
+    REPORT_OWNER_GROUPS = (
+        ('Sales&Master Data', ('Master Data', 'Master Data Name&Address')),
+        ('MTC', ('MTC', 'MTC/Contact Person')),
+        ('RTM', ('RTM_CCAF', 'RTM_CCC', 'RTM_RED', 'RTM_Visits')),
+        ('DEO', ('DEO',)),
+        ('Dispatch', ('Dispatch', 'Dispatch_GEO')),
+    )
+
+    def _create_report_sheet(self, wb, summary_sheet_title: str, summary_last_row: Optional[int], ordered_results):
+        sheet_name = 'Report'
+        if sheet_name in wb.sheetnames:
+            del wb[sheet_name]
+        ws = wb.create_sheet(sheet_name, 0)
+        last = summary_last_row if summary_last_row and summary_last_row >= 7 else 7
+        ref = summary_sheet_title.replace("'", "''")
+        code_rng = f"'{ref}'!$A$7:$A${last}"
+        desc_rng = f"'{ref}'!$B$7:$B${last}"
+        owner_rng = f"'{ref}'!$C$7:$C${last}"
+        total_rng = f"'{ref}'!$E$7:$E${last}"
+        err_rng = f"'{ref}'!$G$7:$G${last}"
+        orange = 'E87722'
+        orange_deep = 'C65A12'
+        cream = 'FFF6EE'
+        sand = 'FDE6D2'
+        ink = '2B2B2B'
+        line = 'E8C4A8'
+        fill_banner = PatternFill(start_color=orange, end_color=orange, fill_type='solid')
+        fill_sub = PatternFill(start_color=sand, end_color=sand, fill_type='solid')
+        fill_header = PatternFill(start_color=orange, end_color=orange, fill_type='solid')
+        fill_total = PatternFill(start_color=orange_deep, end_color=orange_deep, fill_type='solid')
+        fill_white = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
+        fill_alt = PatternFill(start_color=cream, end_color=cream, fill_type='solid')
+        fill_group = PatternFill(start_color=sand, end_color=sand, fill_type='solid')
+        font_banner = Font(name='Calibri', size=18, bold=True, color='FFFFFF')
+        font_sub = Font(name='Calibri', size=11, color='6B3A12')
+        font_section = Font(name='Calibri', size=13, bold=True, color=orange_deep)
+        font_header = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+        font_body = Font(name='Calibri', size=11, color=ink)
+        font_error = Font(name='Calibri', size=11, bold=True, color=orange_deep)
+        font_total = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+        center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        left = Alignment(horizontal='left', vertical='center', wrap_text=True)
+        right = Alignment(horizontal='right', vertical='center')
+        thin = Border(
+            left=Side(style='thin', color=line),
+            right=Side(style='thin', color=line),
+            top=Side(style='thin', color=line),
+            bottom=Side(style='thin', color=line),
+        )
+        for col in range(1, 6):
+            ws.cell(row=1, column=col).fill = fill_banner
+            ws.cell(row=2, column=col).fill = fill_sub
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=5)
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=5)
+        title = ws.cell(row=1, column=1, value='ОТЧЁТ ПО КАЧЕСТВУ ДАННЫХ')
+        title.font = font_banner
+        title.alignment = Alignment(horizontal='left', vertical='center', indent=1)
+        subtitle = ws.cell(row=2, column=1, value=f"='{ref}'!A3")
+        subtitle.font = font_sub
+        subtitle.alignment = Alignment(horizontal='left', vertical='center', indent=1)
+        ws.row_dimensions[1].height = 32
+        ws.row_dimensions[2].height = 20
+        ws.row_dimensions[3].height = 10
+        ws.cell(row=4, column=1, value='Сводка по ответственным').font = font_section
+        ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=4)
+        ws.row_dimensions[4].height = 22
+        owner_headers = ('Ответственный2', 'Ответственный', 'Всего проверок', 'Ошибки')
+        for col, header in enumerate(owner_headers, 1):
+            cell = ws.cell(row=5, column=col, value=header)
+            cell.fill = fill_header
+            cell.font = font_header
+            cell.alignment = center
+            cell.border = thin
+        ws.row_dimensions[5].height = 24
+        ranked = []
+        for result in ordered_results or []:
+            code = str(result.get('rule_code') or '').strip()
+            if not code or code.upper() in self.GRAY_REPORT_RULES:
+                continue
+            failed = result.get('failed', 0)
+            try:
+                failed = int(failed)
+            except (TypeError, ValueError):
+                failed = 0
+            ranked.append((failed, code))
+        ranked.sort(key=lambda item: (-item[0], item[1]))
+        top_codes = [code for _, code in ranked[:10]]
+        row = 6
+        for group_name, members in self.REPORT_OWNER_GROUPS:
+            block_start = row
+            for index, member in enumerate(members):
+                zebra = fill_alt if index % 2 else fill_white
+                group_cell = ws.cell(row=row, column=1, value=group_name if index == 0 else None)
+                member_cell = ws.cell(row=row, column=2, value=member)
+                total_cell = ws.cell(row=row, column=3, value=f'=SUMIF({owner_rng},B{row},{total_rng})')
+                err_cell = ws.cell(row=row, column=4, value=f'=SUMIF({owner_rng},B{row},{err_rng})')
+                group_cell.fill = fill_group
+                group_cell.font = Font(name='Calibri', size=11, bold=True, color=orange_deep)
+                group_cell.alignment = center
+                group_cell.border = thin
+                for cell, align in ((member_cell, left), (total_cell, right), (err_cell, right)):
+                    cell.fill = zebra
+                    cell.font = font_error if cell is err_cell else font_body
+                    cell.alignment = align
+                    cell.border = thin
+                total_cell.number_format = '#,##0'
+                err_cell.number_format = '#,##0'
+                ws.row_dimensions[row].height = 20
+                row += 1
+            if len(members) > 1:
+                ws.merge_cells(start_row=block_start, start_column=1, end_row=row - 1, end_column=1)
+            total_label = ws.cell(row=row, column=1, value=f'{group_name} Total')
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
+            total_checks = ws.cell(row=row, column=3, value=f'=SUM(C{block_start}:C{row - 1})')
+            total_errors = ws.cell(row=row, column=4, value=f'=SUM(D{block_start}:D{row - 1})')
+            for cell, align in (
+                (total_label, left),
+                (ws.cell(row=row, column=2), left),
+                (total_checks, right),
+                (total_errors, right),
+            ):
+                cell.fill = fill_total
+                cell.font = font_total
+                cell.alignment = align
+                cell.border = thin
+            total_checks.number_format = '#,##0'
+            total_errors.number_format = '#,##0'
+            ws.row_dimensions[row].height = 22
+            row += 1
+        row += 1
+        ws.row_dimensions[row].height = 12
+        row += 1
+        ws.cell(row=row, column=1, value='Топ-10 правил по количеству ошибок').font = font_section
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
+        ws.row_dimensions[row].height = 22
+        row += 1
+        top_headers = ('Код правила', 'Описание', 'Ответственный', 'Всего проверок', 'Ошибки')
+        for col, header in enumerate(top_headers, 1):
+            cell = ws.cell(row=row, column=col, value=header)
+            cell.fill = fill_header
+            cell.font = font_header
+            cell.alignment = center
+            cell.border = thin
+        ws.row_dimensions[row].height = 24
+        row += 1
+        top_start = row
+        for offset, code in enumerate(top_codes):
+            zebra = fill_alt if offset % 2 else fill_white
+            code_cell = ws.cell(row=row, column=1, value=code)
+            desc_cell = ws.cell(row=row, column=2, value=f'=IF(A{row}="","",INDEX({desc_rng},MATCH(A{row},{code_rng},0)))')
+            owner_cell = ws.cell(row=row, column=3, value=f'=IF(A{row}="","",INDEX({owner_rng},MATCH(A{row},{code_rng},0)))')
+            total_cell = ws.cell(row=row, column=4, value=f'=IF(A{row}="","",SUMIF({code_rng},A{row},{total_rng}))')
+            err_cell = ws.cell(row=row, column=5, value=f'=IF(A{row}="","",SUMIF({code_rng},A{row},{err_rng}))')
+            for cell, align, font in (
+                (code_cell, left, font_body),
+                (desc_cell, left, font_body),
+                (owner_cell, left, font_body),
+                (total_cell, right, font_body),
+                (err_cell, right, font_error),
+            ):
+                cell.fill = zebra
+                cell.font = font
+                cell.alignment = align
+                cell.border = thin
+            total_cell.number_format = '#,##0'
+            err_cell.number_format = '#,##0'
+            ws.row_dimensions[row].height = 20
+            row += 1
+        if top_codes:
+            ws.conditional_formatting.add(
+                f'E{top_start}:E{top_start + len(top_codes) - 1}',
+                DataBarRule(start_type='num', start_value=0, end_type='max', color=orange, showValue=True, minLength=0, maxLength=100),
+            )
+        widths = {'A': 28, 'B': 68, 'C': 28, 'D': 18, 'E': 16}
+        for letter, width in widths.items():
+            ws.column_dimensions[letter].width = width
+        ws.sheet_view.showGridLines = False
+        ws.sheet_view.zoomScale = 110
+        ws.page_setup.orientation = 'landscape'
+        ws.page_setup.fitToPage = True
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 1
+        ws.page_setup.paperSize = ws.PAPERSIZE_A4
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.sheet_properties.tabColor = orange
+        ws.freeze_panes = 'A4'
+        ws.print_title_rows = '1:2'
+        wb.active = ws
+        return ws
+
     def _create_correct_report(self, report_name: str='quality_check_report', timestamp=None):
         try:
             if not self.results:
@@ -9156,7 +9347,18 @@ class FastDataQualityChecker:
             ws['A3'] = f'Дата проверки: {check_date}'
             ws['A3'].font = Font(size=9, italic=True)
             ws['A4'] = ''
-            headers = ['Код правила', 'Описание', 'Ответственный', 'Категория', 'Таблица', 'Тип TAXNUM', 'Колонка', 'Всего записей', 'Успешно', 'Ошибок', '% успеха', 'Статус', 'Время (сек)', 'Комментарии', 'Список записей (файл)', 'Файл ошибок']
+            headers = [
+                'Код правила', 'Описание', 'Ответственный', 'Категория',
+                'Всего записей', 'Успешно', 'Ошибок', '% успеха', 'Статус',
+                'Таблица', 'Колонка', 'Комментарии',
+                'Время (сек)', 'Список записей (файл)', 'Файл ошибок',
+            ]
+            status_col = headers.index('Статус') + 1
+            failed_col = headers.index('Ошибок') + 1
+            link_cols = {
+                headers.index('Список записей (файл)') + 1,
+                headers.index('Файл ошибок') + 1,
+            }
             for col_num, header in enumerate(headers, 1):
                 cell = ws.cell(row=6, column=col_num, value=header)
                 cell.fill = self.colors['header']
@@ -9174,11 +9376,8 @@ class FastDataQualityChecker:
                 table_name = result.get('table_name', '')
                 if table_name in self.DFKKBPTAXNUM_ALIASES:
                     table_display = 'DFKKBPTAXNUM'
-                    suffix = table_name.replace('DFKKBPTAXNUM', '')
-                    taxnum_type = 'ALL' if suffix == '_ALL' else suffix
                 else:
                     table_display = table_name
-                    taxnum_type = ''
                 is_adr2 = str(table_name or '').strip().upper() == 'ADR2'
                 if is_adr2 and result.get('filtered_adr2_count') is not None:
                     total_rec_display = result.get('filtered_adr2_count')
@@ -9192,14 +9391,20 @@ class FastDataQualityChecker:
                 if shade_gray and self.GRAY_REPORT_NOTE not in str(comments or ''):
                     comments = f'{comments} {self.GRAY_REPORT_NOTE}'.strip() if str(comments or '').strip() else self.GRAY_REPORT_NOTE
                 owner = self._rule_owner(result.get('rule_code', ''))
-                values = [result.get('rule_code', ''), result.get('rule_description', ''), owner, result.get('quality_category', ''), table_display, taxnum_type, result.get('column_checked', ''), total_rec_display, result.get('passed', 0), result.get('failed', 0), result.get('success_rate_%', 0), result.get('status', ''), result.get('execution_time_sec', 0), comments, list_file_display, error_file_display]
+                values = [
+                    result.get('rule_code', ''), result.get('rule_description', ''), owner,
+                    result.get('quality_category', ''), total_rec_display, result.get('passed', 0),
+                    result.get('failed', 0), result.get('success_rate_%', 0), result.get('status', ''),
+                    table_display, result.get('column_checked', ''), comments,
+                    result.get('execution_time_sec', 0), list_file_display, error_file_display,
+                ]
                 for col_num, value in enumerate(values, 1):
                     cell = ws.cell(row=row_num, column=col_num, value=value)
                     cell.font = self.colors['normal_font']
                     if shade_gray:
                         cell.fill = self.colors['gray']
                         cell.font = self.colors['gray_font']
-                    if col_num in (15, 16) and value and isinstance(value, str) and os.path.isfile(value):
+                    if col_num in link_cols and value and isinstance(value, str) and os.path.isfile(value):
                         try:
                             path_uri = 'file:///' + value.replace('\\', '/').lstrip('/')
                             cell.hyperlink = path_uri
@@ -9209,7 +9414,7 @@ class FastDataQualityChecker:
                             pass
                     if shade_gray:
                         continue
-                    if col_num == 12:
+                    if col_num == status_col:
                         status_color = result.get('status_color', '')
                         if status_color == 'green':
                             cell.fill = self.colors['green']
@@ -9223,7 +9428,7 @@ class FastDataQualityChecker:
                         elif status_color == 'dark_red':
                             cell.fill = self.colors['dark_red']
                             cell.font = Font(color='000000', bold=True)
-                    elif col_num == 10:
+                    elif col_num == failed_col:
                         failed_count = result.get('failed', 0)
                         if failed_count == 0:
                             cell.fill = self.colors['green']
@@ -9246,6 +9451,15 @@ class FastDataQualityChecker:
                         pass
                 adjusted_width = min(max_length + 2, 50)
                 ws.column_dimensions[column_letter].width = adjusted_width
+            ws.column_dimensions['A'].width = 16
+            title_span = len(headers)
+            for title_row in (1, 2, 3, 5):
+                ws.merge_cells(start_row=title_row, start_column=1, end_row=title_row, end_column=title_span)
+            try:
+                self._create_report_sheet(wb, summary_sheet_title=ws.title, summary_last_row=row_num - 1, ordered_results=ordered_results)
+            except Exception as report_err:
+                print(f'\n[WARN] Лист Report: {report_err}')
+                traceback.print_exc()
             result_sheet_mode = 'failed'
             try:
                 self._create_result_score_sheet(wb, summary_sheet_title=ws.title, summary_last_row=row_num - 1, results=ordered_results)
