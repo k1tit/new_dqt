@@ -9396,6 +9396,30 @@ class FastDataQualityChecker:
         ws.row_dimensions[row].height = 24
         row += 1
         top_start = row
+        desc_idx = column_index_from_string(cols['desc'])
+        owner_idx = column_index_from_string(cols['owner'])
+
+        def wrapped_lines(text, width_chars):
+            text = str(text or '').replace('\r', '').strip()
+            if not text:
+                return 1
+            lines = 0
+            for paragraph in text.split('\n'):
+                words = paragraph.split()
+                if not words:
+                    lines += 1
+                    continue
+                used = 0
+                lines += 1
+                for word in words:
+                    piece = len(word) if used == 0 else len(word) + 1
+                    if used and used + piece > width_chars:
+                        lines += 1
+                        used = len(word)
+                    else:
+                        used += piece
+            return max(lines, 1)
+
         for offset, (failed_n, code, src) in enumerate(top_rows):
             zebra = fill_alt if offset % 2 else fill_white
             code_cell = ws.cell(row=row, column=1, value=code)
@@ -9425,7 +9449,14 @@ class FastDataQualityChecker:
             ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=3)
             total_cell.number_format = '#,##0'
             err_cell.number_format = '#,##0'
-            ws.row_dimensions[row].height = 20
+            if src:
+                desc_text = summary_ws.cell(src, desc_idx).value
+                owner_text = summary_ws.cell(src, owner_idx).value
+            else:
+                desc_text = ''
+                owner_text = ''
+            line_count = max(wrapped_lines(desc_text, 46), wrapped_lines(owner_text, 16), wrapped_lines(code, 16))
+            ws.row_dimensions[row].height = 10 + line_count * 16
             row += 1
         if top_rows:
             ws.conditional_formatting.add(
