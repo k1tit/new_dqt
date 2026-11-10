@@ -9181,7 +9181,7 @@ class FastDataQualityChecker:
         else:
             month -= 1
         name = months[month - 1]
-        return f'{name[:1].upper()}{name[1:]} {year}'
+        return f'Период: {name[:1].upper()}{name[1:]} {year}'
 
     def _create_report_sheet(self, wb, summary_sheet_title: str, summary_last_row: Optional[int], ordered_results, summary_columns=None, data_start: int=7):
         sheet_name = 'Report'
@@ -9234,7 +9234,7 @@ class FastDataQualityChecker:
         passed_rng = f"'{ref}'!${cols['passed']}${first}:${cols['passed']}${last}"
         rule_rng = f"'{ref}'!${cols['code']}${first}:${cols['code']}${last}"
         gray_rule_criteria = ','.join(f'{rule_rng},"<>{code}"' for code in sorted(self.GRAY_REPORT_RULES))
-        for col, header in enumerate(('Категория', 'Вес', 'Успешно', 'Ошибок', 'Всего', '%'), 1):
+        for col, header in enumerate(('Категория', 'Вес', 'Корректные записи', 'Ошибочные записи', 'Всего записей', '%'), 1):
             cell = ws.cell(row=2, column=col, value=header)
             cell.fill = fill_header
             cell.font = font_header
@@ -9289,8 +9289,8 @@ class FastDataQualityChecker:
         owner_header_cells = (
             (1, 'Функция'),
             (3, 'Ответственный'),
-            (4, 'Всего проверок'),
-            (5, 'Ошибки'),
+            (4, 'Всего записей'),
+            (5, 'Ошибочные записи'),
         )
         for col, header in owner_header_cells:
             cell = ws.cell(row=7, column=col, value=header)
@@ -9384,7 +9384,7 @@ class FastDataQualityChecker:
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
         ws.row_dimensions[row].height = 22
         row += 1
-        top_header_cells = ((1, 'Код правила'), (2, 'Описание'), (4, 'Ответственный'), (5, 'Всего проверок'), (6, 'Ошибки'))
+        top_header_cells = ((1, 'Код правила'), (2, 'Описание'), (4, 'Ответственный'), (5, 'Всего записей'), (6, 'Ошибочные записи'))
         for col, header in top_header_cells:
             cell = ws.cell(row=row, column=col, value=header)
             cell.fill = fill_header
