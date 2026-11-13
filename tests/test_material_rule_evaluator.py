@@ -709,7 +709,7 @@ class MvkeCompletenessTests(unittest.TestCase):
         self.makt = pd.DataFrame({
             'MATNR': ['10', '20', '30', '40'],
             'SPRAS': ['E', 'E', 'E', 'E'],
-            'MAKTX': ['COKE', 'WATER', 'ABP COKE', 'JUICE'],
+            'MAKTX': ['COKE RU', 'WATER RU', 'ABP COKE RU', 'JUICE RU'],
         })
 
     def _load(self, name):
@@ -748,7 +748,7 @@ class MvkeCompletenessTests(unittest.TestCase):
         makt = pd.DataFrame({
             'MATNR': ['10', '30', '50'],
             'SPRAS': ['E', 'E', 'E'],
-            'MAKTX': ['COKE', 'ABP COKE', 'SPARE'],
+            'MAKTX': ['COKE RU', 'ABP COKE RU', 'SPARE RU'],
         })
         mvke = pd.DataFrame({
             'MATNR': ['10', '10', '30', '50'],
@@ -785,7 +785,7 @@ class MvkeCompletenessTests(unittest.TestCase):
         makt = pd.DataFrame({
             'MATNR': ['10', '20', '30', '40'],
             'SPRAS': ['E', 'E', 'E', 'E'],
-            'MAKTX': ['ABP COKE', 'SEMI', 'OTHER', 'SERVICE'],
+            'MAKTX': ['ABP COKE RU', 'SEMI RU', 'OTHER RU', 'SERVICE RU'],
         })
         mvke = pd.DataFrame({
             'MATNR': ['10', '20', '30', '40'],
@@ -810,9 +810,13 @@ class MvkeCompletenessTests(unittest.TestCase):
             'MATNR': ['10', '20', '30'],
             'MVGR4': [None, '01', None],
         })
+        makt = pd.DataFrame({
+            'MATNR': ['10', '20', '30'],
+            'MAKTX': ['COKE RU', 'WATER RU', 'JUICE RU'],
+        })
 
         def load(name):
-            return {'MARA': mara}.get(name, pd.DataFrame())
+            return {'MARA': mara, 'MAKT': makt}.get(name, pd.DataFrame())
 
         result = evaluate_rpcomp_263_1(mvke, 'MVGR4', load)
         self.assertIsNone(result['skip_reason'])
@@ -879,7 +883,7 @@ class MvkeCompletenessTests(unittest.TestCase):
             }),
             'MAKT': pd.DataFrame({
                 'MATNR': ['10', '20', '30', '40'],
-                'MAKTX': ['COLA', 'COLA', 'ABP COLA', 'COLA'],
+                'MAKTX': ['COLA RU', 'COLA RU', 'ABP COLA RU', 'COLA RU'],
             }),
         }
         mvke = pd.DataFrame({
@@ -902,7 +906,7 @@ class MvkeCompletenessTests(unittest.TestCase):
             }),
             'MAKT': pd.DataFrame({
                 'MATNR': ['10', '20', '30'],
-                'MAKTX': ['COLA 330ML', 'COLA 1000ML', 'COLA ZZ'],
+                'MAKTX': ['COLA 330ML RU', 'COLA 1000ML RU', 'COLA ZZ RU'],
             }),
         }
         mvke = pd.DataFrame({
@@ -928,7 +932,7 @@ class MvkeCompletenessTests(unittest.TestCase):
     def test_price_group_for_bulk_pack_does_not_need_coffee(self):
         tables = {
             'MARA': pd.DataFrame({'MATNR': ['10', '20'], 'MTART': ['ZFG', 'ZFG'], 'MATKL': ['100', '100']}),
-            'MAKT': pd.DataFrame({'MATNR': ['10', '20'], 'MAKTX': ['COLA', 'COLA']}),
+            'MAKT': pd.DataFrame({'MATNR': ['10', '20'], 'MAKTX': ['COLA RU', 'COLA RU']}),
         }
         mvke = pd.DataFrame({
             'MATNR': ['10', '20', '30', '40'],
@@ -947,7 +951,7 @@ class MvkeCompletenessTests(unittest.TestCase):
         })
         tables['MAKT'] = pd.DataFrame({
             'MATNR': ['10', '20', '30', '40'],
-            'MAKTX': ['COLA', 'COLA', 'COLA', 'ABP COLA'],
+            'MAKTX': ['COLA RU', 'COLA RU', 'COLA RU', 'ABP COLA RU'],
         })
         result = self._run(mvke, 'RPCONF_252.1', 'KONDM', tables)
         self.assertIsNone(result['skip_reason'])
@@ -960,6 +964,10 @@ class MvkeCompletenessTests(unittest.TestCase):
                 'MATNR': ['10', '20'],
                 'MTART': ['ZRW', 'ZRW'],
                 'MATKL': ['1001004', '1001004'],
+            }),
+            'MAKT': pd.DataFrame({
+                'MATNR': ['10', '20'],
+                'MAKTX': ['COLA RU', 'WATER RU'],
             }),
         }
         mvke = pd.DataFrame({
@@ -981,7 +989,7 @@ class MvkeCompletenessTests(unittest.TestCase):
                 'MATKL': ['100', '100'],
                 'MTPOS_MARA': ['NORM', 'NORM'],
             }),
-            'MAKT': pd.DataFrame({'MATNR': ['10', '20'], 'MAKTX': ['COLA PET 1L', 'COLA PET 1L']}),
+            'MAKT': pd.DataFrame({'MATNR': ['10', '20'], 'MAKTX': ['COLA PET 1L RU', 'COLA PET 1L RU']}),
         }
         mvke = pd.DataFrame({
             'MATNR': ['10', '20'],
@@ -1004,7 +1012,7 @@ class MvkeCompletenessTests(unittest.TestCase):
             }),
             'MAKT': pd.DataFrame({
                 'MATNR': ['10', '20', '30', '40', '50'],
-                'MAKTX': ['COLA 330ML', 'COLA PET', 'COLA 330 ML', 'ABP COLA 330ML', 'COLA 330ML'],
+                'MAKTX': ['COLA 330ML RU', 'COLA PET RU', 'COLA 330 ML RU', 'ABP COLA 330ML RU', 'COLA 330ML RU'],
             }),
         }
         mvke = pd.DataFrame({
@@ -1025,6 +1033,10 @@ class MvkeCompletenessTests(unittest.TestCase):
                 'MTART': ['ZFG', 'ZFG', 'ZFG', 'ZFG'],
                 'MATKL': ['100', '100', '100', '100'],
                 'WRKST': ['99', '98', '', ''],
+            }),
+            'MAKT': pd.DataFrame({
+                'MATNR': ['10', '11', '99', '98'],
+                'MAKTX': ['COLA RU', 'WATER RU', 'BAN RU', 'OTHER RU'],
             }),
         }
         same = self._run(pd.DataFrame({
@@ -1058,7 +1070,7 @@ class MvkeCompletenessTests(unittest.TestCase):
                 'MATKL': ['1001004', '100'],
                 'WRKST': ['99', ''],
             }),
-            'MAKT': pd.DataFrame({'MATNR': ['10', '99'], 'MAKTX': ['COLA', 'BAN']}),
+            'MAKT': pd.DataFrame({'MATNR': ['10', '99'], 'MAKTX': ['COLA RU', 'BAN RU']}),
         }
         mvke = pd.DataFrame({
             'MATNR': ['10', '10', '10', '99', '99'],
@@ -1071,6 +1083,30 @@ class MvkeCompletenessTests(unittest.TestCase):
         brand = self._run(mvke.iloc[:3], 'RPCONF_30.3', 'MVGR1', tables)
         self.assertEqual(['3600', '3800'], list(brand['df']['VKORG']))
         self.assertEqual([True, False], list(brand['ok_mask']))
+        self.assertIn('LOOKUP_MATERIAL_DESCRIPTION', brand['df'].columns)
+        self.assertEqual(['COLA RU', 'COLA RU'], list(brand['df']['LOOKUP_MATERIAL_DESCRIPTION']))
+        self.assertEqual(3, brand['stats'].get('after_ru'))
+        flavour = self._run(pd.DataFrame({
+            'MATNR': ['10', '10'],
+            'VKORG': ['0001', '3600'],
+            'VTWEG': ['01', '01'],
+            'MVGR2': ['F1', 'F2'],
+            'MVGR3': ['CAN', 'CAN'],
+            'PRODH': ['H1', 'H1'],
+        }), 'RPCONF_65.2', 'MVGR2', tables)
+        self.assertIn('LOOKUP_MATERIAL_DESCRIPTION', flavour['df'].columns)
+        self.assertTrue(all('RU' in str(v) for v in flavour['df']['LOOKUP_MATERIAL_DESCRIPTION']))
+        no_ru = {
+            'MARA': pd.DataFrame({
+                'MATNR': ['10'],
+                'MTART': ['ZRW'],
+                'MATKL': ['1001004'],
+                'WRKST': [''],
+            }),
+            'MAKT': pd.DataFrame({'MATNR': ['10'], 'MAKTX': ['COLA']}),
+        }
+        skipped = self._run(mvke.iloc[:3], 'RPCONF_30.3', 'MVGR1', no_ru)
+        self.assertTrue(skipped.get('no_rows_after_filters'))
         finished = {
             'MARA': pd.DataFrame({
                 'MATNR': ['10', '99'],
@@ -1078,6 +1114,7 @@ class MvkeCompletenessTests(unittest.TestCase):
                 'MATKL': ['100', '100'],
                 'WRKST': ['99', ''],
             }),
+            'MAKT': pd.DataFrame({'MATNR': ['10', '99'], 'MAKTX': ['COLA RU', 'BAN RU']}),
         }
         ban = self._run(pd.DataFrame({
             'MATNR': ['10', '99'],

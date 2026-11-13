@@ -1023,16 +1023,23 @@ def _mvke_with_material_context(
     work['_DQ_MATNR'] = _matnr(work[matnr_col])
     work['LOOKUP_MATERIAL_TYPE'] = work['_DQ_MATNR'].map(types).fillna('')
     work['LOOKUP_MATERIAL_GROUP'] = work['_DQ_MATNR'].map(groups).fillna('')
-    if not exclude_abp:
-        stats['after_abp'] = len(work)
-        return work, stats, None
     descriptions = _description_lookup(_load(loader, 'MAKT'))
     if not descriptions:
-        return None, stats, f'{rule_code}: MAKT.MAKTX (SPRAS=E) не найден — нельзя применить NOT LIKE %ABP%'
+        return None, stats, f'{rule_code}: MAKT.MAKTX (SPRAS=E) не найден — нельзя применить фильтр RU'
     work['LOOKUP_MATERIAL_DESCRIPTION'] = work['_DQ_MATNR'].map(descriptions)
     desc = work['LOOKUP_MATERIAL_DESCRIPTION']
     if int(_filled(desc).sum()) == 0:
         return None, stats, f'{rule_code}: MVKE не сджойнился с MAKT по MATNR'
+    # Как у MARC: RU отдельным словом в LOOKUP_MATERIAL_DESCRIPTION.
+    work = work.loc[description_has_ru_region(desc)].copy()
+    stats['after_ru'] = len(work)
+    if work.empty:
+        stats['no_rows_after_filters'] = True
+        return None, stats, f'{rule_code}: нет строк с регионом RU отдельным словом в LOOKUP_MATERIAL_DESCRIPTION'
+    if not exclude_abp:
+        stats['after_abp'] = len(work)
+        return work, stats, None
+    desc = work['LOOKUP_MATERIAL_DESCRIPTION']
     work = work.loc[_filled(desc) & ~desc.astype(str).str.contains('ABP', case=False, na=False)].copy()
     stats['after_abp'] = len(work)
     return work, stats, None

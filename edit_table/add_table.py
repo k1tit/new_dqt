@@ -261,6 +261,41 @@ def _normalize_df_columns(df: pd.DataFrame) -> pd.DataFrame:
         return out
     return df
 
+def _align_df_to_schema(df: pd.DataFrame, schema_cols: list, file_label: str = '') -> pd.DataFrame:
+    if df is None or df.empty or not schema_cols:
+        return df
+    schema = list(schema_cols)
+    have = list(df.columns)
+    if have == schema:
+        return df
+    missing = [c for c in schema if c not in df.columns]
+    extra = [c for c in have if c not in schema]
+    note = f' ({file_label})' if file_label else ''
+    if missing:
+        print(f'  [WARN] Не хватает {len(missing)} кол. под схему таблицы — заполняем NULL{note}')
+    if extra:
+        print(f'  [WARN] Лишние {len(extra)} кол. относительно схемы — пропускаем{note}')
+    return df.reindex(columns=schema)
+
+def _df_rows_as_tuples(df: pd.DataFrame) -> list:
+    cleaned = df.astype(object).where(pd.notnull(df), None)
+    return [tuple(row) for row in cleaned.to_numpy()]
+
+def _align_df_to_table_columns(df: pd.DataFrame, table_columns: list, cursor=None, table_name: str | None=None) -> tuple[pd.DataFrame, list]:
+    """INSERT ждёт ровно schema. Недостающие — NULL. Лишние не раздувают схему: отбрасываются."""
+    cols = list(table_columns or [])
+    if df is None or df.empty or not cols:
+        return (df, cols)
+    have = list(df.columns)
+    missing = [c for c in cols if c not in df.columns]
+    extras = [c for c in have if c not in cols]
+    if missing:
+        print(f'  [WARN] В файле меньше колонок, чем в таблице ({len(have)} vs {len(cols)}): NULL для {len(missing)} шт.')
+    if extras:
+        print(f'  [WARN] Лишние колонки отброшены ({len(extras)}): {extras[:8]}{"..." if len(extras) > 8 else ""}')
+    out = df.reindex(columns=cols)
+    return (out, cols)
+
 class ProgressBar:
 
     @staticmethod
@@ -717,6 +752,8 @@ def merge_and_load_xlsx_files_fast(db_path=None, data_folder=None, target_table=
                 print(f'  Чтение с заголовками...')
                 df = _normalize_df_columns(_read_data_file(file_path, header=0))
             df = _normalize_df_columns(df)
+            if first_file_columns:
+                df = _align_df_to_schema(df, first_file_columns, file_name)
             read_time = time.time() - read_start
             print(f'  Прочитано: {len(df):,} строк за {read_time:.1f} сек')
             if len(df) > 0:
@@ -727,6 +764,7 @@ def merge_and_load_xlsx_files_fast(db_path=None, data_folder=None, target_table=
             if not table_created and len(df) > 0:
                 print(f'  Создание таблицы в БД...')
                 create_start = time.time()
+                first_file_columns = list(df.columns)
                 sample_df = df.head(min(10000, len(df)))
                 sample_df.to_sql(target_table, conn, if_exists='fail', index=False, chunksize=chunksize)
                 table_created = True
@@ -870,6 +908,7 @@ def merge_and_load_xlsx_files_ultra_fast(db_path=None, data_folder=None, target_
         cursor = conn.cursor()
         cursor.execute(f'DROP TABLE IF EXISTS {_sql_ident(target_table)}')
         first_file_columns = None
+        table_columns = None
         total_rows = 0
         start_time = time.time()
         print('\nНачало ультра-быстрой загрузки...')
@@ -895,35 +934,39 @@ def merge_and_load_xlsx_files_ultra_fast(db_path=None, data_folder=None, target_
                 df = _normalize_df_columns(_read_data_file(file_path, header=0))
             df = _normalize_df_columns(df)
             read_time = time.time() - read_start
-            print(f'  Прочитано: {len(df):,} строк за {read_time:.1f} сек')
+            print(f'  Прочитано: {len(df):,} строк / {len(df.columns)} кол. за {read_time:.1f} сек')
             if len(df) > 0:
                 before_dedup = len(df)
                 df = df.drop_duplicates()
                 if len(df) < before_dedup:
                     print(f'  Удалено дубликатов: {before_dedup - len(df):,} (осталось {len(df):,})')
-            if file_idx == 1 and len(df) > 0:
+            if table_columns is None and len(df) > 0:
                 print(f'  Создание таблицы...')
                 create_start = time.time()
-                col_defs = []
-                for col in df.columns:
-                    col_defs.append(f'"{col}" TEXT')
-                create_sql = f'CREATE TABLE {_sql_ident(target_table)} (\n'
-                create_sql += ',\n'.join(col_defs)
-                create_sql += '\n)'
+                table_columns = list(df.columns)
+                first_file_columns = list(table_columns)
+                col_defs = [f'{_sql_ident(col)} TEXT' for col in table_columns]
+                create_sql = f'CREATE TABLE {_sql_ident(target_table)} (\n' + ',\n'.join(col_defs) + '\n)'
                 cursor.execute(create_sql)
                 create_time = time.time() - create_start
-                print(f'  Таблица создана за {create_time:.1f} сек')
-            if len(df) > 0:
+                print(f'  Таблица создана за {create_time:.1f} сек ({len(table_columns)} колонок)')
+            if len(df) > 0 and table_columns is not None:
+                df, table_columns = _align_df_to_table_columns(df, table_columns)
                 print(f'  Запись данных...')
                 write_start = time.time()
-                num_cols = len(df.columns)
-                data_tuples = [tuple(x) for x in df.values]
+                num_cols = len(table_columns)
+                if len(df.columns) != num_cols:
+                    raise RuntimeError(f'После выравнивания колонок {len(df.columns)} != схемы {num_cols}')
+                data_tuples = _df_rows_as_tuples(df)
+                if data_tuples and len(data_tuples[0]) != num_cols:
+                    raise RuntimeError(f'В строке {len(data_tuples[0])} значений, в таблице {num_cols} колонок')
                 SQLITE_MAX_VARS = 999
                 rows_per_stmt = max(1, SQLITE_MAX_VARS // num_cols)
+                col_list = ','.join(_sql_ident(c) for c in table_columns)
                 one_row_ph = ','.join(['?' for _ in range(num_cols)])
                 multi_ph = ','.join([f'({one_row_ph})' for _ in range(rows_per_stmt)])
-                insert_sql_multi = f'INSERT INTO {_sql_ident(target_table)} VALUES {multi_ph}'
-                insert_sql_single = f'INSERT INTO {_sql_ident(target_table)} VALUES ({one_row_ph})'
+                insert_sql_multi = f'INSERT INTO {_sql_ident(target_table)} ({col_list}) VALUES {multi_ph}'
+                insert_sql_single = f'INSERT INTO {_sql_ident(target_table)} ({col_list}) VALUES ({one_row_ph})'
                 for batch_start in range(0, len(data_tuples), batch_size):
                     batch = data_tuples[batch_start:batch_start + batch_size]
                     for i in range(0, len(batch), rows_per_stmt):
@@ -1545,17 +1588,21 @@ def merge_and_load_ausp_from_file_list(db_path=None, file_atinn_pairs=None, skip
             df = _normalize_df_columns(df)
             if atinn_value:
                 df = _inject_atinn_column(df, atinn_value)
-            if first_file_columns is None:
+            if first_file_columns is None and len(df) > 0:
                 first_file_columns = list(df.columns)
+            elif first_file_columns:
+                df = _align_df_to_schema(df, first_file_columns, file_name)
             if len(df) > 0:
                 df = df.drop_duplicates()
             if not table_created and len(df) > 0:
+                first_file_columns = list(df.columns)
                 sample_df = df.head(min(10000, len(df)))
                 sample_df.to_sql(target_table, conn, if_exists='fail', index=False, chunksize=chunksize)
                 table_created = True
                 if len(df) > len(sample_df):
                     df.iloc[len(sample_df):].to_sql(target_table, conn, if_exists='append', index=False, chunksize=chunksize)
             elif table_created and len(df) > 0:
+                df = _align_df_to_schema(df, first_file_columns, file_name)
                 df.to_sql(target_table, conn, if_exists='append', index=False, chunksize=chunksize)
             total_rows_loaded += len(df)
             del df
