@@ -370,7 +370,7 @@
       "severity": 1,
       "is_field_mandatory": "Optional",
       "remediation_output": "",
-      "exclude_from_score_calculation": false
+      "exclude_from_score_calculation": true
     },
     {
       "rule_code": "RPCONF_284.2",

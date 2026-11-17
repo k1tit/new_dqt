@@ -185,9 +185,9 @@ class FastDataQualityChecker:
         'RCCONF_39.3', 'RCCONF_39.3.2', 'RCCONF_39.5', 'RCCONF_39.5.2', 'RCCOMP_375.1.2',
     })
     KNA1_JOIN_BLOCKED_COLUMNS = frozenset({'CLIENT', 'CL', 'MANDT', 'MANDANT'})
-    # Серая строка отчёта и исключение из score. Это conformity DISMM, не completeness RPCOMP_284.1.
+    # Временно вне score: правило крутится, строка в Сводке серая. Не путать с RPCOMP_284.1.
     GRAY_REPORT_RULES = frozenset({'RPCONF_284.1'})
-    GRAY_REPORT_NOTE = 'Правило оставлено. Без отдельной системы проверки строка серая, в score не входит.'
+    GRAY_REPORT_NOTE = 'Временно не входит в итоговый score качества данных. Правило выполняется, строка серая.'
 
     def __init__(self, db_path: str, rules_file: str, output_dir: str='quality_reports', parallel_tables: int=0, use_async_load: bool=False, debug: bool=False, reference_datetime=None, save_all_errors: bool=False, use_parquet_cache: bool=True, rebuild_parquet_cache: bool=False, report_prefix: str='quality_check_report'):
         self.db_path = db_path
